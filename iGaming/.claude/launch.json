@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "landfall-server",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@landfall/server", "dev"],
+      "port": 8787
+    },
+    {
+      "name": "landfall-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@landfall/web", "dev"],
+      "port": 5173
+    }
+  ]
+}

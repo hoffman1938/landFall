@@ -1,0 +1,43 @@
+@import 'tailwindcss';
+
+:root {
+  /* Brand: navy/storm palette; beacon amber is reserved for payout moments only. */
+  --lf-bg: #0a1220;
+  --lf-panel: #101c30;
+  --lf-line: #1d2f4d;
+  --lf-text: #d7e2f2;
+  --lf-dim: #7d90ad;
+  --lf-amber: #ffb02e;
+  --lf-danger: #ff5d5d;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--lf-bg);
+  color: var(--lf-text);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+@keyframes lf-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+.lf-pulse {
+  animation: lf-pulse 1.2s ease-in-out infinite;
+}

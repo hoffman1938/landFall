@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+packages/server/data/*.db
+packages/server/data/*.db-journal
+packages/server/data/*.db-wal
+packages/server/data/*.db-shm
