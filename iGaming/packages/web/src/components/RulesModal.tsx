@@ -1,10 +1,46 @@
+import { useEffect, useId, useRef } from 'react';
 import { useStore } from '../store';
+import { AnchorIcon, CrateIcon, FogIcon, LockIcon, StormIcon, XIcon } from './icons';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div>
-      <h3 className="mb-1 font-bold text-[var(--lf-text)]">{title}</h3>
-      <div className="text-[var(--lf-dim)]">{children}</div>
+    <details className="group rounded-xl border border-[var(--lf-line)] bg-[var(--lf-bg)]/55 px-3">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 font-bold text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]">
+        <span>{title}</span>
+        <span className="ml-auto text-lg text-[var(--lf-dim)] transition-transform group-open:rotate-45" aria-hidden="true">
+          +
+        </span>
+      </summary>
+      <div className="pb-3 leading-relaxed text-[var(--lf-dim)]">{children}</div>
+    </details>
+  );
+}
+
+/** The whole game in six pictures (ux-redesign-v2.md §6.2) — read this, skip the prose. */
+function PictogramStrip() {
+  const frames: [React.ComponentType<{ size?: number }>, string, string][] = [
+    [AnchorIcon, 'var(--lf-focus)', 'Anchor in a cove'],
+    [FogIcon, '#aebccf', 'Fog: one hidden move'],
+    [LockIcon, '#51678a', 'Boats lock'],
+    [StormIcon, 'var(--lf-danger)', 'Storm picks one cove'],
+    [XIcon, 'var(--lf-danger)', 'That cove loses'],
+    [CrateIcon, 'var(--lf-amber)', 'Its cargo pays the rest'],
+  ];
+  return (
+    <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+      {frames.map(([Icon, color, label], i) => (
+        <div
+          key={i}
+          className="flex flex-col items-center gap-1.5 rounded-xl bg-[var(--lf-bg)] px-1 py-3 text-center"
+        >
+          <span style={{ color }}>
+            <Icon size={26} />
+          </span>
+          <span className="text-[11px] font-semibold leading-tight text-[var(--lf-text)]">
+            {label}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -12,25 +48,62 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export function RulesModal() {
   const rulesOpen = useStore((s) => s.rulesOpen);
   const setRulesOpen = useStore((s) => s.setRulesOpen);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    if (!rulesOpen) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setRulesOpen(false);
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [rulesOpen, setRulesOpen]);
+
   if (!rulesOpen) return null;
 
   return (
     <div
-      className="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4"
-      onClick={() => setRulesOpen(false)}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) setRulesOpen(false);
+      }}
     >
       <div
-        className="max-h-[85vh] w-full max-w-xl space-y-4 overflow-y-auto rounded-xl border border-[var(--lf-line)] bg-[var(--lf-panel)] p-6 text-sm"
-        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="max-h-[calc(100dvh-1.5rem)] w-full max-w-xl space-y-4 overflow-y-auto rounded-xl border border-[var(--lf-line)] bg-[var(--lf-panel)] p-4 text-sm sm:max-h-[85vh] sm:p-6"
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold">
-            <span className="text-[var(--lf-amber)]">⛯</span> How to Play LANDFALL
+          <h2 id={titleId} className="text-lg font-bold">
+            How Landfall Works
           </h2>
-          <button onClick={() => setRulesOpen(false)} className="text-[var(--lf-dim)]">
-            ✕
+          <button
+            ref={closeRef}
+            type="button"
+            onClick={() => setRulesOpen(false)}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[var(--lf-dim)] hover:text-[var(--lf-text)]"
+            aria-label="Close how to play"
+          >
+            <XIcon size={18} />
           </button>
         </div>
+
+        <PictogramStrip />
+
+        <p className="text-center text-base font-semibold leading-relaxed text-[var(--lf-text)]">
+          Choose a cove. One gets hit. Its cargo pays the rest.
+        </p>
 
         <Section title="The Round (~20 seconds)">
           Choose <b>Focus</b> to place your full stake in one harbor, or <b>Split</b> to divide one
@@ -49,7 +122,7 @@ export function RulesModal() {
           bigger the wreck, the bigger your salvage. The house takes 6% of the wrecked pool only.
         </Section>
 
-        <Section title="⛈ Storm Power — the multiplier">
+        <Section title="Storm Power — the multiplier">
           Every storm has a hidden <b>category</b>, revealed at landfall, that multiplies all
           survivors' salvage: <b>Cat 1 ×0.5</b> (common) · <b>Cat 2 ×1</b> · <b>Cat 3 ×2</b> (~1 in
           10) · <b>Cat 4 ×5</b> (~1 in 28) · <b>Cat 5 ×25</b> (~1 in 330) · <b>Cat 6 ×100</b> (~1 in
@@ -66,7 +139,7 @@ export function RulesModal() {
           harbor is hit and never changes payout math.
         </Section>
 
-        <Section title="⚡ Storm Surge — the jackpot">
+        <Section title="Storm Surge — the jackpot">
           Half of the house's take feeds the <b>Storm Surge pot</b> (shown at the top, always
           growing). Roughly one round in 25 is a <b>SURGE ROUND</b> — announced before anchoring.
           When the storm passes, the <b>Golden Anchor</b> picks <b>one surviving player</b> — odds
@@ -92,7 +165,7 @@ export function RulesModal() {
 
         <Section title="Provably Fair">
           Every outcome is fixed <b>before</b> anchoring opens, committed in a public hash chain.
-          After each round the seed is revealed — hit <b>🛡 Verify</b> to have your own browser
+          After each round the seed is revealed — hit <b>Verify</b> to have your own browser
           recompute the strike, weather, the surge trigger, the Golden Anchor pick, and your exact
           payout. Exact lock pools are hidden during play but published after lock for verification.
         </Section>

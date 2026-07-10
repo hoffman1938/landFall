@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "landfall-server",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-C", "iGaming", "--filter", "@landfall/server", "dev"],
+      "port": 8787
+    },
+    {
+      "name": "landfall-web",
+      "runtimeExecutable": "C:\\Users\\Giorgi\\Documents\\GitHub\\landFall\\.claude\\run-web.cmd",
+      "runtimeArgs": [],
+      "port": 5173,
+      "autoPort": true
+    }
+  ]
+}

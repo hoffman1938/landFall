@@ -5,7 +5,7 @@ harbors. The storm wrecks one. Everyone else splits the wrecked harbor's cargo.
 
 Local/educational build — virtual credits only, no real money, no cloud dependencies.
 
-## Quick Start (macOS)
+## Quick Start (macOS / Windows / Linux)
 
 Requirements: Node ≥ 22, pnpm ≥ 9 (`npm i -g pnpm`).
 
@@ -24,10 +24,13 @@ best experienced with company.
 
 ## How the Game Works
 
-Each ~20-second round: a 10s **anchor window** (pick a harbor, re-anchor freely, watch the live
-pool bars), 5s **storm approach** (locked; the storm feints across the map), **landfall** (one
-harbor is struck — its stakes are lost; survivors keep their stake plus a pro-rata share of the
-struck pool minus a 6% rake), 3s cooldown, repeat. The house anchors a fixed 50.00-credit seed
+Each ~20-second round: a 10s **anchor window** (anchor Focus on one harbor or Split 70/30
+across two, fly one signal flag, and read the banded **Tide Reports** — exact pools are never
+shown live; the final ~3s are **Blind Fog**, where public movement freezes and each fleet gets
+one hidden Final Order), 5s **storm approach** (locked; the lock snapshot publishes exact
+pools and the storm feints across the map), **landfall** (one harbor is struck — its stakes
+are lost; survivors keep their stake plus a pro-rata share of the struck pool, scaled by the
+round's Storm Power, minus a 6% rake), 3s replay card, repeat. The house anchors a fixed 50.00-credit seed
 on every harbor for liquidity. Strike odds are exactly 1/6 per harbor — *crowding never changes
 where the storm hits, only what surviving pays* — and every round is verifiable in one click
 (🛡 button in the Wreck Log).
@@ -39,6 +42,9 @@ The category-competitive v2 redesign requested after the MVP is documented in
 Public Tide Reports, Blind Fog Lock, Focus/Split fleet orders, signal flags, anti-bot
 information design, and spectator/replay systems while preserving six harbors, one struck
 harbor, pari-mutuel settlement, provably fair RNG, PvP competition, and fixed 20-second rounds.
+The follow-up presentation-layer redesign (UX/UI/art/motion/audio, mechanics untouched) is
+specified in [docs/07-ux/ux-redesign-v2.md](docs/07-ux/ux-redesign-v2.md) — "One Bay, One
+Storm".
 
 ## Workspace Layout
 

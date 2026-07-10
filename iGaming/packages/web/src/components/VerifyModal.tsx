@@ -3,7 +3,7 @@
  * same @landfall/core functions the server runs
  * (docs/04-architecture/rng-provably-fair-spec.md §6).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   verifyRound,
   type RoundVerificationResult,
@@ -11,6 +11,7 @@ import {
   type WeatherPattern,
 } from '@landfall/core';
 import { useStore } from '../store';
+import { XIcon } from './icons';
 
 interface RoundRecord {
   roundId: number;
@@ -42,14 +43,20 @@ export function VerifyModal() {
   const [rec, setRec] = useState<RoundRecord | null>(null);
   const [result, setResult] = useState<RoundVerificationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     if (roundId === null) return;
+    const controller = new AbortController();
     setRec(null);
     setResult(null);
     setError(null);
-    fetch(`/api/round/${roundId}`)
-      .then((r) => r.json())
+    fetch(`/api/round/${roundId}`, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Verification record unavailable (${response.status})`);
+        return response.json();
+      })
       .then((data: RoundRecord | { error: string }) => {
         if ('error' in data) throw new Error(data.error);
         setRec(data);
@@ -70,29 +77,70 @@ export function VerifyModal() {
           }),
         );
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((error: Error) => {
+        if (error.name !== 'AbortError') setError(error.message);
+      });
+    return () => controller.abort();
   }, [roundId]);
+
+  useEffect(() => {
+    if (roundId === null) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    closeRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      openVerify(null);
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [roundId, openVerify]);
 
   if (roundId === null) return null;
 
   return (
     <div
-      className="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4"
-      onClick={() => openVerify(null)}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) openVerify(null);
+      }}
     >
       <div
-        className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--lf-line)] bg-[var(--lf-panel)] p-5 text-sm"
-        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--lf-line)] bg-[var(--lf-panel)] p-4 text-sm sm:max-h-[80vh] sm:p-5"
       >
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-bold">Verify Round #{roundId}</h2>
-          <button onClick={() => openVerify(null)} className="text-[var(--lf-dim)]">
-            ✕
+          <h2 id={titleId} className="text-base font-bold">
+            Verify Round #{roundId}
+          </h2>
+          <button
+            ref={closeRef}
+            type="button"
+            onClick={() => openVerify(null)}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[var(--lf-dim)] hover:text-[var(--lf-text)]"
+            aria-label={`Close verification for round ${roundId}`}
+          >
+            <XIcon size={18} />
           </button>
         </div>
 
-        {error && <div className="text-[var(--lf-danger)]">{error}</div>}
-        {!error && !result && <div className="text-[var(--lf-dim)]">Recomputing…</div>}
+        {error && (
+          <div role="alert" className="text-[var(--lf-danger)]">
+            {error}
+          </div>
+        )}
+        {!error && !result && (
+          <div role="status" className="text-[var(--lf-dim)]">
+            Recomputing…
+          </div>
+        )}
 
         {rec && result && (
           <div className="space-y-3">

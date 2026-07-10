@@ -1,150 +1,205 @@
+/**
+ * Night Watch top bar: quiet identity and authoritative round/account status.
+ * The large countdown remains in StormClock; this bar keeps the phase visible
+ * when other map overlays are obscured.
+ */
 import { useEffect, useRef, useState } from 'react';
 import { audio } from '../audio/engine';
 import { fmt, useStore } from '../store';
+import {
+  LighthouseIcon,
+  QuestionIcon,
+  SoundOffIcon,
+  SoundOnIcon,
+  SurgeIcon,
+} from './icons';
 
-const PHASE_LABEL: Record<string, string> = {
-  ANCHOR_OPEN: 'anchors lock in',
-  LOCKED_STORM: 'storm approaching',
-  RESOLVED: 'landfall',
-  COOLDOWN: 'next round in',
+type TopBarPhase = 'open' | 'fog' | 'storm' | 'landfall' | 'next' | 'waiting';
+
+const PHASE_META: Record<TopBarPhase, { label: string; color: string }> = {
+  open: { label: 'OPEN TIDE', color: 'var(--lf-focus)' },
+  fog: { label: 'BLIND FOG', color: '#aebccf' },
+  storm: { label: 'STORM', color: 'var(--lf-danger)' },
+  landfall: { label: 'LANDFALL', color: 'var(--lf-danger)' },
+  next: { label: 'NEXT TIDE', color: 'var(--lf-dim)' },
+  waiting: { label: 'CONNECTING', color: 'var(--lf-dim)' },
 };
 
 export function TopBar() {
-  const { connected, name, balanceMinor, phase, round, setRulesOpen } = useStore();
-  const [now, setNow] = useState(Date.now());
+  const connected = useStore((s) => s.connected);
+  const name = useStore((s) => s.name);
+  const balanceMinor = useStore((s) => s.balanceMinor);
+  const phase = useStore((s) => s.phase);
+  const round = useStore((s) => s.round);
+  const tideReport = useStore((s) => s.tideReport);
+  const setRulesOpen = useStore((s) => s.setRulesOpen);
   const [muted, setMuted] = useState(audio.prefs.muted);
   const [volume, setVolume] = useState(audio.prefs.volume);
+  const [now, setNow] = useState(Date.now());
   const lastTickSecond = useRef(-1);
 
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 100);
-    return () => clearInterval(t);
+    const timer = window.setInterval(() => setNow(Date.now()), 200);
+    return () => window.clearInterval(timer);
   }, []);
 
   const remaining = phase ? Math.max(0, (phase.endsAt - now) / 1000) : 0;
-  const fogActive =
-    phase?.phase === 'ANCHOR_OPEN' && round?.fogStartsAt != null && now >= round.fogStartsAt;
-  const fogIn =
-    phase?.phase === 'ANCHOR_OPEN' && round?.fogStartsAt != null
-      ? Math.max(0, (round.fogStartsAt - now) / 1000)
-      : 0;
-  const showTimer = phase?.phase === 'ANCHOR_OPEN' || phase?.phase === 'COOLDOWN';
-  const surge = round?.surgeRound && phase?.phase !== 'COOLDOWN';
 
-  // Soft countdown ticks in the final 3 seconds of the anchor window.
   useEffect(() => {
     if (phase?.phase !== 'ANCHOR_OPEN') return;
-    const sec = Math.ceil(remaining);
-    if (sec <= 3 && sec >= 1 && sec !== lastTickSecond.current) {
-      lastTickSecond.current = sec;
+    const second = Math.ceil(remaining);
+    if (second <= 3 && second >= 1 && second !== lastTickSecond.current) {
+      lastTickSecond.current = second;
       audio.tick();
     }
   }, [phase?.phase, remaining]);
 
+  const fogActive =
+    phase?.phase === 'ANCHOR_OPEN' &&
+    (tideReport?.frozen === true || (round?.fogStartsAt != null && now >= round.fogStartsAt));
+  const phaseKey: TopBarPhase = !phase
+    ? 'waiting'
+    : phase.phase === 'ANCHOR_OPEN'
+      ? fogActive
+        ? 'fog'
+        : 'open'
+      : phase.phase === 'LOCKED_STORM'
+        ? 'storm'
+        : phase.phase === 'RESOLVED'
+          ? 'landfall'
+          : 'next';
+  const phaseMeta = PHASE_META[phaseKey];
+  const surge = round?.surgeRound && phase?.phase !== 'COOLDOWN';
+
   return (
-    <header
-      className={`flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2 ${
-        surge ? 'border-[var(--lf-amber)] bg-[#1c1508]' : 'border-[var(--lf-line)]'
-      }`}
-    >
-      <div className="text-lg font-bold tracking-wide">
-        <span className="text-[var(--lf-amber)]">⛯</span> LANDFALL
-      </div>
-      <div className="text-sm text-[var(--lf-dim)]">
-        {round ? `Round #${round.roundId}` : '—'}
-        {phase && (
-          <span
-            className={
-              fogActive || (phase.phase === 'ANCHOR_OPEN' && remaining < 3)
-                ? 'lf-pulse ml-2'
-                : 'ml-2'
-            }
-          >
-            {fogActive ? 'blind fog' : PHASE_LABEL[phase.phase]}
-            {showTimer && ` ${remaining.toFixed(1)}s`}
-            {!fogActive && phase.phase === 'ANCHOR_OPEN' && fogIn > 0 && (
-              <span className="ml-1 text-[var(--lf-amber)]">fog in {fogIn.toFixed(1)}s</span>
-            )}
-          </span>
-        )}
+    <header className="relative z-20 flex h-10 shrink-0 items-center gap-1.5 overflow-visible border-b border-[var(--lf-line)] bg-[var(--lf-bg)] px-2 sm:h-9 sm:gap-2 sm:px-3">
+      <div className="flex shrink-0 items-center gap-1.5" aria-label="Landfall">
+        <span className="text-[var(--lf-focus)]">
+          <LighthouseIcon size={18} />
+        </span>
+        <span className="hidden text-xs font-extrabold tracking-[0.12em] min-[480px]:inline">
+          LANDFALL
+        </span>
       </div>
 
-      {surge ? (
-        <div className="lf-pulse rounded-md bg-[var(--lf-amber)] px-3 py-0.5 text-sm font-extrabold text-black">
-          ⚡ SURGE ROUND — pot {fmt(round!.surgePotMinor)} pays out NOW
-        </div>
-      ) : (
-        round && (
-          <div
-            className="rounded-md border border-[var(--lf-amber)]/40 px-2.5 py-0.5 text-sm font-semibold text-[var(--lf-amber)]"
-            title="Storm Surge pot — grows every round; on a surge round one surviving skipper takes it ALL"
-          >
-            ⚡ {fmt(round.surgePotMinor)}
-          </div>
-        )
-      )}
+      <span className="h-4 w-px shrink-0 bg-[var(--lf-line)]" aria-hidden="true" />
+      <span
+        className="shrink-0 text-[11px] font-bold tabular-nums text-[var(--lf-text)]"
+        aria-label={round ? `Round ${round.roundId}` : 'Round unavailable'}
+      >
+        {round ? `#${round.roundId}` : '—'}
+      </span>
+      <span
+        className="lf-round-phase flex shrink-0 items-center gap-1 text-[10px] font-extrabold tracking-[0.05em]"
+        style={{ color: phaseMeta.color }}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+        {phaseMeta.label}
+      </span>
 
       {round?.weather && phase?.phase !== 'COOLDOWN' && (
-        <div
-          className={`rounded-md border px-2.5 py-0.5 text-sm font-semibold ${
-            round.weather.id === 'HEAVY_FOG'
-              ? 'border-slate-300/50 text-slate-200'
-              : round.weather.id === 'CROSSWIND'
-                ? 'border-cyan-300/50 text-cyan-200'
-                : round.weather.id === 'HIGH_SWELL'
-                  ? 'border-[var(--lf-danger)]/60 text-[var(--lf-danger)]'
-                  : 'border-[var(--lf-line)] text-[var(--lf-dim)]'
-          }`}
+        <span
+          className="hidden shrink-0 border-l border-[var(--lf-line)] pl-2 text-[10px] font-bold text-[var(--lf-dim)] sm:inline"
           title={round.weather.description}
         >
-          {round.weather.shortLabel}
-        </div>
+          {round.weather.shortLabel.toUpperCase()}
+        </span>
       )}
 
-      <div className="ml-auto flex items-center gap-3 text-sm">
-        {!connected && <span className="text-[var(--lf-danger)]">reconnecting…</span>}
-        <span className="text-[var(--lf-dim)]">{name ?? ''}</span>
-        <span className="rounded-md bg-[var(--lf-panel)] px-2 py-1 font-semibold">
-          {fmt(balanceMinor)} cr
+      {round && (
+        <span
+          className={`hidden shrink-0 items-center gap-1 border-l border-[var(--lf-line)] pl-2 text-[10px] font-extrabold md:flex ${
+            surge ? 'text-[var(--lf-amber)]' : 'text-[var(--lf-dim)]'
+          }`}
+          title={
+            surge
+              ? 'Surge round — one surviving skipper takes the whole pot'
+              : 'Storm Surge pot — grows every round'
+          }
+        >
+          <SurgeIcon size={12} />
+          <span>SURGE</span>
+          <span className="tabular-nums">{fmt(round.surgePotMinor)}</span>
+          {surge && <span className="text-[var(--lf-text)]">LIVE</span>}
         </span>
-        <div className="group relative flex items-center">
+      )}
+
+      <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-1.5">
+        <span
+          className={`flex shrink-0 items-center gap-1 text-[10px] font-semibold ${
+            connected ? 'text-[var(--lf-dim)]' : 'text-[var(--lf-danger)]'
+          }`}
+          title={connected ? 'Connected' : 'Connection lost — reconnecting'}
+          aria-label={connected ? 'Connected' : 'Connection lost, reconnecting'}
+        >
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              connected ? 'bg-[var(--lf-focus)]' : 'bg-[var(--lf-danger)]'
+            }`}
+            aria-hidden="true"
+          />
+          <span className="hidden xl:inline">{connected ? 'ONLINE' : 'RECONNECTING'}</span>
+        </span>
+
+        <span className="hidden max-w-28 truncate text-[10px] text-[var(--lf-dim)] 2xl:inline">
+          {name ?? ''}
+        </span>
+
+        <span
+          className="flex shrink-0 items-baseline gap-1 border-l border-[var(--lf-line)] pl-2 text-xs font-extrabold tabular-nums text-[var(--lf-text)]"
+          aria-label={`Balance ${fmt(balanceMinor)} credits`}
+        >
+          <span className="hidden text-[9px] font-semibold text-[var(--lf-dim)] xl:inline">
+            BAL
+          </span>
+          {fmt(balanceMinor)}
+          <span className="hidden text-[9px] font-semibold text-[var(--lf-dim)] min-[420px]:inline">
+            CR
+          </span>
+        </span>
+
+        <div className="group relative flex shrink-0 items-center">
           <button
+            type="button"
             onClick={() => {
-              const m = !muted;
-              setMuted(m);
-              audio.setPrefs({ muted: m });
+              const nextMuted = !muted;
+              setMuted(nextMuted);
+              audio.setPrefs({ muted: nextMuted });
             }}
-            className="h-7 w-7 rounded-full border border-[var(--lf-line)] text-[var(--lf-dim)] hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)]"
-            title={muted ? 'Unmute' : 'Mute'}
+            className="flex h-9 w-9 items-center justify-center rounded-md text-[var(--lf-dim)] hover:bg-[var(--lf-surface-2)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] sm:h-8 sm:w-8"
+            aria-label={muted ? 'Unmute' : 'Mute'}
           >
-            {muted ? '🔇' : '🔊'}
+            {muted ? <SoundOffIcon size={16} /> : <SoundOnIcon size={16} />}
           </button>
-          <div className="absolute right-0 top-9 z-30 hidden rounded-md border border-[var(--lf-line)] bg-[var(--lf-panel)] p-2 group-hover:block">
+          <div className="absolute right-0 top-full z-30 mt-1 hidden rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] p-2 shadow-xl group-hover:block group-focus-within:block">
             <input
               type="range"
               min={0}
               max={1}
               step={0.05}
               value={volume}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                setVolume(v);
-                audio.setPrefs({ volume: v, muted: false });
+              onChange={(event) => {
+                const nextVolume = Number(event.target.value);
+                setVolume(nextVolume);
+                audio.setPrefs({ volume: nextVolume, muted: false });
                 setMuted(false);
               }}
-              className="w-24 accent-[var(--lf-amber)]"
+              className="w-24 accent-[var(--lf-focus)]"
+              aria-label="Volume"
             />
           </div>
         </div>
+
         <button
+          type="button"
           onClick={() => {
             audio.click('nav');
             setRulesOpen(true);
           }}
-          className="h-7 w-7 rounded-full border border-[var(--lf-line)] text-[var(--lf-dim)] hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)]"
-          title="How to play"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[var(--lf-dim)] hover:bg-[var(--lf-surface-2)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] sm:h-8 sm:w-8"
+          aria-label="How to play"
         >
-          ?
+          <QuestionIcon size={16} />
         </button>
       </div>
     </header>

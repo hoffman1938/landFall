@@ -1,5 +1,6 @@
 import { serve } from '@hono/node-server';
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { eq } from 'drizzle-orm';
 import { DEFAULT_TIMINGS, SURGE_PROB } from '@landfall/core';
@@ -13,7 +14,9 @@ import { players } from './db/schema.js';
 import { Hub } from './hub.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
-const DB_FILE = process.env.LANDFALL_DB ?? new URL('../data/landfall.db', import.meta.url).pathname;
+// fileURLToPath (not URL.pathname) so the path is valid on Windows too.
+const DB_FILE =
+  process.env.LANDFALL_DB ?? fileURLToPath(new URL('../data/landfall.db', import.meta.url));
 
 // Fast timings for local integration testing (LANDFALL_FAST=1).
 const timings: Timings =

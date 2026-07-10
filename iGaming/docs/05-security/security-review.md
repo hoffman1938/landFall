@@ -171,12 +171,13 @@ security *and* fairness win of the mechanic itself and one of the reasons it was
 - **v1 mitigations:** human-scale rate limits on re-anchor frequency (e.g. max ~1
   re-anchor/500ms, generous for humans, capping bot advantage) and per-IP session caps against
   multi-account swarms.
-- **v2 mitigation (target):** the category redesign moves anti-bot defense into the product
-  rules: Public Tide Reports remove exact live telemetry, Blind Fog Lock makes final decisions
-  simultaneous, Final Order limits remove micro-spam, and post-lock snapshots keep fairness
-  verifiable. See [category-redesign-v2.md](../02-game-design/category-redesign-v2.md)§8.
-  Random lock-jitter becomes a fallback, not the primary defense, because the game should not
-  depend on hidden timing tricks to protect humans.
+- **v2 mitigation (implemented):** the category redesign moves anti-bot defense into the
+  product rules: Public Tide Reports remove exact live telemetry, Blind Fog Lock makes final
+  decisions simultaneous, Final Order limits remove micro-spam, and post-lock snapshots keep
+  fairness verifiable. See [category-redesign-v2.md](../02-game-design/category-redesign-v2.md)§8.
+  Random lock-jitter is superseded by Blind Fog Lock as the primary defense — the game should
+  not depend on hidden timing tricks to protect humans — and remains only a documented
+  escalation option.
 
 ### 1.17 DDoS
 
@@ -226,7 +227,7 @@ security *and* fairness win of the mechanic itself and one of the reasons it was
 | Chat spoofing | `server` (message-type separation) + `web` (render by type) |
 | Chat spam/flood | `server` (`ChatService` token bucket) |
 | Abusive chat content | `server` (`ChatService` word-list, reject-not-mask) |
-| Bots/automation | `server` (re-anchor rate caps, session caps); lock-jitter documented as future option |
+| Bots/automation | product rules (Tide Reports, Blind Fog Lock, one Final Order — §1.16) + `server` (re-anchor rate caps, session caps); lock-jitter superseded, escalation only |
 | DDoS | Cloudflare platform (future) / `server` connection caps (local) |
 | Input validation | `core` (schemas) at `server` and `web` boundaries |
 | Secure random generation | `core` (RNG module) |

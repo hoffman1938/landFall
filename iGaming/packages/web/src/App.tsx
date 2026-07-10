@@ -1,14 +1,23 @@
-import { useEffect } from 'react';
-import { ChatPanel } from './components/ChatPanel';
-import { HarborMap } from './components/HarborMap';
+/**
+ * Four-zone shell: slim TopBar, compact wreck-history strip, the dominant
+ * minimal chart bay, and a persistent bottom ControlDeck. Secondary
+ * information (mission/chat/activity) lives in one collapsible SecondaryPanel
+ * that docks as a column on wide screens and becomes a drawer/sheet below.
+ */
+import { lazy, Suspense, useEffect } from 'react';
+import { ControlDeck } from './components/ControlDeck';
 import { ResultBanner } from './components/ResultBanner';
 import { RulesModal } from './components/RulesModal';
-import { SalvageLog } from './components/SalvageLog';
-import { StakeBar } from './components/StakeBar';
+import { SecondaryPanel } from './components/SecondaryPanel';
+import { StormClock } from './components/StormClock';
 import { TopBar } from './components/TopBar';
 import { VerifyModal } from './components/VerifyModal';
 import { WreckLog } from './components/WreckLog';
 import { useStore } from './store';
+
+const HarborMap = lazy(() =>
+  import('./components/HarborMap').then((module) => ({ default: module.HarborMap })),
+);
 
 export default function App() {
   const toast = useStore((s) => s.toast);
@@ -23,29 +32,46 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <TopBar />
-      <div className="flex min-h-0 flex-1">
-        <main className="relative min-w-0 flex-1 p-3">
+      <main className="relative flex min-h-0 flex-1">
+        {/* the stage: bay + overlays + control deck */}
+        <div className="relative min-w-0 flex-1">
+          <div className="absolute inset-0">
+            <Suspense
+              fallback={
+                <div className="lf-bay flex h-full w-full items-center justify-center">
+                  <span className="lf-surface rounded-full px-4 py-2 text-sm font-semibold text-[var(--lf-dim)]">
+                    Preparing the bay…
+                  </span>
+                </div>
+              }
+            >
+              <HarborMap />
+            </Suspense>
+          </div>
+
+          <WreckLog />
+          <StormClock />
           <ResultBanner />
-          <HarborMap />
-        </main>
-        <aside className="hidden w-80 shrink-0 flex-col border-l border-[var(--lf-line)] md:flex">
-          <div className="h-2/5 min-h-0 border-b border-[var(--lf-line)]">
-            <SalvageLog />
-          </div>
-          <div className="min-h-0 flex-1">
-            <ChatPanel />
-          </div>
-        </aside>
-      </div>
-      <WreckLog />
-      <StakeBar />
+          <ControlDeck />
+
+          {/* error toast — above the deck, never a modal */}
+          {toast && (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="lf-rise lf-surface absolute left-1/2 z-30 -translate-x-1/2 rounded-lg border !border-[var(--lf-danger)]/60 px-4 py-2 text-sm font-semibold text-[var(--lf-text)]"
+              style={{ bottom: 'calc(var(--lf-control-deck-height, 7.5rem) + 0.75rem)' }}
+            >
+              {toast}
+            </div>
+          )}
+        </div>
+
+        {/* mission / chat / activity */}
+        <SecondaryPanel />
+      </main>
       <VerifyModal />
       <RulesModal />
-      {toast && (
-        <div className="fixed bottom-20 left-1/2 z-30 -translate-x-1/2 rounded-md bg-[var(--lf-danger)]/95 px-4 py-2 text-sm font-semibold text-white">
-          {toast}
-        </div>
-      )}
     </div>
   );
 }

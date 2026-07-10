@@ -245,6 +245,7 @@ whale guardrails, cosmetics, and spectator mode.
 - House-seed sizing policy as real population grows
   ([mathematical-model.md](../03-math/mathematical-model.md)§9).
 - Final name/trademark clearance for "LANDFALL" (Product/Legal, pre-release).
-- Lock-jitter: adopt at MVP or hold as escalation? (Currently: hold —
-  [security-review.md](../05-security/security-review.md)§1.16.)
+- ~~Lock-jitter: adopt at MVP or hold as escalation?~~ Resolved: superseded by Blind Fog Lock
+  as the primary anti-bot defense; kept only as an escalation option
+  ([security-review.md](../05-security/security-review.md)§1.16).
 - Biome vs. ESLint+Prettier at scaffold time (carried over, still open).

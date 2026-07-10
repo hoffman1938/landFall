@@ -53,6 +53,8 @@ interface State {
   myAnchor: { zone: number; stakeMinor: number } | null;
   myFleet: FleetPlanPublic | null;
   fleetMode: FleetMode;
+  /** True until a submitted fleet order receives an authoritative ACK or error. */
+  orderPending: boolean;
   finalOrderUsed: boolean;
   stakeInputMinor: number;
   wreckLog: number[];
@@ -65,6 +67,8 @@ interface State {
   toast: string | null;
   verifyRoundId: number | null; // open verify modal for this round
   rulesOpen: boolean;
+  /** Signal-flag picker anchor point (opened via long-press/right-click on a cove or the dock). */
+  flagPickerAt: { zone: number; x: number; y: number } | null;
   /** Last placed anchor (zone+stake) — for one-click Rebet in the next round. */
   lastAnchor: { zone: number; stakeMinor: number } | null;
   /** Last placed fleet order — preserves Focus/Split for one-click Rebet. */
@@ -77,6 +81,8 @@ interface State {
   setStakeInput(minor: number): void;
   openVerify(roundId: number | null): void;
   setRulesOpen(open: boolean): void;
+  openFlagPicker(zone: number, x: number, y: number): void;
+  closeFlagPicker(): void;
   rebet(): void;
   doubleStake(): void;
   dismissToast(): void;
@@ -111,8 +117,10 @@ function fleetOrderMessage(fleet: FleetPlanPublic): unknown {
 }
 
 export const useStore = create<State>((set, get) => {
-  function send(msg: unknown) {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  function send(msg: unknown): boolean {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    ws.send(JSON.stringify(msg));
+    return true;
   }
 
   function connect() {
@@ -123,7 +131,7 @@ export const useStore = create<State>((set, get) => {
       send({ type: 'HELLO', ...(saved ? { playerId: saved } : {}) });
     };
     ws.onclose = () => {
-      set({ connected: false });
+      set({ connected: false, orderPending: false });
       setTimeout(connect, 1_000);
     };
     ws.onmessage = (ev) => {
@@ -149,6 +157,7 @@ export const useStore = create<State>((set, get) => {
             myAnchor: anchorFromFleet(fleet),
             myFleet: fleet,
             fleetMode: fleet?.mode ?? get().fleetMode,
+            orderPending: false,
             finalOrderUsed: false,
             wreckLog: msg.wreckLog,
             chat: msg.chatTail,
@@ -166,6 +175,7 @@ export const useStore = create<State>((set, get) => {
             signals: [],
             myAnchor: null,
             myFleet: null,
+            orderPending: false,
             finalOrderUsed: false,
             storm: null,
             lastLandfall: get().lastLandfall, // keep last result visible until next landfall
@@ -186,6 +196,7 @@ export const useStore = create<State>((set, get) => {
             myAnchor: anchorFromFleet(fleet),
             myFleet: fleet,
             fleetMode: fleet.mode,
+            orderPending: false,
             balanceMinor: msg.balanceMinor,
             lastAnchor: anchorFromFleet(fleet),
             lastFleet: fleet,
@@ -198,7 +209,7 @@ export const useStore = create<State>((set, get) => {
           set({ signals: msg.signals });
           break;
         case 'LOCK_SNAPSHOT':
-          set({ pools: msg.pools, anchors: msg.anchors, phase: msg.phase });
+          set({ pools: msg.pools, anchors: msg.anchors, phase: msg.phase, orderPending: false });
           break;
         case 'STORM_PATH':
           set({ storm: { feints: msg.feints, endsAt: msg.phase.endsAt }, phase: msg.phase });
@@ -207,6 +218,7 @@ export const useStore = create<State>((set, get) => {
         case 'LANDFALL': {
           set({
             phase: msg.phase,
+            orderPending: false,
             balanceMinor: msg.balanceMinor,
             wreckLog: msg.wreckLog,
             lastLandfall: {
@@ -244,7 +256,10 @@ export const useStore = create<State>((set, get) => {
           break;
         }
         case 'PHASE':
-          set({ phase: msg.phase });
+          set({
+            phase: msg.phase,
+            ...(msg.phase.phase === 'ANCHOR_OPEN' ? {} : { orderPending: false }),
+          });
           break;
         case 'CHAT_MESSAGE':
           set({ chat: [...get().chat.slice(-99), msg.entry] });
@@ -261,7 +276,7 @@ export const useStore = create<State>((set, get) => {
           break;
         }
         case 'ERROR':
-          set({ toast: msg.message });
+          set({ toast: msg.message, orderPending: false });
           break;
       }
     };
@@ -284,6 +299,7 @@ export const useStore = create<State>((set, get) => {
     myAnchor: null,
     myFleet: null,
     fleetMode: 'FOCUS',
+    orderPending: false,
     finalOrderUsed: false,
     stakeInputMinor: 25_00,
     wreckLog: [],
@@ -294,11 +310,20 @@ export const useStore = create<State>((set, get) => {
     toast: null,
     verifyRoundId: null,
     rulesOpen: false,
+    flagPickerAt: null,
     lastAnchor: null,
     lastFleet: null,
 
     sendAnchor(zone) {
       const s = get();
+      if (
+        !s.connected ||
+        s.phase?.phase !== 'ANCHOR_OPEN' ||
+        s.finalOrderUsed ||
+        s.orderPending
+      ) {
+        return;
+      }
       if (s.fleetMode === 'SPLIT') {
         const current = s.myFleet;
         let primaryZone = zone;
@@ -312,7 +337,7 @@ export const useStore = create<State>((set, get) => {
           secondaryZone = zone === primaryZone ? oppositeZone(primaryZone) : zone;
         }
         if (secondaryZone === primaryZone) secondaryZone = oppositeZone(primaryZone);
-        send(
+        const sent = send(
           fleetOrderMessage({
             mode: 'SPLIT',
             primaryZone,
@@ -320,9 +345,12 @@ export const useStore = create<State>((set, get) => {
             stakeMinor: s.stakeInputMinor,
           }),
         );
+        if (sent) set({ orderPending: true });
         return;
       }
-      send(fleetOrderMessage(focusFleet(zone, s.stakeInputMinor)));
+      if (send(fleetOrderMessage(focusFleet(zone, s.stakeInputMinor)))) {
+        set({ orderPending: true });
+      }
     },
     sendSignal(kind, zone) {
       const target = zone ?? get().myFleet?.primaryZone ?? get().myAnchor?.zone;
@@ -334,21 +362,7 @@ export const useStore = create<State>((set, get) => {
       if (trimmed) send({ type: 'CHAT', text: trimmed });
     },
     setFleetMode(mode) {
-      const s = get();
-      if (mode === s.fleetMode) return;
       set({ fleetMode: mode });
-      if (s.phase?.phase !== 'ANCHOR_OPEN' || !s.myFleet || s.finalOrderUsed) return;
-      const primaryZone = s.myFleet.primaryZone;
-      const next =
-        mode === 'SPLIT'
-          ? {
-              mode,
-              primaryZone,
-              secondaryZone: s.myFleet.secondaryZone ?? oppositeZone(primaryZone),
-              stakeMinor: s.myFleet.stakeMinor,
-            }
-          : focusFleet(primaryZone, s.myFleet.stakeMinor);
-      send(fleetOrderMessage(next));
     },
     setStakeInput(minor) {
       set({ stakeInputMinor: minor });
@@ -359,14 +373,29 @@ export const useStore = create<State>((set, get) => {
     setRulesOpen(open) {
       set({ rulesOpen: open });
     },
+    openFlagPicker(zone, x, y) {
+      set({ flagPickerAt: { zone, x, y } });
+    },
+    closeFlagPicker() {
+      set({ flagPickerAt: null });
+    },
     /** Repeat last round's anchor (roulette-style rebet). */
     rebet() {
-      const fallback = get().lastAnchor;
+      const s = get();
+      if (
+        !s.connected ||
+        s.phase?.phase !== 'ANCHOR_OPEN' ||
+        s.finalOrderUsed ||
+        s.orderPending
+      ) {
+        return;
+      }
+      const fallback = s.lastAnchor;
       const last =
-        get().lastFleet ?? (fallback ? focusFleet(fallback.zone, fallback.stakeMinor) : null);
+        s.lastFleet ?? (fallback ? focusFleet(fallback.zone, fallback.stakeMinor) : null);
       if (!last) return;
-      set({ stakeInputMinor: last.stakeMinor });
-      send(fleetOrderMessage(last));
+      set({ stakeInputMinor: last.stakeMinor, fleetMode: last.mode });
+      if (send(fleetOrderMessage(last))) set({ orderPending: true });
     },
     /** Roulette-style double: 2× the input; if already anchored, re-anchor same zone at 2×. */
     doubleStake() {
@@ -374,7 +403,6 @@ export const useStore = create<State>((set, get) => {
       const base = myFleet?.stakeMinor ?? stakeInputMinor;
       const doubled = Math.min(MAX_STAKE_MINOR, base * 2);
       set({ stakeInputMinor: doubled });
-      if (myFleet) send(fleetOrderMessage({ ...myFleet, stakeMinor: doubled }));
     },
     dismissToast() {
       set({ toast: null });

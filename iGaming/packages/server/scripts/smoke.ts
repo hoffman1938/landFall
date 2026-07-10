@@ -100,7 +100,13 @@ console.log(`LANDFALL round ${lf.roundId}: struck zone ${lf.struckZone}`);
 console.log(`A result: ${JSON.stringify(lf.yourResult)} | results: ${JSON.stringify(lf.results)}`);
 
 if (lf.yourResult.outcome === 'SPECTATOR') fail('A anchored but resolved as SPECTATOR');
-if (lf.results.length !== 2) fail(`expected 2 player results, got ${lf.results.length}`);
+// The room may also contain practice bots — assert on our two players' rows only.
+const ourResults = lf.results.filter(
+  (r: any) => r.name === a.serverName || r.name === b.serverName,
+);
+if (ourResults.length !== 2) {
+  fail(`expected results for both smoke players, got ${JSON.stringify(ourResults)}`);
+}
 
 // Outcome consistency: wrecked iff on struck zone.
 const aExpected = lf.struckZone === 2 ? 'WRECKED' : 'SAFE';

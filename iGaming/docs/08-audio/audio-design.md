@@ -3,6 +3,9 @@
 **Prepared by:** Audio Team, with review by Lead Game Designer (psychology) and Legal &
 Compliance (licensing)
 **Status:** Implemented in [engine.ts](../../packages/web/src/audio/engine.ts).
+**v3 direction:** the presentation redesign re-voices this engine (same pipeline, same
+responsible-design rules, warm timbres + phase-layered stems) —
+[ux-redesign-v2.md](../07-ux/ux-redesign-v2.md) §9.
 **Revision note:** v2 direction by product request — full 8-bit chiptune vocabulary
 (square/triangle/noise voices) under a lo-fi master chain: waveshaper bit-crush (48 levels),
 warm 3.8 kHz lowpass ("old speaker"), and a quiet vinyl-crackle bed. The soundtrack is a swung

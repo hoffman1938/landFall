@@ -3,8 +3,13 @@
 **Prepared by:** Principal Game Designer  
 **Purpose:** Redesign the existing LANDFALL game so it can compete emotionally and socially with
 Aviator/JetX-scale instant games without replacing its core identity.  
-**Status:** Target design. Current runnable MVP implements the v1 core plus Storm Power and
-Storm Surge; this document specifies the v2 product direction and migration roadmap.
+**Status:** Adopted and substantially implemented. The runnable build now ships the v2 core:
+Public Tide Reports, Blind Fog Lock (weather-extended), one Final Order, Focus/Split Fleet
+Orders, Signal Flags (Crosswind-delayed), Stake Band Privacy, Weather Patterns, Wreck Wake
+Replay, seed-derived storm feints, and extended verification (draw, payout, Surge, Storm
+Power, Weather) — on top of the v1 core plus Storm Power and Storm Surge. Still open from the
+roadmap: Harbor Compass (gated, §6.1), signed action receipts, shareable Clip Cards, bot
+telemetry, and all of P4 (stake-tier rooms, whale guardrails, cosmetics, spectator mode).
 
 ---
 
@@ -237,6 +242,38 @@ This makes the "why this round mattered" obvious to players and spectators.
 Complexity score: 1 = almost invisible to players, 10 = too complex for this product. Anything
 above 6 should be rejected or split into a later experiment.
 
+### 6.1 Five-Question Feature Gate
+
+Every proposed feature was scored against the five gate questions before being accepted. A
+feature needs at least four YES answers or it is discarded, demoted, or reclassified. The
+answers below are honest, not rubber-stamped — the gate produced one demotion and one
+reclassification.
+
+Q1: More emotional? Q2: More meaningful decisions? Q3: Reduces bot advantage? Q4: Creates
+memorable moments? Q5: Would a player tell a friend?
+
+| Feature | Q1 | Q2 | Q3 | Q4 | Q5 | Score | Verdict |
+|---|---|---|---|---|---|---:|---|
+| Blind Fog Lock | Y | Y | Y | Y | Y | 5 | Pass — the signature mechanic. |
+| Public Tide Reports | Y | Y | Y | Y | N | 4 | Pass. Misread tides create stories; the reports themselves are substrate, not a talking point. |
+| Final Order | Y | Y | Y | Y | N | 4 | Pass. One decisive move under pressure. |
+| Fleet Orders (Focus/Split) | Y | Y | N | Y | Y | 4 | Pass. Bot-neutral; risk identity is the point. |
+| Signal Flags | Y | Y | N | Y | Y | 4 | Pass. Bluffs called in public are clip material. |
+| Weather Patterns | Y | Y | Y | Y | N | 4 | Pass. Breaks pattern-fixed scripts; limited to 4 patterns. |
+| Wreck Wake Replay + Clip Card | Y | Y | N | Y | Y | 4 | Pass. Q2 credited because the honesty reveal feeds next-round reads and reputations. |
+| Storm choreography | Y | N | N | Y | Y | 3 | Retained anyway — not a standalone feature but the presentation layer of the outcome itself, mandated directly by Problems #4/#5. Pure-presentation systems are graded against those problems, not the feature gate. |
+| Stake Band Privacy | N | N | Y | N | N | 1 | Reclassified — this is fairness infrastructure, not a player-facing feature. It protects the ecosystem the features above run on; governed by the security review, not the gate. |
+| Harbor Compass | N | Y | N | N | Y | 2 | **Demoted** from a P2 commitment to a retention-data experiment. It fails the gate as designed; it ships only if onboarding metrics show casuals churning because they cannot read the room (see §12 P2 note). |
+
+Discarded outright by the gate during design (recorded so they are not re-proposed):
+
+- **Harbor insurance side-bet** (pay to protect a stake): fails Q3/Q4/Q5 and violates the
+  pari-mutuel identity — Split already provides risk shaping inside the economy.
+- **Live win-probability meter**: fails Q1/Q3/Q4 — it is an EV oracle that re-arms bots and
+  collapses strategy diversity back to v1.
+- **Random per-player lock times**: fails Q1/Q2/Q4/Q5 — unverifiable timing tricks create
+  fairness suspicion; superseded by Blind Fog Lock.
+
 ## 7. Strategy Space After Redesign
 
 v2 should support multiple viable strategies without guaranteeing profit:
@@ -379,7 +416,7 @@ No sound should imply a win before the struck harbor is known.
 | Focus/Split Fleet Orders | Two stake-shape presets. | Medium-High | Onboarding/maths complexity. |
 | Signal Flags | One public bluff/coordination action. | Medium | Spam or noise. |
 | Stake Band Privacy | Live stake bands; exact post-lock snapshot. | Medium | Player trust if poorly messaged. |
-| Harbor Compass | Casual risk labels. | Medium | Labels must avoid being an EV oracle. |
+| Harbor Compass | Casual risk labels. Gated (§6.1): ships only if onboarding data demands it. | Medium | Labels must avoid being an EV oracle. |
 
 ### P3 - Spectacle and Replayability
 

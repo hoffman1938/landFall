@@ -171,14 +171,26 @@ round's public verification record.
   the simulation suite enforces this boundary
   ([simulation-methodology.md](../03-math/simulation-methodology.md)§3.2).
 
-## 9. v2 Weather and Spectacle Extensions (design target)
+## 9. v2 Weather, Storm Power, and Spectacle Extensions (implemented)
 
 The category redesign
-([category-redesign-v2.md](../02-game-design/category-redesign-v2.md)) introduces Weather
-Patterns and richer storm choreography. These must follow the same rule as Storm Surge and
-Storm Power: derive from digest spans disjoint from the struck-zone span, publish any
-pre-round flags in the round header, and recompute them in the verification tool after seed
-reveal.
+([category-redesign-v2.md](../02-game-design/category-redesign-v2.md)) introduced Weather
+Patterns, Storm Power, and richer storm choreography. All follow the same rule as Storm
+Surge: derive from digest spans disjoint from the struck-zone span, publish any pre-round
+flags in the round header, and recompute them in the verification tool after seed reveal
+(`verifyRound` recomputes weather and power alongside the draw, surge, and payout checks).
+
+Canonical digest span map (hex-char offsets into the 64-char round digest, kept in lockstep
+with `packages/core/src/rng.ts`):
+
+| Span | Bits | Purpose | Payout-affecting? |
+|---|---|---|---|
+| `[0,13)` | 52 | `u` → struck zone | Yes |
+| `[13,15)`, `[15,17)` | 8+8 | storm-path feints (cosmetic, §5) | No |
+| `[17,22)` | 20 | `uSurge` — Storm Surge trigger (§7) | Yes (jackpot trigger) |
+| `[22,35)` | 52 | `uWinner` — Golden Anchor winner (§7) | Yes (jackpot winner) |
+| `[35,40)` | 20 | Storm Power ladder roll ([mathematical-model.md](../03-math/mathematical-model.md)§10) | Yes (salvage ×M) |
+| `[40,42)` | 8 | Weather pattern (information/spectacle layer only; 4 patterns, 256 mod 4 = 0 so uniform) | No |
 
 Hard boundaries:
 

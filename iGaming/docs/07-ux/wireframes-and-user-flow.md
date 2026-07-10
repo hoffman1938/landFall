@@ -16,6 +16,10 @@ Final Orders, Signal Flags, and post-round Wreck Wake Replay. See
 [category-redesign-v2.md](../02-game-design/category-redesign-v2.md) for the target UX
 requirements before redesigning this screen.
 
+**Superseded:** the complete presentation-layer redesign (UX, UI, art direction, motion,
+audio, onboarding, accessibility) is specified in [ux-redesign-v2.md](ux-redesign-v2.md)
+("One Bay, One Storm"). This document remains as the v1 layout record.
+
 ---
 
 ## 1. Main Game Screen (Desktop, Landscape) — Anchor Window

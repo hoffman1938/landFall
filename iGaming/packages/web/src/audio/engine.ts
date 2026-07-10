@@ -1,22 +1,20 @@
 /**
- * LANDFALL audio — 8-bit / lo-fi edition. Fully procedural (Web Audio API),
- * zero external assets, so there is nothing to license
- * (docs/08-audio/audio-design.md).
+ * LANDFALL audio — warm coastal edition. Fully procedural (Web Audio API),
+ * with no external assets or runtime dependencies.
  *
- * The lo-fi character comes from the master chain: everything is played with
- * chip waveforms (square/triangle/noise), then bit-crushed (waveshaper
- * quantization), rolled off with a warm lowpass, and bedded on a quiet vinyl
- * crackle loop. The soundtrack is a swung ~84 BPM chiptune loop in D minor
- * (Dm–Bb–F–C) with a sparse pentatonic square lead over a triangle bass.
+ * The mix uses rounded sine/triangle voices, a restrained room send, and
+ * filtered-noise water and wind. Music stays deliberately quiet and yields
+ * to the storm phase so gameplay information always reads first.
  *
- * Psychology rules carry over from v1 unchanged:
- *  - bright "coin" timbres are reserved EXCLUSIVELY for wins;
- *  - losses get one short, low, quiet blip — never harsh, never celebratory;
- *  - tension = rising wind; release = one thunder hit (scaled by Storm Power);
- *  - the ambient loop stays calm so the cues read by contrast.
+ * Psychology rules:
+ *  - glassy, high-register bell partials are reserved for player wins;
+ *  - non-win information uses soft wood, water, and low brass-like timbres;
+ *  - a loss is one short, low, quiet release — never harsh or punitive;
+ *  - tension grows through smooth wind and mix density, not alarm sounds;
+ *  - landfall is weighty but brief, with level and low-frequency limits.
  *
- * Autoplay policy: context unlocks on the first user gesture; all methods are
- * safe no-ops before that.
+ * Autoplay policy: the context unlocks on the first user gesture. Every public
+ * method remains a safe no-op until Web Audio is available.
  */
 
 interface AudioPrefs {
@@ -38,31 +36,47 @@ function loadPrefs(): AudioPrefs {
 
 export type ClickKind = 'up' | 'down' | 'tap' | 'nav' | 'send';
 
-// ---------- music data (D minor, 4 bars × 16 swung steps) ----------
+// ---------- music data (D minor, four gently swung bars) ----------
 
 const N = null;
-// D pentatonic minor frequencies
-const D4 = 293.66, F4 = 349.23, G4 = 392.0, A4 = 440.0, C5 = 523.25, D5 = 587.33;
+const D4 = 293.66;
+const F4 = 349.23;
+const G4 = 392;
+const A4 = 440;
+const C5 = 523.25;
+const D5 = 587.33;
 const LEAD: (number | null)[] = [
-  // bar 1 (Dm)
   D4, N, N, G4, N, A4, N, N, C5, N, A4, N, G4, N, F4, N,
-  // bar 2 (Bb)
   F4, N, N, D4, N, F4, N, N, G4, N, N, N, N, N, D4, N,
-  // bar 3 (F)
   A4, N, N, C5, N, D5, N, N, C5, N, A4, N, G4, N, N, N,
-  // bar 4 (C)
   C5, N, N, G4, N, A4, N, N, G4, N, F4, N, D4, N, N, N,
 ];
-const BASS_ROOTS = [73.42, 58.27, 87.31, 65.41]; // D2 Bb1 F2 C2, one per bar
+const BASS_ROOTS = [73.42, 58.27, 87.31, 65.41]; // D2, Bb1, F2, C2
+const PAD_CHORDS = [
+  [146.83, 174.61, 220],
+  [116.54, 146.83, 174.61],
+  [174.61, 220, 261.63],
+  [130.81, 164.81, 196],
+];
 const STEPS_PER_BAR = 16;
 const TOTAL_STEPS = LEAD.length;
-const STEP_SEC = 60 / 84 / 4; // 84 BPM sixteenths
-const SWING = 0.16; // odd sixteenths delayed → lazy lo-fi shuffle
+const STEP_SEC = 60 / 78 / 4;
+const SWING = 0.08;
+const IDLE_MUSIC_GAIN = 0.62;
+
+interface ToneOptions {
+  slideTo?: number;
+  bus?: AudioNode;
+  detune?: number;
+  attack?: number;
+  room?: number;
+}
 
 class AudioEngine {
   private ctx: AudioContext | null = null;
-  private master: GainNode | null = null; // pre-crush bus — everything connects here
+  private master: GainNode | null = null;
   private musicBus: GainNode | null = null;
+  private roomBus: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
   private windStop: (() => void) | null = null;
   private echo: DelayNode | null = null;
@@ -81,45 +95,60 @@ class AudioEngine {
     window.addEventListener('keydown', unlock);
   }
 
-  // ---------- setup: lo-fi master chain ----------
+  // ---------- setup: clean, warm master chain ----------
 
   private ensure(): AudioContext | null {
     if (!this.ctx) {
       try {
         this.ctx = new AudioContext();
 
-        // master (volume) -> bitcrusher -> warm lowpass -> gentle highpass -> out
         this.master = this.ctx.createGain();
-        const crusher = this.ctx.createWaveShaper();
-        crusher.curve = this.crushCurve(48); // audible 8-bit grit without fizz
         const warm = this.ctx.createBiquadFilter();
         warm.type = 'lowpass';
-        warm.frequency.value = 3800; // "old speaker" roll-off
-        warm.Q.value = 0.5;
+        warm.frequency.value = 10500;
+        warm.Q.value = 0.35;
         const rumbleCut = this.ctx.createBiquadFilter();
         rumbleCut.type = 'highpass';
-        rumbleCut.frequency.value = 45;
-        this.master.connect(crusher).connect(warm).connect(rumbleCut).connect(this.ctx.destination);
+        rumbleCut.frequency.value = 35;
+        const limiter = this.ctx.createDynamicsCompressor();
+        limiter.threshold.value = -20;
+        limiter.knee.value = 14;
+        limiter.ratio.value = 3;
+        limiter.attack.value = 0.02;
+        limiter.release.value = 0.24;
+        this.master.connect(warm).connect(rumbleCut).connect(limiter).connect(this.ctx.destination);
 
-        // tape-style echo bus for the lead (feedback delay into master)
-        this.echo = this.ctx.createDelay(1.0);
-        this.echo.delayTime.value = STEP_SEC * 3; // dotted-eighth feel
-        const fb = this.ctx.createGain();
-        fb.gain.value = 0.3;
-        const echoLp = this.ctx.createBiquadFilter();
-        echoLp.type = 'lowpass';
-        echoLp.frequency.value = 1800;
-        this.echo.connect(echoLp).connect(fb).connect(this.echo);
+        // A short generated room softens procedural voices without external IR files.
+        this.roomBus = this.ctx.createGain();
+        this.roomBus.gain.value = 1;
+        const room = this.ctx.createConvolver();
+        room.buffer = this.roomImpulse(1.35, 2.7);
+        const roomFilter = this.ctx.createBiquadFilter();
+        roomFilter.type = 'lowpass';
+        roomFilter.frequency.value = 4200;
+        const roomOut = this.ctx.createGain();
+        roomOut.gain.value = 0.18;
+        this.roomBus.connect(room).connect(roomFilter).connect(roomOut).connect(this.master);
+
+        // A quiet, dark echo gives melody depth without rhythmic arcade chatter.
+        this.echo = this.ctx.createDelay(1);
+        this.echo.delayTime.value = STEP_SEC * 3;
+        const feedback = this.ctx.createGain();
+        feedback.gain.value = 0.2;
+        const echoFilter = this.ctx.createBiquadFilter();
+        echoFilter.type = 'lowpass';
+        echoFilter.frequency.value = 2400;
+        this.echo.connect(echoFilter).connect(feedback).connect(this.echo);
         const echoOut = this.ctx.createGain();
-        echoOut.gain.value = 0.5;
-        echoLp.connect(echoOut).connect(this.master);
+        echoOut.gain.value = 0.26;
+        echoFilter.connect(echoOut).connect(this.master);
 
         this.musicBus = this.ctx.createGain();
-        this.musicBus.gain.value = 1;
+        this.musicBus.gain.value = IDLE_MUSIC_GAIN;
         this.musicBus.connect(this.master);
 
         this.applyPrefs();
-        this.startVinyl();
+        this.startWaterAmbience();
         this.startSequencer();
       } catch {
         return null;
@@ -129,133 +158,203 @@ class AudioEngine {
     return this.ctx;
   }
 
-  private crushCurve(levels: number): Float32Array<ArrayBuffer> {
-    const curve = new Float32Array(new ArrayBuffer(2048 * 4));
-    for (let i = 0; i < curve.length; i++) {
-      const x = (i / (curve.length - 1)) * 2 - 1;
-      curve[i] = Math.round(x * levels) / levels;
+  private roomImpulse(seconds: number, decay: number): AudioBuffer {
+    const ctx = this.ctx!;
+    const length = Math.floor(ctx.sampleRate * seconds);
+    const impulse = ctx.createBuffer(2, length, ctx.sampleRate);
+    for (let channel = 0; channel < impulse.numberOfChannels; channel++) {
+      const data = impulse.getChannelData(channel);
+      for (let i = 0; i < length; i++) {
+        const envelope = Math.pow(1 - i / length, decay);
+        data[i] = (Math.random() * 2 - 1) * envelope;
+      }
     }
-    return curve;
+    return impulse;
   }
 
   private noise(): AudioBuffer {
     const ctx = this.ctx!;
     if (!this.noiseBuf) {
       this.noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-      const d = this.noiseBuf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      const data = this.noiseBuf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
     }
     return this.noiseBuf;
   }
 
   setPrefs(p: Partial<AudioPrefs>): void {
     this.prefs = { ...this.prefs, ...p };
-    localStorage.setItem(PREFS_KEY, JSON.stringify(this.prefs));
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify(this.prefs));
+    } catch {
+      /* audio still works when storage is unavailable */
+    }
     this.applyPrefs();
   }
 
   private applyPrefs(): void {
     if (this.master && this.ctx) {
-      const v = this.prefs.muted ? 0 : this.prefs.volume;
-      this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
+      const volume = this.prefs.muted ? 0 : Math.max(0, Math.min(1, this.prefs.volume));
+      this.master.gain.setTargetAtTime(volume, this.ctx.currentTime, 0.05);
     }
   }
 
-  // ---------- chip voices ----------
+  // ---------- procedural voices ----------
 
-  /** One chip note: square/triangle with a fast decay envelope (+optional pitch slide). */
-  private chip(
-    type: OscillatorType,
+  /** Rounded sine/triangle note with click-free attack and release. */
+  private tone(
+    type: 'sine' | 'triangle',
     freq: number,
     at: number,
     dur: number,
     gain: number,
-    opts: { slideTo?: number; bus?: AudioNode; detune?: number } = {},
+    opts: ToneOptions = {},
   ): void {
     const ctx = this.ctx!;
-    const o = ctx.createOscillator();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, at);
-    if (opts.slideTo) o.frequency.exponentialRampToValueAtTime(opts.slideTo, at + dur);
-    if (opts.detune) o.detune.value = opts.detune;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, at);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    o.connect(g).connect(opts.bus ?? this.master!);
-    o.start(at);
-    o.stop(at + dur + 0.02);
+    const oscillator = ctx.createOscillator();
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(Math.max(20, freq), at);
+    if (opts.slideTo) {
+      oscillator.frequency.exponentialRampToValueAtTime(Math.max(20, opts.slideTo), at + dur);
+    }
+    if (opts.detune) oscillator.detune.value = opts.detune;
+
+    const envelope = ctx.createGain();
+    const attack = Math.min(opts.attack ?? 0.012, dur * 0.35);
+    envelope.gain.setValueAtTime(0.0001, at);
+    envelope.gain.linearRampToValueAtTime(gain, at + attack);
+    envelope.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+
+    const destination = opts.bus ?? this.master!;
+    oscillator.connect(envelope).connect(destination);
+    if (this.roomBus && (opts.room ?? 0.12) > 0) {
+      const send = ctx.createGain();
+      send.gain.value = opts.room ?? 0.12;
+      envelope.connect(send).connect(this.roomBus);
+    }
+    oscillator.start(at);
+    oscillator.stop(at + dur + 0.03);
   }
 
-  /** Short noise hit through a filter (hats, snare, splashes, explosions). */
+  /** Filtered noise for water, wind, air, and impact transients. */
   private noiseHit(
     at: number,
     dur: number,
     gain: number,
-    filter: { type: BiquadFilterType; freq: number; slideTo?: number },
+    filter: { type: BiquadFilterType; freq: number; slideTo?: number; q?: number },
     bus?: AudioNode,
+    room = 0.08,
   ): void {
     const ctx = this.ctx!;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise();
-    const f = ctx.createBiquadFilter();
-    f.type = filter.type;
-    f.frequency.setValueAtTime(filter.freq, at);
-    if (filter.slideTo) f.frequency.exponentialRampToValueAtTime(filter.slideTo, at + dur);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, at);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    src.connect(f).connect(g).connect(bus ?? this.master!);
-    src.start(at);
-    src.stop(at + dur + 0.02);
+    const source = ctx.createBufferSource();
+    source.buffer = this.noise();
+    const toneFilter = ctx.createBiquadFilter();
+    toneFilter.type = filter.type;
+    toneFilter.Q.value = filter.q ?? 0.7;
+    toneFilter.frequency.setValueAtTime(filter.freq, at);
+    if (filter.slideTo) {
+      toneFilter.frequency.exponentialRampToValueAtTime(filter.slideTo, at + dur);
+    }
+    const envelope = ctx.createGain();
+    envelope.gain.setValueAtTime(0.0001, at);
+    envelope.gain.linearRampToValueAtTime(gain, at + Math.min(0.025, dur * 0.2));
+    envelope.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    source.connect(toneFilter).connect(envelope).connect(bus ?? this.master!);
+    if (this.roomBus && room > 0) {
+      const send = ctx.createGain();
+      send.gain.value = room;
+      envelope.connect(send).connect(this.roomBus);
+    }
+    source.start(at);
+    source.stop(at + dur + 0.03);
   }
 
-  // ---------- game cues (8-bit vocabulary) ----------
+  /** Win-only bell: a soft fundamental plus glassy inharmonic partials. */
+  private winBell(at: number, frequency: number, gain = 0.09): void {
+    this.tone('sine', frequency, at, 0.52, gain, { attack: 0.004, room: 0.34 });
+    this.tone('sine', frequency * 2.01, at, 0.32, gain * 0.36, { attack: 0.002, room: 0.42 });
+    this.tone('sine', frequency * 3.97, at, 0.18, gain * 0.12, { attack: 0.002, room: 0.48 });
+  }
 
-  /** Round opens: chip foghorn — two low square blasts sliding down. */
+  private setMusicLevel(level: number, seconds = 0.35): void {
+    if (!this.musicBus || !this.ctx) return;
+    this.musicBus.gain.setTargetAtTime(level, this.ctx.currentTime, seconds);
+  }
+
+  // ---------- game cues ----------
+
+  /** Round opens: two warm, distant horn calls. */
   foghorn(): void {
     const ctx = this.ensure();
     if (!ctx) return;
     const t = ctx.currentTime;
-    this.chip('square', 90, t, 0.5, 0.16, { slideTo: 62 });
-    this.chip('square', 82, t + 0.55, 0.7, 0.16, { slideTo: 55 });
+    this.tone('sine', 92, t, 0.75, 0.16, { slideTo: 68, attack: 0.08, room: 0.5 });
+    this.tone('triangle', 138, t, 0.62, 0.045, { slideTo: 102, attack: 0.08, room: 0.55 });
+    this.tone('sine', 82, t + 0.62, 0.9, 0.15, { slideTo: 58, attack: 0.09, room: 0.56 });
+    this.tone('triangle', 123, t + 0.62, 0.72, 0.04, { slideTo: 87, attack: 0.09, room: 0.6 });
   }
 
-  /** Surge round: foghorn + classic power-up arpeggio (the pot is live!). */
+  /** Surge round: horn plus a confident mid-register rise, distinct from win bells. */
   surgeCall(): void {
     const ctx = this.ensure();
     if (!ctx) return;
     this.foghorn();
-    const t = ctx.currentTime + 0.2;
-    [D5, 698.46, 880, 1174.66, 1396.91].forEach((f, i) =>
-      this.chip('square', f, t + i * 0.07, 0.14, 0.09),
-    );
+    const t = ctx.currentTime + 0.24;
+    [220, 261.63, 293.66, 349.23].forEach((frequency, i) => {
+      this.tone('triangle', frequency, t + i * 0.1, 0.3, 0.055, { attack: 0.025, room: 0.28 });
+      this.tone('sine', frequency / 2, t + i * 0.1, 0.34, 0.035, { attack: 0.025, room: 0.2 });
+    });
   }
 
-  /** Storm approach: noise wind that RISES IN STEPS (retro), for the whole phase. */
+  /** Storm approach: smooth filtered wind layers that grow with the phase. */
   wind(durationMs: number): void {
     const ctx = this.ensure();
     if (!ctx) return;
     this.stopWind();
     const t = ctx.currentTime;
-    const dur = durationMs / 1000;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise();
-    src.loop = true;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.Q.value = 1.2;
-    const steps = 6; // stepped sweep = 8-bit wind
-    for (let i = 0; i <= steps; i++) {
-      bp.frequency.setValueAtTime(300 + (i * 1300) / steps, t + (dur * i) / steps);
-    }
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.14, t + dur * 0.8);
-    src.connect(bp).connect(g).connect(this.master!);
-    src.start(t);
+    const duration = Math.max(0.25, durationMs / 1000);
+    this.setMusicLevel(0.26, 0.45);
+
+    const lowSource = ctx.createBufferSource();
+    lowSource.buffer = this.noise();
+    lowSource.loop = true;
+    const lowFilter = ctx.createBiquadFilter();
+    lowFilter.type = 'bandpass';
+    lowFilter.Q.value = 0.65;
+    lowFilter.frequency.setValueAtTime(280, t);
+    lowFilter.frequency.exponentialRampToValueAtTime(1050, t + duration * 0.88);
+    const lowGain = ctx.createGain();
+    lowGain.gain.setValueAtTime(0.0001, t);
+    lowGain.gain.linearRampToValueAtTime(0.085, t + duration * 0.76);
+
+    const airSource = ctx.createBufferSource();
+    airSource.buffer = this.noise();
+    airSource.loop = true;
+    const airFilter = ctx.createBiquadFilter();
+    airFilter.type = 'highpass';
+    airFilter.frequency.setValueAtTime(2400, t);
+    airFilter.frequency.exponentialRampToValueAtTime(1250, t + duration * 0.9);
+    const airGain = ctx.createGain();
+    airGain.gain.setValueAtTime(0.0001, t);
+    airGain.gain.linearRampToValueAtTime(0.024, t + duration * 0.82);
+
+    lowSource.connect(lowFilter).connect(lowGain).connect(this.master!);
+    airSource.connect(airFilter).connect(airGain).connect(this.master!);
+    lowSource.start(t);
+    airSource.start(t);
+
+    let stopped = false;
     this.windStop = () => {
-      g.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.06);
-      src.stop(ctx.currentTime + 0.3);
+      if (stopped) return;
+      stopped = true;
+      const now = ctx.currentTime;
+      lowGain.gain.cancelScheduledValues(now);
+      airGain.gain.cancelScheduledValues(now);
+      lowGain.gain.setTargetAtTime(0.0001, now, 0.08);
+      airGain.gain.setTargetAtTime(0.0001, now, 0.06);
+      lowSource.stop(now + 0.45);
+      airSource.stop(now + 0.45);
+      this.setMusicLevel(IDLE_MUSIC_GAIN, 0.5);
       this.windStop = null;
     };
   }
@@ -264,144 +363,168 @@ class AudioEngine {
     this.windStop?.();
   }
 
-  /** Landfall: 8-bit explosion — noise sweep + descending square. Scales with Storm Power. */
+  /** Landfall: short cinematic weight, scaled carefully by Storm Power. */
   thunder(powerMult = 1): void {
     const ctx = this.ensure();
     if (!ctx) return;
     this.stopWind();
     const t = ctx.currentTime;
-    const big = Math.min(3, 1 + Math.log10(Math.max(1, powerMult))); // 1..3
-    this.noiseHit(t, 0.7 * big, 0.4, { type: 'lowpass', freq: 2400, slideTo: 90 });
-    this.chip('square', 160, t, 0.5 * big, 0.22, { slideTo: 40 });
-    this.chip('triangle', 55, t, 0.6 * big, 0.3, { slideTo: 30 });
+    const scale = Math.min(1.65, 1 + Math.log10(Math.max(1, powerMult)) * 0.24);
+    this.setMusicLevel(0.16, 0.03);
+    this.noiseHit(t, 0.78 * scale, 0.27, { type: 'lowpass', freq: 2100, slideTo: 85, q: 0.5 }, undefined, 0.22);
+    this.tone('sine', 92, t, 0.62 * scale, 0.24, { slideTo: 36, attack: 0.008, room: 0.28 });
+    this.tone('triangle', 148, t + 0.015, 0.48 * scale, 0.1, { slideTo: 48, attack: 0.006, room: 0.25 });
     if (powerMult >= 25) {
-      // monster storm: second, deeper detonation
-      this.noiseHit(t + 0.28, 1.1, 0.42, { type: 'lowpass', freq: 1400, slideTo: 60 });
-      this.chip('square', 100, t + 0.28, 0.9, 0.2, { slideTo: 28 });
+      this.noiseHit(t + 0.3, 0.92, 0.2, { type: 'lowpass', freq: 1150, slideTo: 60 }, undefined, 0.26);
+      this.tone('sine', 66, t + 0.3, 0.76, 0.18, { slideTo: 30, room: 0.32 });
+    }
+    if (this.musicBus) {
+      this.musicBus.gain.setTargetAtTime(IDLE_MUSIC_GAIN, t + 0.72 * scale, 0.7);
     }
   }
 
-  /** Storm Power reveal (Cat 3+): rising chip arpeggio sized by the multiplier. */
+  /** Storm Power reveal: grounded, non-celebratory pulses sized by multiplier. */
   powerReveal(mult: number): void {
     const ctx = this.ensure();
     if (!ctx) return;
     const t = ctx.currentTime;
-    const notes = mult >= 100 ? 8 : mult >= 25 ? 6 : mult >= 5 ? 4 : 3;
+    const notes = mult >= 100 ? 6 : mult >= 25 ? 5 : mult >= 5 ? 4 : 3;
     for (let i = 0; i < notes; i++) {
-      this.chip('square', 440 * Math.pow(2, i / 4), t + i * 0.06, 0.12, 0.09);
+      const frequency = 164.81 * Math.pow(2, i / 7);
+      this.tone('triangle', frequency, t + i * 0.085, 0.3, 0.065, { attack: 0.02, room: 0.25 });
+      this.tone('sine', frequency / 2, t + i * 0.085, 0.34, 0.035, { attack: 0.02, room: 0.2 });
     }
   }
 
-  /** Your salvage: THE COIN — bright two-note square chirp; wins only. */
+  /** Your salvage: high glass-and-brass bell language, reserved for wins. */
   salvageBell(big = false): void {
     const ctx = this.ensure();
     if (!ctx) return;
     const t = ctx.currentTime;
-    this.coin(t, 988, 1319); // B5 -> E6, the canonical 8-bit coin
+    this.winBell(t, 659.25, 0.095);
+    this.winBell(t + 0.14, 987.77, 0.085);
     if (big) {
-      this.coin(t + 0.12, 1175, 1568);
-      this.coin(t + 0.24, 1319, 1760);
+      this.winBell(t + 0.31, 1174.66, 0.09);
+      this.winBell(t + 0.48, 1318.51, 0.08);
     }
   }
 
-  private coin(at: number, f1: number, f2: number): void {
-    this.chip('square', f1, at, 0.07, 0.1);
-    this.chip('square', f2, at + 0.07, 0.24, 0.1);
-  }
-
-  /** Golden Anchor: full 8-bit victory fanfare; coin rain if it's yours. */
+  /** Golden Anchor: restrained announcement for others, luminous cadence if yours. */
   fanfare(mine: boolean): void {
     const ctx = this.ensure();
     if (!ctx) return;
     const t = ctx.currentTime;
-    const run = [D5, 698.46, 880, 1174.66];
-    run.forEach((f, i) => this.chip('square', f, t + i * 0.11, 0.2, mine ? 0.12 : 0.08));
-    // closing chord
-    [587.33, 880, 1174.66].forEach((f) =>
-      this.chip('square', f, t + 0.5, mine ? 1.2 : 0.6, mine ? 0.09 : 0.05),
-    );
+    const run = [293.66, 349.23, 440, 587.33];
+    run.forEach((frequency, i) => {
+      this.tone('triangle', frequency, t + i * 0.13, 0.34, mine ? 0.08 : 0.048, {
+        attack: 0.025,
+        room: 0.3,
+      });
+    });
+    [293.66, 440, 587.33].forEach((frequency) => {
+      this.tone('sine', frequency, t + 0.56, mine ? 1.18 : 0.66, mine ? 0.065 : 0.036, {
+        attack: 0.04,
+        room: 0.42,
+      });
+    });
     if (mine) {
-      for (let i = 0; i < 6; i++) {
-        this.coin(t + 0.7 + i * 0.09, 988 + i * 60, 1319 + i * 80);
-      }
+      [783.99, 987.77, 1174.66].forEach((frequency, i) => {
+        this.winBell(t + 0.65 + i * 0.16, frequency, 0.075);
+      });
     }
   }
 
-  /** Your harbor wrecked: soft descending square "bump". Short; never celebratory. */
+  /** Your harbor wrecked: a soft low release, never a punishment sting. */
   wreckThud(): void {
     const ctx = this.ensure();
     if (!ctx) return;
     const t = ctx.currentTime;
-    this.chip('square', 220, t, 0.09, 0.09, { slideTo: 110 });
-    this.chip('triangle', 110, t + 0.08, 0.18, 0.12, { slideTo: 55 });
+    this.tone('triangle', 132, t, 0.2, 0.075, { slideTo: 82, attack: 0.018, room: 0.08 });
+    this.tone('sine', 74, t + 0.045, 0.3, 0.09, { slideTo: 48, attack: 0.02, room: 0.12 });
   }
 
-  /** Anchor lands: chip "plop" — tiny noise + downward blip. */
+  /** Anchor lands: a rounded water drop with a short filtered splash. */
   splash(): void {
     const ctx = this.ensure();
     if (!ctx) return;
     const t = ctx.currentTime;
-    this.noiseHit(t, 0.08, 0.07, { type: 'highpass', freq: 2500 });
-    this.chip('square', 520, t + 0.01, 0.09, 0.07, { slideTo: 240 });
+    this.noiseHit(t, 0.15, 0.045, { type: 'bandpass', freq: 1750, slideTo: 720, q: 0.8 }, undefined, 0.18);
+    this.tone('sine', 420, t + 0.015, 0.16, 0.065, { slideTo: 190, attack: 0.006, room: 0.24 });
   }
 
-  /** Final-seconds countdown: NES metronome blip. */
+  /** Final-seconds countdown: a clear but non-alarming wooden pulse. */
   tick(): void {
     const ctx = this.ensure();
     if (!ctx) return;
-    this.chip('square', 1046, ctx.currentTime, 0.04, 0.05);
+    const t = ctx.currentTime;
+    this.tone('triangle', 740, t, 0.075, 0.045, { slideTo: 620, attack: 0.003, room: 0.08 });
+    this.tone('sine', 370, t, 0.09, 0.025, { attack: 0.003, room: 0.06 });
   }
 
-  /** UI clicks — every press answers in theme. */
+  /** UI presses answer with small, tactile, non-reward timbres. */
   click(kind: ClickKind = 'tap'): void {
     const ctx = this.ensure();
     if (!ctx) return;
     const t = ctx.currentTime;
     switch (kind) {
       case 'up':
-        this.chip('square', 660, t, 0.05, 0.06, { slideTo: 880 });
+        this.tone('sine', 440, t, 0.09, 0.04, { slideTo: 554.37, attack: 0.004, room: 0.06 });
         break;
       case 'down':
-        this.chip('square', 660, t, 0.05, 0.06, { slideTo: 494 });
+        this.tone('sine', 440, t, 0.09, 0.04, { slideTo: 349.23, attack: 0.004, room: 0.06 });
         break;
       case 'send':
-        this.chip('square', 784, t, 0.04, 0.06);
-        this.chip('square', 1046, t + 0.05, 0.07, 0.06);
+        this.tone('triangle', 392, t, 0.08, 0.042, { attack: 0.004, room: 0.08 });
+        this.tone('sine', 523.25, t + 0.045, 0.11, 0.038, { attack: 0.004, room: 0.12 });
         break;
       case 'nav':
-        this.chip('triangle', 392, t, 0.06, 0.08);
+        this.tone('triangle', 330, t, 0.1, 0.05, { attack: 0.005, room: 0.08 });
         break;
       default:
-        this.chip('square', 587, t, 0.045, 0.06);
+        this.tone('sine', 392, t, 0.075, 0.042, { slideTo: 370, attack: 0.004, room: 0.05 });
     }
   }
 
-  // ---------- soundtrack: swung lo-fi chiptune loop ----------
+  // ---------- adaptive ambience and music ----------
 
-  private startVinyl(): void {
+  private startWaterAmbience(): void {
     const ctx = this.ctx!;
-    const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < 70; i++) {
-      const pos = Math.floor(Math.random() * d.length);
-      const amp = Math.random() ** 2 * 0.5;
-      for (let j = 0; j < 20 && pos + j < d.length; j++) {
-        d[pos + j] = (Math.random() * 2 - 1) * amp * (1 - j / 20);
-      }
-    }
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.loop = true;
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 3000;
-    const g = ctx.createGain();
-    g.gain.value = 0.05;
-    src.connect(lp).connect(g).connect(this.master!);
-    src.start();
+    const source = ctx.createBufferSource();
+    source.buffer = this.noise();
+    source.loop = true;
+
+    const lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = 620;
+    lowpass.Q.value = 0.4;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = 310;
+    band.Q.value = 0.55;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.018;
+
+    const tideLfo = ctx.createOscillator();
+    tideLfo.type = 'sine';
+    tideLfo.frequency.value = 0.09;
+    const tideDepth = ctx.createGain();
+    tideDepth.gain.value = 105;
+    tideLfo.connect(tideDepth).connect(band.frequency);
+
+    const breathLfo = ctx.createOscillator();
+    breathLfo.type = 'sine';
+    breathLfo.frequency.value = 0.055;
+    const breathDepth = ctx.createGain();
+    breathDepth.gain.value = 0.004;
+    breathLfo.connect(breathDepth).connect(gain.gain);
+
+    source.connect(lowpass).connect(band).connect(gain).connect(this.master!);
+    source.start();
+    tideLfo.start();
+    breathLfo.start();
   }
 
-  /** Lookahead scheduler — sample-accurate chiptune with swing. */
+  /** Lookahead scheduler for the quiet coastal score. */
   private startSequencer(): void {
     const ctx = this.ctx!;
     this.nextStepTime = ctx.currentTime + 0.1;
@@ -420,29 +543,44 @@ class AudioEngine {
     const bar = Math.floor(step / STEPS_PER_BAR);
     const inBar = step % STEPS_PER_BAR;
 
-    // drums: kick on 1, snare on 3, swung hats on offbeats
+    // Slow sine pad establishes warmth without competing with the map.
+    if (inBar === 0) {
+      for (const frequency of PAD_CHORDS[bar]!) {
+        this.tone('sine', frequency, t, STEP_SEC * 14, 0.026, {
+          bus,
+          attack: 0.32,
+          detune: (Math.random() - 0.5) * 5,
+          room: 0.22,
+        });
+      }
+    }
+
+    // A rounded pulse and brushed-noise accents replace arcade drums.
     if (inBar === 0 || inBar === 10) {
-      this.chip('sine' as OscillatorType, 120, t, 0.13, 0.24, { slideTo: 45, bus });
+      this.tone('sine', 88, t, 0.2, 0.12, { slideTo: 46, bus, attack: 0.008, room: 0.05 });
     }
     if (inBar === 8) {
-      this.noiseHit(t, 0.11, 0.07, { type: 'bandpass', freq: 1800 }, bus);
+      this.noiseHit(t, 0.14, 0.035, { type: 'bandpass', freq: 1250, q: 0.65 }, bus, 0.12);
     }
     if (inBar % 4 === 2) {
-      this.noiseHit(t, 0.03, 0.03, { type: 'highpass', freq: 6000 }, bus);
+      this.noiseHit(t, 0.055, 0.012, { type: 'highpass', freq: 4800 }, bus, 0.04);
     }
 
-    // bass: triangle root pulses (1, 2-and, 3)
     if (inBar === 0 || inBar === 6 || inBar === 8) {
       const root = BASS_ROOTS[bar]!;
-      this.chip('triangle', root, t, 0.3, 0.16, { bus });
+      this.tone('triangle', root, t, 0.42, 0.085, { bus, attack: 0.028, room: 0.08 });
+      this.tone('sine', root * 2, t, 0.34, 0.03, { bus, attack: 0.028, room: 0.08 });
     }
 
-    // lead: sparse square melody with tape echo + human detune
+    // Sparse triangle melody with a quiet sine body and dark echo.
     const note = LEAD[step];
     if (note !== null && note !== undefined) {
-      const detune = (Math.random() - 0.5) * 8; // lo-fi wobble, ±4 cents
-      this.chip('square', note, t, 0.22, 0.045, { bus, detune });
-      if (this.echo) this.chip('square', note, t, 0.18, 0.028, { bus: this.echo, detune });
+      const detune = (Math.random() - 0.5) * 5;
+      this.tone('triangle', note, t, 0.3, 0.026, { bus, detune, attack: 0.022, room: 0.2 });
+      this.tone('sine', note / 2, t, 0.34, 0.018, { bus, detune, attack: 0.025, room: 0.18 });
+      if (this.echo) {
+        this.tone('sine', note, t, 0.22, 0.014, { bus: this.echo, detune, attack: 0.02, room: 0 });
+      }
     }
   }
 }
