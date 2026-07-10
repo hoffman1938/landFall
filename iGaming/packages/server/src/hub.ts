@@ -130,6 +130,20 @@ export class Hub {
         }
         break;
       }
+      case 'CANCEL_ORDER': {
+        const r = this.coordinator.cancelOrder(session.playerId);
+        if (r.ok) {
+          this.send(session, {
+            type: 'CANCEL_ACK',
+            balanceMinor: r.balanceMinor,
+            finalOrderUsed: r.finalOrderUsed,
+            refundMinor: r.refundMinor,
+          });
+        } else {
+          this.error(session, r.code, r.message);
+        }
+        break;
+      }
       case 'SIGNAL': {
         const r = this.coordinator.signal(session.playerId, session.name, msg.zone, msg.kind);
         if (!r.ok) this.error(session, r.code, r.message);

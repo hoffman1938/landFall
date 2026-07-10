@@ -61,12 +61,18 @@ export const signalMsg = z.object({
   kind: z.enum(['RALLY', 'FLEE', 'HOLD']),
 });
 
+/** Withdraw the whole fleet order before lock; the stake is refunded in full. */
+export const cancelOrderMsg = z.object({
+  type: z.literal('CANCEL_ORDER'),
+});
+
 export const clientMessage = z.discriminatedUnion('type', [
   helloMsg,
   anchorMsg,
   fleetOrderMsg,
   chatMsg,
   signalMsg,
+  cancelOrderMsg,
 ]);
 export type ClientMessage = z.infer<typeof clientMessage>;
 
@@ -178,6 +184,13 @@ export type ServerMessage =
       balanceMinor: number;
       finalOrderUsed?: boolean;
       fleet?: FleetPlanPublic;
+    }
+  | {
+      type: 'CANCEL_ACK';
+      balanceMinor: number;
+      /** True when the cancel happened during Blind Fog and consumed the one hidden order. */
+      finalOrderUsed: boolean;
+      refundMinor: number;
     }
   | { type: 'SIGNAL_UPDATE'; signals: SignalPublic[] }
   | { type: 'LOCK_SNAPSHOT'; pools: PoolsState; anchors: PlayerPublic[]; phase: PhaseInfo }

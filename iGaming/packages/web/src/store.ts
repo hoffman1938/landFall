@@ -75,6 +75,8 @@ interface State {
   lastFleet: FleetPlanPublic | null;
 
   sendAnchor(zone: number): void;
+  /** Withdraw the active fleet order before lock; the full stake is refunded. */
+  cancelOrder(): void;
   sendSignal(kind: SignalKind, zone?: number): void;
   sendChat(text: string): void;
   setFleetMode(mode: FleetMode): void;
@@ -205,6 +207,16 @@ export const useStore = create<State>((set, get) => {
           audio.splash();
           break;
         }
+        case 'CANCEL_ACK':
+          set({
+            myAnchor: null,
+            myFleet: null,
+            orderPending: false,
+            balanceMinor: msg.balanceMinor,
+            finalOrderUsed: msg.finalOrderUsed ? true : get().finalOrderUsed,
+          });
+          audio.click('down');
+          break;
         case 'SIGNAL_UPDATE':
           set({ signals: msg.signals });
           break;
@@ -351,6 +363,19 @@ export const useStore = create<State>((set, get) => {
       if (send(fleetOrderMessage(focusFleet(zone, s.stakeInputMinor)))) {
         set({ orderPending: true });
       }
+    },
+    cancelOrder() {
+      const s = get();
+      if (
+        !s.connected ||
+        s.phase?.phase !== 'ANCHOR_OPEN' ||
+        !s.myFleet ||
+        s.finalOrderUsed ||
+        s.orderPending
+      ) {
+        return;
+      }
+      if (send({ type: 'CANCEL_ORDER' })) set({ orderPending: true });
     },
     sendSignal(kind, zone) {
       const target = zone ?? get().myFleet?.primaryZone ?? get().myAnchor?.zone;

@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { HARBOR_NAMES, MAX_STAKE_MINOR, MIN_STAKE_MINOR, SPLIT_PRIMARY_PERCENT } from '@landfall/core';
 import { audio } from '../audio/engine';
 import { fmt, useStore } from '../store';
-import { BoatIcon, RallyFlagIcon, FleeFlagIcon, HoldFlagIcon, SplitBoatsIcon } from './icons';
+import { BoatIcon, RallyFlagIcon, FleeFlagIcon, HoldFlagIcon, SplitBoatsIcon, XIcon } from './icons';
 
 const PRESETS = [10_00, 50_00, 200_00, 500_00, 1000_00, 2500_00, 5000_00];
 
@@ -24,7 +24,7 @@ function presetLabel(minor: number): string {
 interface PrimaryAction {
   label: string;
   sub?: string | undefined;
-  kind: 'action' | 'confirmed' | 'idle';
+  kind: 'action' | 'cancel' | 'confirmed' | 'idle';
   disabled: boolean;
   onPress?: () => void;
 }
@@ -41,7 +41,9 @@ export function ControlDeck() {
   const orderPending = useStore((s) => s.orderPending);
   const balanceMinor = useStore((s) => s.balanceMinor);
   const lastFleet = useStore((s) => s.lastFleet);
+  const tideReport = useStore((s) => s.tideReport);
   const rebet = useStore((s) => s.rebet);
+  const cancelOrder = useStore((s) => s.cancelOrder);
   const doubleStake = useStore((s) => s.doubleStake);
   const sendSignal = useStore((s) => s.sendSignal);
   const flagPickerAt = useStore((s) => s.flagPickerAt);
@@ -55,6 +57,7 @@ export function ControlDeck() {
 
   const open = phase?.phase === 'ANCHOR_OPEN';
   const canOrder = connected && open && !finalOrderUsed && !orderPending;
+  const fogActive = open && (tideReport?.frozen ?? false);
 
   // The docked secondary panel sizes itself above the deck.
   useEffect(() => {
@@ -134,7 +137,7 @@ export function ControlDeck() {
                   disabled: true,
                 }
               : orderPending
-                ? { label: 'PLACING…', kind: 'idle', disabled: true }
+                ? { label: 'SENDING…', kind: 'idle', disabled: true }
                 : myFleet
                   ? stakeInputMinor !== myFleet.stakeMinor
                     ? {
@@ -148,10 +151,16 @@ export function ControlDeck() {
                         },
                       }
                     : {
-                        label: `ANCHORED · ${coveName(myFleet.primaryZone).toUpperCase()}`,
-                        sub: 'Tap another cove to move',
-                        kind: 'confirmed',
-                        disabled: true,
+                        label: 'CANCEL BET',
+                        sub: fogActive
+                          ? `${fmt(myFleet.stakeMinor)} at ${coveName(myFleet.primaryZone)} · uses your fog order`
+                          : `${fmt(myFleet.stakeMinor)} at ${coveName(myFleet.primaryZone)} refunds in full`,
+                        kind: 'cancel',
+                        disabled: false,
+                        onPress: () => {
+                          audio.click('down');
+                          cancelOrder();
+                        },
                       }
                   : lastFleet
                     ? {
@@ -174,9 +183,11 @@ export function ControlDeck() {
   const primaryClass =
     primary.kind === 'action'
       ? 'bg-[var(--lf-action)] text-[#04240f] hover:bg-[var(--lf-action-strong)] active:scale-[0.99]'
-      : primary.kind === 'confirmed'
-        ? 'border border-[var(--lf-action)]/60 bg-[var(--lf-action)]/10 text-[var(--lf-safe)]'
-        : 'bg-[var(--lf-surface-2)] text-[var(--lf-dim)]';
+      : primary.kind === 'cancel'
+        ? 'bg-[var(--lf-danger)] text-[#2b0505] hover:brightness-110 active:scale-[0.99]'
+        : primary.kind === 'confirmed'
+          ? 'border border-[var(--lf-action)]/60 bg-[var(--lf-action)]/10 text-[var(--lf-safe)]'
+          : 'bg-[var(--lf-surface-2)] text-[var(--lf-dim)]';
 
   const split = fleetMode === 'SPLIT';
   const summary = myFleet
@@ -408,6 +419,19 @@ export function ControlDeck() {
                 <RallyFlagIcon size={18} />
               </button>
             )}
+            {myFleet && canOrder && stakeInputMinor !== myFleet.stakeMinor && (
+              <button
+                onClick={() => {
+                  audio.click('down');
+                  cancelOrder();
+                }}
+                className="flex w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-[var(--lf-danger)]/60 bg-[var(--lf-danger)]/10 text-[var(--lf-danger)] hover:bg-[var(--lf-danger)]/20"
+                aria-label={`Cancel bet — refund ${fmt(myFleet.stakeMinor)}`}
+                title={`Cancel bet — refund ${fmt(myFleet.stakeMinor)}`}
+              >
+                <XIcon size={16} />
+              </button>
+            )}
             <button
               onClick={primary.onPress}
               disabled={primary.disabled}
@@ -422,7 +446,11 @@ export function ControlDeck() {
               {primary.sub && (
                 <span
                   className={`text-[10px] font-semibold leading-tight ${
-                    primary.kind === 'action' ? 'text-[#04240f]/70' : 'text-[var(--lf-dim)]'
+                    primary.kind === 'action'
+                      ? 'text-[#04240f]/70'
+                      : primary.kind === 'cancel'
+                        ? 'text-[#2b0505]/75'
+                        : 'text-[var(--lf-dim)]'
                   }`}
                 >
                   {primary.sub}

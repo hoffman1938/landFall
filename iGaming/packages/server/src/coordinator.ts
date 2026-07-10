@@ -326,6 +326,53 @@ export class RoundCoordinator {
     return { ok: true, balanceMinor: newBalance, finalOrderUsed, fleet: this.fleetPublic(fleet) };
   }
 
+  /**
+   * Withdraw the player's whole fleet order before lock; the stake is refunded
+   * in full (stakes are only persisted at lock, so this is in-memory + balance).
+   * During Blind Fog a cancel is the player's one hidden order, same as a move.
+   */
+  cancelOrder(
+    playerId: string,
+  ):
+    | { ok: true; balanceMinor: number; finalOrderUsed: boolean; refundMinor: number }
+    | { ok: false; code: string; message: string } {
+    if (this.phase !== 'ANCHOR_OPEN' || Date.now() >= this.phaseEndsAt) {
+      return { ok: false, code: 'ROUND_LOCKED', message: 'Anchors are locked for this round.' };
+    }
+    const existing = this.fleets.get(playerId);
+    if (!existing) {
+      return { ok: false, code: 'NO_ORDER', message: 'You have no active order to cancel.' };
+    }
+    const now = Date.now();
+    const fogOrder = this.isBlindFogActive(now);
+    if (fogOrder && this.finalOrders.has(playerId)) {
+      return {
+        ok: false,
+        code: 'FINAL_ORDER_USED',
+        message: 'Blind Fog allows one final order. Your fleet is already committed.',
+      };
+    }
+    if (now - existing.lastChangeAt < ANCHOR_MIN_INTERVAL_MS) {
+      return { ok: false, code: 'TOO_FAST', message: 'Re-anchoring too fast.' };
+    }
+
+    const player = this.db.select().from(players).where(eq(players.id, playerId)).get();
+    if (!player) return { ok: false, code: 'NO_PLAYER', message: 'Unknown player.' };
+
+    const refundMinor = existing.stakeMinor;
+    const newBalance = player.balanceMinor + refundMinor;
+    this.db.update(players).set({ balanceMinor: newBalance }).where(eq(players.id, playerId)).run();
+    this.fleets.delete(playerId);
+
+    if (fogOrder) {
+      this.finalOrders.add(playerId);
+      this.fogMoveCount += 1;
+    } else {
+      this.scheduleTideBroadcast();
+    }
+    return { ok: true, balanceMinor: newBalance, finalOrderUsed: fogOrder, refundMinor };
+  }
+
   /** One public bluff/coordination signal per player per round. Signals never affect settlement. */
   signal(
     playerId: string,
