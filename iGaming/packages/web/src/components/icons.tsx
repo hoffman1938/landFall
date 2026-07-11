@@ -129,6 +129,14 @@ export const HoldFlagIcon = (p: P) => (
   </svg>
 );
 
+export const SlidersIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M4 7h9M19.5 7h.5M4 17h3M13.5 17h6.5" />
+    <circle cx="16" cy="7" r="2.4" />
+    <circle cx="10" cy="17" r="2.4" />
+  </svg>
+);
+
 export const ChatIcon = (p: P) => (
   <svg {...base(p)}>
     <path d="M4 5.5h16v11H9L4 20.5Z" />

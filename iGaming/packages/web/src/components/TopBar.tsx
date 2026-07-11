@@ -1,14 +1,22 @@
 /**
  * Night Watch top bar: quiet identity and authoritative round/account status.
  * The large countdown remains in StormClock; this bar keeps the phase visible
- * when other map overlays are obscured.
+ * when other map overlays are obscured. Settings holds the expert-deck toggle
+ * (D5) — experts skip the progressive disclosure schedule entirely.
  */
 import { useEffect, useRef, useState } from 'react';
 import { audio } from '../audio/engine';
+import {
+  getDeckProgress,
+  updateDeckProgress,
+  useDeckProgress,
+  withExpert,
+} from '../deckProgress';
 import { fmt, useStore } from '../store';
 import {
   LighthouseIcon,
   QuestionIcon,
+  SlidersIcon,
   SoundOffIcon,
   SoundOnIcon,
   SurgeIcon,
@@ -39,7 +47,18 @@ export function TopBar() {
   const [muted, setMuted] = useState(audio.prefs.muted);
   const [volume, setVolume] = useState(audio.prefs.volume);
   const [now, setNow] = useState(Date.now());
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const deckProgress = useDeckProgress();
   const lastTickSecond = useRef(-1);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSettingsOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [settingsOpen]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 200);
@@ -104,7 +123,7 @@ export function TopBar() {
           >
             {rooms.map((r) => (
               <option key={r.roomId} value={r.roomId}>
-                {r.name} · {(r.minStakeMinor / 100).toFixed(0)}–{(r.maxStakeMinor / 100).toFixed(0)} · {r.humanCount} 👤
+                {r.name} · {(r.minStakeMinor / 100).toFixed(0)}–{(r.maxStakeMinor / 100).toFixed(0)} · {r.humanCount} aboard
               </option>
             ))}
           </select>
@@ -217,6 +236,50 @@ export function TopBar() {
               aria-label="Volume"
             />
           </div>
+        </div>
+
+        <div className="relative flex shrink-0 items-center">
+          <button
+            type="button"
+            onClick={() => {
+              audio.click('nav');
+              setSettingsOpen((v) => !v);
+            }}
+            className="flex h-11 w-11 items-center justify-center rounded-md text-[var(--lf-dim)] hover:bg-[var(--lf-surface-2)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+            aria-label="Settings"
+            aria-haspopup="true"
+            aria-expanded={settingsOpen}
+          >
+            <SlidersIcon size={16} />
+          </button>
+          {settingsOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-20"
+                aria-hidden="true"
+                onMouseDown={() => setSettingsOpen(false)}
+              />
+              <div className="absolute right-0 top-full z-30 mt-1 w-64 rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] p-1.5 shadow-xl">
+                <label className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md px-2 py-1 text-sm font-semibold text-[var(--lf-text)] hover:bg-[var(--lf-surface-2)]">
+                  <input
+                    type="checkbox"
+                    checked={deckProgress.expert}
+                    onChange={(event) => {
+                      audio.click('tap');
+                      updateDeckProgress(withExpert(getDeckProgress(), event.target.checked));
+                    }}
+                    className="h-4 w-4 shrink-0 accent-[var(--lf-focus)]"
+                  />
+                  <span>
+                    Expert deck
+                    <span className="block text-xs font-medium leading-snug text-[var(--lf-dim)]">
+                      Show all deck controls immediately
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </>
+          )}
         </div>
 
         <button

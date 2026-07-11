@@ -108,6 +108,21 @@ function bootstrap(sqlite: Database.Database) {
       text TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS action_telemetry (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      room_id TEXT NOT NULL,
+      round_id INTEGER NOT NULL,
+      player_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      ms_into_phase INTEGER NOT NULL,
+      zone INTEGER,
+      stake_minor INTEGER,
+      in_fog INTEGER NOT NULL,
+      is_min_stake INTEGER NOT NULL,
+      detail TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_telemetry_player ON action_telemetry(player_id, round_id);
   `);
   // Additive column migrations for pre-existing dev DBs (CREATE TABLE IF NOT
   // EXISTS skips them). Idempotent: checked against pragma table_info.

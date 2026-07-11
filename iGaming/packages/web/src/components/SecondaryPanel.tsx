@@ -13,7 +13,12 @@ import { ChatPanel } from './ChatPanel';
 import { ChatIcon, XIcon } from './icons';
 import { SalvageLog } from './SalvageLog';
 
-type PanelTab = 'mission' | 'chat' | 'activity';
+/**
+ * Missions were removed from the product (remediation D7): they shipped without
+ * design/RG review. If they ever return, they re-enter via the five-question
+ * feature gate and an RG review — do not re-add a tab here before that.
+ */
+type PanelTab = 'chat' | 'activity';
 type PanelMode = 'docked' | 'drawer' | 'sheet';
 
 interface PanelPreferences {
@@ -24,9 +29,8 @@ interface PanelPreferences {
 }
 
 const STORAGE_KEY = 'landfall.secondary-panel.v1';
-const TABS: readonly PanelTab[] = ['mission', 'chat', 'activity'];
+const TABS: readonly PanelTab[] = ['chat', 'activity'];
 const TAB_LABELS: Record<PanelTab, string> = {
-  mission: 'Mission',
   chat: 'Chat',
   activity: 'Activity',
 };
@@ -45,8 +49,9 @@ const FOCUSABLE_SELECTOR = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
+/** A persisted 'mission' preference from older builds fails this guard and falls back to chat. */
 function isPanelTab(value: unknown): value is PanelTab {
-  return value === 'mission' || value === 'chat' || value === 'activity';
+  return value === 'chat' || value === 'activity';
 }
 
 function readPreferences(): PanelPreferences {
@@ -106,25 +111,6 @@ function usePanelMode(): PanelMode {
   }, []);
 
   return mode;
-}
-
-function MissionUnavailable() {
-  return (
-    <div className="p-3" role="status">
-      <div className="rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/60 p-3">
-        <span className="text-[10px] font-extrabold uppercase tracking-wide text-[var(--lf-dim)]">
-          Not available
-        </span>
-        <h3 className="mt-1 text-sm font-extrabold text-[var(--lf-text)]">
-          Missions are not connected
-        </h3>
-        <p className="mt-1 text-xs leading-relaxed text-[var(--lf-dim)]">
-          This build has no authoritative mission service. Progress appears here only when the
-          server provides it.
-        </p>
-      </div>
-    </div>
-  );
 }
 
 /**
@@ -312,7 +298,7 @@ export function SecondaryPanel() {
           type="button"
           onClick={openPanel}
           className="lf-surface absolute right-2 top-2 z-20 flex h-11 w-11 items-center justify-center rounded-full text-[var(--lf-dim)] shadow-lg hover:border-[var(--lf-focus)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
-          aria-label={`Open Mission, Chat, and Activity${unreadCount > 0 ? `, ${unreadCount} unread chat messages` : ''}`}
+          aria-label={`Open Chat and Activity${unreadCount > 0 ? `, ${unreadCount} unread chat messages` : ''}`}
           aria-controls={panelId}
           aria-expanded="false"
           aria-haspopup={mode === 'docked' ? undefined : 'dialog'}
@@ -381,7 +367,7 @@ export function SecondaryPanel() {
           <div
             role="tablist"
             aria-label="Harbor secondary information"
-            className="grid shrink-0 grid-cols-3 border-b border-[var(--lf-line)] bg-[var(--lf-bg)]/45 p-1"
+            className="grid shrink-0 grid-cols-2 border-b border-[var(--lf-line)] bg-[var(--lf-bg)]/45 p-1"
           >
             {TABS.map((tab, index) => {
               const active = preferences.activeTab === tab;
@@ -433,9 +419,7 @@ export function SecondaryPanel() {
             tabIndex={0}
             className="min-h-0 flex-1 overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--lf-focus)]"
           >
-            {preferences.activeTab === 'mission' ? (
-              <MissionUnavailable />
-            ) : preferences.activeTab === 'chat' ? (
+            {preferences.activeTab === 'chat' ? (
               <ChatPanel showHeader={false} dense />
             ) : (
               <SalvageLog showHeader={false} dense />

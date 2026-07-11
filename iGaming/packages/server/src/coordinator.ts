@@ -359,6 +359,33 @@ export class RoundCoordinator {
     return receipt;
   }
 
+  /**
+   * Behavioral telemetry (B3): one row per ACCEPTED round action, feeding the
+   * offline collusion scan (scripts/collusion-scan.ts). Rejected actions are
+   * already fully recorded by the signed receipts (B1).
+   */
+  private recordTelemetry(
+    playerId: string,
+    action: 'FLEET_ORDER' | 'CANCEL_ORDER' | 'SIGNAL',
+    now: number,
+    zone: number | null,
+    stakeMinor: number | null,
+    detail: string | null,
+  ): void {
+    this.repo.insertTelemetry({
+      roomId: this.cfg.roomId,
+      roundId: this.roundId,
+      playerId,
+      action,
+      msIntoPhase: Math.max(0, now - (this.anchorLockAt - this.timings.anchorMs)),
+      zone,
+      stakeMinor,
+      inFog: this.isBlindFogActive(now),
+      isMinStake: stakeMinor !== null && stakeMinor === this.cfg.minStakeMinor,
+      detail,
+    });
+  }
+
   /** Back-compat wrapper: old ANCHOR messages are Focus fleet orders. */
   anchor(
     playerId: string,
@@ -488,6 +515,7 @@ export class RoundCoordinator {
     } else {
       this.scheduleTideBroadcast();
     }
+    this.recordTelemetry(playerId, 'FLEET_ORDER', now, primaryZone, stakeMinor, mode);
     return {
       ok: true,
       balanceMinor: newBalance,
@@ -552,6 +580,7 @@ export class RoundCoordinator {
     } else {
       this.scheduleTideBroadcast();
     }
+    this.recordTelemetry(playerId, 'CANCEL_ORDER', now, null, refundMinor, null);
     return {
       ok: true,
       balanceMinor: newBalance,
@@ -605,6 +634,7 @@ export class RoundCoordinator {
     }
     this.flagHistory.set(playerId, [...recent, this.roundId]);
     this.signals.set(playerId, { playerId, name, zone, kind });
+    this.recordTelemetry(playerId, 'SIGNAL', Date.now(), zone, null, kind);
     const publish = () =>
       this.events.broadcast({
         type: 'SIGNAL_UPDATE',

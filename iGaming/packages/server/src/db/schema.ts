@@ -110,6 +110,29 @@ export const actionReceipts = sqliteTable('action_receipts', {
   sigHex: text('sig_hex').notNull(),
 });
 
+/**
+ * Per-action behavioral telemetry (B3) — accepted round actions only, for the
+ * offline collusion scan (scripts/collusion-scan.ts). Distinct from receipts:
+ * receipts are the player-facing audit trail; telemetry is the ops-facing
+ * behavioral record (zone, stake, phase timing, fog membership).
+ */
+export const actionTelemetry = sqliteTable('action_telemetry', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  roomId: text('room_id').notNull(),
+  roundId: integer('round_id').notNull(),
+  playerId: text('player_id').notNull(),
+  action: text('action').notNull(), // FLEET_ORDER | CANCEL_ORDER | SIGNAL
+  msIntoPhase: integer('ms_into_phase').notNull(),
+  zone: integer('zone'), // primary/flagged zone; null for cancels
+  stakeMinor: integer('stake_minor'), // null for signals
+  inFog: integer('in_fog', { mode: 'boolean' }).notNull(),
+  /** Stake equals the room minimum — the probing detector's raw signal. */
+  isMinStake: integer('is_min_stake', { mode: 'boolean' }).notNull(),
+  /** FOCUS/SPLIT for orders, the SignalKind for flags. */
+  detail: text('detail'),
+  createdAt: integer('created_at').notNull(),
+});
+
 export const chatMessages = sqliteTable('chat_messages', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   /** Chat is scoped per room (C1). */

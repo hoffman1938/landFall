@@ -1,7 +1,7 @@
 /**
  * Four-zone shell: slim TopBar, compact wreck-history strip, the dominant
  * minimal chart bay, and a persistent bottom ControlDeck. Secondary
- * information (mission/chat/activity) lives in one collapsible SecondaryPanel
+ * information (chat/activity) lives in one collapsible SecondaryPanel
  * that docks as a column on wide screens and becomes a drawer/sheet below.
  */
 import { lazy, Suspense, useEffect } from 'react';
@@ -67,7 +67,7 @@ export default function App() {
           )}
         </div>
 
-        {/* mission / chat / activity */}
+        {/* chat / activity */}
         <SecondaryPanel />
       </main>
       <VerifyModal />

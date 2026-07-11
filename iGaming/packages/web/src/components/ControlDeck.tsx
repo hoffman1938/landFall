@@ -11,7 +11,10 @@
  *  - all interactive targets ≥ 44px, interactive text ≥ 14px, primary ≥ 16px
  *    (audit table: docs/09-remediation/d2-accessibility-audit.md);
  *  - the payout expectation strip derives from the PUBLIC tide report only and
- *    freezes with it.
+ *    freezes with it;
+ *  - disclosure is progressive (D5, ../deckProgress.ts): a fresh profile sees
+ *    stepper + presets + primary only; Focus/Split, flags and ×2/½/MAX unlock
+ *    per the schedule there. Experts are never re-gated.
  */
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -23,6 +26,17 @@ import {
   payoutExpectationGains,
 } from '@landfall/core';
 import { audio } from '../audio/engine';
+import {
+  MODE_UNLOCK_ROUNDS,
+  getDeckProgress,
+  resolveDisclosure,
+  updateDeckProgress,
+  useDeckProgress,
+  withModesUnlockedByTap,
+  withRivalFlagSeen,
+  withRoundCompleted,
+  withStakeEdited,
+} from '../deckProgress';
 import { formatPayoutStrip, resolveDeckState, type PrimaryId } from '../deckState';
 import { fmt, useStore } from '../store';
 import {
@@ -30,6 +44,7 @@ import {
   RallyFlagIcon,
   FleeFlagIcon,
   HoldFlagIcon,
+  LockIcon,
   SplitBoatsIcon,
   StormIcon,
   XIcon,
@@ -76,10 +91,28 @@ export function ControlDeck() {
   // B4 flag cooldown mirror: dimmed flag + round counter, no prose.
   const myFlagRounds = useStore((s) => s.myFlagRounds);
   const roundId = useStore((s) => s.round?.roundId);
+  // D5 progressive disclosure inputs.
+  const landfallRoundId = useStore((s) => s.lastLandfall?.roundId);
+  const signals = useStore((s) => s.signals);
+  const myName = useStore((s) => s.name);
+  const progress = useDeckProgress();
+  const disclosure = resolveDisclosure(progress);
 
   const deckRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [stakeError, setStakeError] = useState<string | null>(null);
+
+  // D5 unlock triggers: completed rounds and the first rival flag seen.
+  useEffect(() => {
+    if (landfallRoundId === undefined) return;
+    updateDeckProgress(withRoundCompleted(getDeckProgress(), landfallRoundId));
+  }, [landfallRoundId]);
+  useEffect(() => {
+    if (myName === null) return;
+    if (signals.some((s) => s.name !== myName)) {
+      updateDeckProgress(withRivalFlagSeen(getDeckProgress()));
+    }
+  }, [signals, myName]);
 
   const open = phase?.phase === 'ANCHOR_OPEN';
   const canOrder = connected && open && !finalOrderUsed && !orderPending;
@@ -151,6 +184,8 @@ export function ControlDeck() {
   const clamp = (v: number) => Math.min(maxStakeMinor, Math.max(minStakeMinor, v));
 
   const applyStake = (value: number, announceClamp = false) => {
+    // Every stake edit is a user action — it unlocks the ×2/½/MAX row (D5).
+    updateDeckProgress(withStakeEdited(getDeckProgress()));
     const next = clamp(value);
     if (announceClamp && next !== value) {
       setStakeError(
@@ -263,8 +298,10 @@ export function ControlDeck() {
 
   return (
     <>
-      {/* flag picker popover — three pictographic flags, no text required */}
-      {flagPickerAt && open && (
+      {/* flag picker popover — three pictographic flags, no text required.
+          Gated with the flag button (D5): long-press on a cove is the other
+          way in, so the disclosure check must live here too. */}
+      {flagPickerAt && open && disclosure.showFlags && (
         <div
           className="fixed z-30"
           style={{
@@ -331,52 +368,71 @@ export function ControlDeck() {
         )}
 
         <div className="mx-auto flex max-w-4xl flex-col gap-2 px-3 py-2 md:flex-row md:items-stretch md:gap-3">
-          {/* mode + selection summary */}
-          <div className="flex items-center gap-2 md:flex-col md:items-stretch md:justify-center md:gap-1.5">
-            <div
-              className="flex overflow-hidden rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)]"
-              role="radiogroup"
-              aria-label="Fleet mode"
-            >
-              {(
-                [
-                  ['FOCUS', BoatIcon, 'Focus', 'Full stake in one cove'],
+          {/* mode + selection summary — progressively disclosed (D5): fresh
+              profiles see no mode group; after one round a dimmed teaser with
+              the same footprint appears; unlocked at 3 rounds or on tap. */}
+          {disclosure.showModeToggle ? (
+            <div className="flex items-center gap-2 md:flex-col md:items-stretch md:justify-center md:gap-1.5">
+              <div
+                className="flex overflow-hidden rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)]"
+                role="radiogroup"
+                aria-label="Fleet mode"
+              >
+                {(
                   [
-                    'SPLIT',
-                    SplitBoatsIcon,
-                    'Split',
-                    `${SPLIT_PRIMARY_PERCENT}/${100 - SPLIT_PRIMARY_PERCENT} across two coves`,
-                  ],
-                ] as const
-              ).map(([mode, Icon, label, hint]) => (
-                <button
-                  key={mode}
-                  role="radio"
-                  aria-checked={fleetMode === mode}
-                  onClick={() => {
-                    audio.click('tap');
-                    setFleetMode(mode);
-                  }}
-                  disabled={!canOrder}
-                  className={`flex h-11 min-w-20 items-center justify-center gap-1.5 px-3 text-sm font-extrabold disabled:cursor-not-allowed disabled:opacity-40 ${
-                    fleetMode === mode
-                      ? 'bg-[var(--lf-focus)] text-[#03202f]'
-                      : 'text-[var(--lf-dim)] hover:text-[var(--lf-text)]'
-                  }`}
-                  title={hint}
-                >
-                  <Icon size={15} />
-                  {label}
-                </button>
-              ))}
+                    ['FOCUS', BoatIcon, 'Focus', 'Full stake in one cove'],
+                    [
+                      'SPLIT',
+                      SplitBoatsIcon,
+                      'Split',
+                      `${SPLIT_PRIMARY_PERCENT}/${100 - SPLIT_PRIMARY_PERCENT} across two coves`,
+                    ],
+                  ] as const
+                ).map(([mode, Icon, label, hint]) => (
+                  <button
+                    key={mode}
+                    role="radio"
+                    aria-checked={fleetMode === mode}
+                    onClick={() => {
+                      audio.click('tap');
+                      setFleetMode(mode);
+                    }}
+                    disabled={!canOrder}
+                    className={`flex h-11 min-w-20 items-center justify-center gap-1.5 px-3 text-sm font-extrabold disabled:cursor-not-allowed disabled:opacity-40 ${
+                      fleetMode === mode
+                        ? 'bg-[var(--lf-focus)] text-[#03202f]'
+                        : 'text-[var(--lf-dim)] hover:text-[var(--lf-text)]'
+                    }`}
+                    title={hint}
+                  >
+                    <Icon size={15} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p
+                className="hidden max-w-44 truncate text-xs font-semibold text-[var(--lf-dim)] md:block"
+                title={summary}
+              >
+                {summary}
+              </p>
             </div>
-            <p
-              className="hidden max-w-44 truncate text-xs font-semibold text-[var(--lf-dim)] md:block"
-              title={summary}
-            >
-              {summary}
-            </p>
-          </div>
+          ) : disclosure.showModeTeaser ? (
+            <div className="flex items-center md:flex-col md:justify-center">
+              <button
+                onClick={() => {
+                  audio.click('tap');
+                  updateDeckProgress(withModesUnlockedByTap(getDeckProgress()));
+                }}
+                className="flex h-11 min-w-[10.5rem] items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--lf-line)] bg-[var(--lf-surface)]/60 px-3 text-sm font-bold text-[var(--lf-dim)] hover:border-[var(--lf-focus)]/60 hover:text-[var(--lf-text)]"
+                aria-label={`Focus and Split fleet modes unlock after ${MODE_UNLOCK_ROUNDS} rounds — activate to unlock now`}
+                title={`Unlocks after ${MODE_UNLOCK_ROUNDS} rounds — tap to unlock now`}
+              >
+                <LockIcon size={14} />
+                Focus / Split
+              </button>
+            </div>
+          ) : null}
 
           {/* stake module */}
           <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5">
@@ -449,40 +505,51 @@ export function ControlDeck() {
                   {presetLabel(p)}
                 </button>
               ))}
-              <span className="mx-0.5 h-4 w-px shrink-0 bg-[var(--lf-line)]" aria-hidden="true" />
-              <button
-                onClick={() => {
-                  audio.click('up');
-                  doubleStake();
-                }}
-                disabled={!canOrder}
-                className={chipBtn}
-                title="Double the stake"
-              >
-                ×2
-              </button>
-              <button
-                onClick={() => {
-                  audio.click('down');
-                  applyStake(Math.max(minStakeMinor, Math.floor(stakeInputMinor / 2 / 100) * 100));
-                }}
-                disabled={!canOrder}
-                className={chipBtn}
-                title="Halve the stake"
-              >
-                ½
-              </button>
-              <button
-                onClick={() => {
-                  audio.click('up');
-                  applyStake(Math.min(balanceMinor, maxStakeMinor));
-                }}
-                disabled={!canOrder}
-                className={chipBtn}
-                title="Stake the maximum"
-              >
-                MAX
-              </button>
+              {/* ×2/½/MAX appear once the stake has been edited (D5) */}
+              {disclosure.showStakeTricks && (
+                <>
+                  <span
+                    className="mx-0.5 h-4 w-px shrink-0 bg-[var(--lf-line)]"
+                    aria-hidden="true"
+                  />
+                  <button
+                    onClick={() => {
+                      audio.click('up');
+                      updateDeckProgress(withStakeEdited(getDeckProgress()));
+                      doubleStake();
+                    }}
+                    disabled={!canOrder}
+                    className={chipBtn}
+                    title="Double the stake"
+                  >
+                    ×2
+                  </button>
+                  <button
+                    onClick={() => {
+                      audio.click('down');
+                      applyStake(
+                        Math.max(minStakeMinor, Math.floor(stakeInputMinor / 2 / 100) * 100),
+                      );
+                    }}
+                    disabled={!canOrder}
+                    className={chipBtn}
+                    title="Halve the stake"
+                  >
+                    ½
+                  </button>
+                  <button
+                    onClick={() => {
+                      audio.click('up');
+                      applyStake(Math.min(balanceMinor, maxStakeMinor));
+                    }}
+                    disabled={!canOrder}
+                    className={chipBtn}
+                    title="Stake the maximum"
+                  >
+                    MAX
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -514,7 +581,7 @@ export function ControlDeck() {
                 </span>
               </button>
             )}
-            {myFleet && open && (
+            {myFleet && open && disclosure.showFlags && (
               <button
                 onClick={(e) => {
                   if (flagCoolingDown) return;

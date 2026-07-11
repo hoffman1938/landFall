@@ -15,6 +15,7 @@ import type { ActionReceipt } from '@landfall/core';
 import type { Db, Sqlite } from './index.js';
 import {
   actionReceipts,
+  actionTelemetry,
   players,
   rounds,
   stakes,
@@ -102,6 +103,22 @@ export interface GameRepository {
   // receipts (B1)
   insertReceipt(receipt: ActionReceipt): void;
   getOrCreateReceiptKey(): string;
+
+  // behavioral telemetry (B3) — accepted round actions, for the offline collusion scan
+  insertTelemetry(row: TelemetryInsert): void;
+}
+
+export interface TelemetryInsert {
+  roomId: string;
+  roundId: number;
+  playerId: string;
+  action: 'FLEET_ORDER' | 'CANCEL_ORDER' | 'SIGNAL';
+  msIntoPhase: number;
+  zone: number | null;
+  stakeMinor: number | null;
+  inFog: boolean;
+  isMinStake: boolean;
+  detail: string | null;
 }
 
 export class DrizzleSqliteRepository implements GameRepository {
@@ -280,5 +297,12 @@ export class DrizzleSqliteRepository implements GameRepository {
     const keyHex = randomBytes(32).toString('hex');
     this.db.insert(serverSecrets).values({ id: 1, receiptKeyHex: keyHex }).run();
     return keyHex;
+  }
+
+  insertTelemetry(row: TelemetryInsert): void {
+    this.db
+      .insert(actionTelemetry)
+      .values({ ...row, createdAt: Date.now() })
+      .run();
   }
 }

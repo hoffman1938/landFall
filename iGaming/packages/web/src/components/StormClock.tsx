@@ -1,12 +1,49 @@
 /**
  * Round status instrument — phase, countdown and the next instruction in one
  * compact card. Readable in under a second, never interactive, never moves.
+ *
+ * D6: the countdown track carries a fog segment sized from this round's
+ * `fogStartsAt` (weather-dependent — Heavy Fog is a longer segment), so an
+ * early fog never reads as a broken timer; and each weather pattern shows one
+ * short caption on its first encounter (persisted per profile).
  */
 import { useEffect, useRef, useState } from 'react';
+import type { WeatherId } from '@landfall/core';
+import { fogSegmentFraction } from '../clockMath';
 import { AnchorIcon, FogIcon, LockIcon, StormIcon } from './icons';
 import { useStore } from '../store';
 
 type ClockMode = 'open' | 'fog' | 'storm' | 'landfall' | 'next';
+
+/** ≤ 6 words each (D6). Single map so localization swaps in one place. */
+const WEATHER_CAPTIONS: Record<WeatherId, string> = {
+  CLEAR_TIDE: 'Standard tide, standard fog',
+  HEAVY_FOG: 'Fog rolls in a second early',
+  CROSSWIND: 'Signal flags arrive slightly delayed',
+  HIGH_SWELL: 'Bigger waves — same odds',
+};
+
+const WEATHER_SEEN_KEY = 'landfall.weather-seen.v1';
+
+function readSeenWeather(): WeatherId[] {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(WEATHER_SEEN_KEY) ?? '[]');
+    return Array.isArray(parsed) ? (parsed.filter((v) => typeof v === 'string') as WeatherId[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function markSeenWeather(id: WeatherId): void {
+  try {
+    const seen = readSeenWeather();
+    if (!seen.includes(id)) {
+      window.localStorage.setItem(WEATHER_SEEN_KEY, JSON.stringify([...seen, id]));
+    }
+  } catch {
+    // Storage may be disabled; the caption then reappears next session — harmless.
+  }
+}
 
 const MODE_META: Record<ClockMode, { label: string; color: string }> = {
   open: { label: 'OPEN TIDE', color: 'var(--lf-focus)' },
@@ -48,12 +85,26 @@ export function StormClock() {
   const fleetMode = useStore((s) => s.fleetMode);
   const lastLandfall = useStore((s) => s.lastLandfall);
   const [now, setNow] = useState(Date.now());
+  const [captionFor, setCaptionFor] = useState<WeatherId | null>(null);
   const phaseStart = useRef<{ key: string; at: number }>({ key: '', at: Date.now() });
+  const roundId = round?.roundId ?? null;
+  const weatherId = round?.weather.id ?? null;
+  const anchorOpen = phase?.phase === 'ANCHOR_OPEN';
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 100);
     return () => window.clearInterval(timer);
   }, []);
+
+  // First encounter of a weather pattern: show its caption once, then persist.
+  useEffect(() => {
+    if (roundId === null || weatherId === null || !anchorOpen) return;
+    if (readSeenWeather().includes(weatherId)) return;
+    markSeenWeather(weatherId);
+    setCaptionFor(weatherId);
+    const timer = window.setTimeout(() => setCaptionFor(null), 6_000);
+    return () => window.clearTimeout(timer);
+  }, [roundId, weatherId, anchorOpen]);
 
   if (!phase) return null;
 
@@ -79,6 +130,12 @@ export function StormClock() {
   const remaining = Math.max(0, phase.endsAt - now);
   const total = Math.max(1, phase.endsAt - phaseStart.current.at);
   const progress = Math.max(0, Math.min(1, remaining / total));
+  // The bar drains right→left, so Blind Fog (the final stretch) is the
+  // leftmost segment: the tip reaches it exactly when the fog begins.
+  const fogFraction =
+    phase.phase === 'ANCHOR_OPEN' && round?.fogStartsAt != null
+      ? fogSegmentFraction(phaseStart.current.at, round.fogStartsAt, phase.endsAt)
+      : 0;
   const seconds = Math.ceil(remaining / 1000);
   const finalSeconds = (mode === 'open' || mode === 'fog') && remaining < 3200;
   const meta = MODE_META[mode];
@@ -123,13 +180,31 @@ export function StormClock() {
           </span>
         </div>
 
-        <div className="absolute inset-x-0 bottom-0 h-0.5 bg-[var(--lf-line)]/60" aria-hidden="true">
+        <div className="absolute inset-x-0 bottom-0 h-1 bg-[var(--lf-line)]/60" aria-hidden="true">
           <span
             className="block h-full origin-left transition-[width,background-color] duration-100 ease-linear"
             style={{ width: `${progress * 100}%`, backgroundColor: color }}
           />
+          {/* fog segment overlay — sized per this round's weather (D6) */}
+          {fogFraction > 0 && (
+            <span
+              className="absolute inset-y-0 left-0 bg-[#c6d5e5]/45"
+              style={{ width: `${fogFraction * 100}%` }}
+            />
+          )}
         </div>
       </section>
+
+      {/* one-time weather caption (first encounter per pattern) */}
+      {captionFor && round && (
+        <p
+          role="status"
+          className="lf-caption mx-auto mt-1.5 w-max max-w-60 rounded-md border border-[var(--lf-line)] bg-[var(--lf-glass)] px-2.5 py-1 text-center text-[13px] font-semibold leading-snug text-[var(--lf-text)]"
+        >
+          <span className="text-[var(--lf-dim)]">{round.weather.label}:</span>{' '}
+          {WEATHER_CAPTIONS[captionFor]}
+        </p>
+      )}
     </div>
   );
 }

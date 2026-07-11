@@ -261,6 +261,24 @@ snapshot, and they are excluded from Golden Anchor eligibility even in demo (cor
 bots do not exist at all. There is no override, no warning mode, and no "just for launch"
 path (Do-Not list). Tested: `packages/server/test/rooms.test.ts`.
 
+### 1.25 Syndicate Detection Baseline → Telemetry + Offline Scan (remediation B3)
+
+- **Threat:** a syndicate running N accounts holds N private pool observations and N fog
+  orders per round; scripted accounts react with machine regularity; coordinated flag
+  bluffs shape the crowd; min-stake churn probes the pools. None of these is provable from
+  a single round — the pattern lives across rounds and accounts.
+- **Control:** every ACCEPTED round action writes a behavioral telemetry row
+  (`action_telemetry`: playerId, action, ms-into-phase, zone, stake, fog membership,
+  min-stake marker — rejected actions are already covered by §1.21 receipts). The offline
+  scan (`packages/server/scripts/collusion-scan.ts`, pure detectors in `src/collusion.ts`)
+  ranks accounts by four signals: sub-human first-order timing variance, pairwise same-zone
+  fog-order correlation in tight windows, coordinated same-zone flag/move divergence, and
+  repeated min-stake probe churn. Output is a ranked suspicion report with per-detector
+  evidence. **No auto-bans** — evidence for ops review only.
+- **Tested:** `packages/server/test/collusion.test.ts` generates a deterministic 5-account
+  synthetic syndicate amid 15 human-jittered normal accounts; the syndicate fills the top
+  five ranks with ≥2× score separation, and each detector attributes to the right members.
+
 ## 2. Summary Table: Threat → Owning Layer
 
 | Threat | Primary owning layer |
@@ -288,6 +306,7 @@ path (Do-Not list). Tested: `packages/server/test/rooms.test.ts`.
 | Fog-boundary disputes | `server` (signed action receipts — §1.21) |
 | Tide-band probing | `server` + `core` (band hysteresis — §1.22) |
 | Storm Reserve accounting | `server` (ledger inside settlement txn) + `core` (published cap — §1.23) |
+| Multi-account collusion / syndicates | `server` telemetry + offline ranked scan for ops (`collusion-scan` — §1.25) |
 
 Mapping is consistent with the module boundaries in
 [software-architecture.md](../04-architecture/software-architecture.md)§2.
