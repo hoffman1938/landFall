@@ -402,7 +402,7 @@ export function SecondaryPanel() {
                   tabIndex={active ? 0 : -1}
                   onClick={() => selectTab(tab)}
                   onKeyDown={(event) => onTabKeyDown(event, index)}
-                  className={`relative min-h-11 rounded-lg px-2 text-xs font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] ${
+                  className={`relative min-h-11 rounded-lg px-2 text-sm font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] ${
                     active
                       ? 'bg-[var(--lf-focus)] text-black'
                       : 'text-[var(--lf-dim)] hover:bg-[var(--lf-panel)] hover:text-[var(--lf-text)]'

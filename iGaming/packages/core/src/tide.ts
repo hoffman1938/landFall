@@ -80,3 +80,53 @@ export function computeTideBands(
     tideBandFor(amount, avg, prevBands?.[zone] ?? null, houseSeedMinor),
   );
 }
+
+/**
+ * Payout expectation band (remediation D4) — derived from the PUBLIC tide
+ * report only, so it grants no informational edge to anyone: representative
+ * ratio-of-average per band, mid-interval. The absolute average pool cancels
+ * out of the survivor-gain formula, so bands alone suffice.
+ */
+export const TIDE_BAND_RATIO_ESTIMATE: Record<TideBand, number> = {
+  seed: 0.25, // house seed only — well under the light|medium boundary
+  light: 0.5, // (0, 0.75) midpoint-ish
+  medium: 1.0, // [0.75, 1.25)
+  heavy: 1.5, // [1.25, 1.8)
+  packed: 2.2, // [1.8, ∞) — representative
+};
+
+export interface PayoutExpectation {
+  /** Gain as a fraction of stake if the LIGHTEST other cove is struck. */
+  minGain: number;
+  /** Gain as a fraction of stake if the HEAVIEST other cove is struck. */
+  maxGain: number;
+}
+
+/**
+ * If cove j (≠ yours) is struck, a survivor's gain fraction at Storm Power ×1 is
+ *   (1 − rake) × P_j / (T − P_j)
+ * which is scale-invariant in the band ratios: r_j / (Σr − r_j). Returns the
+ * min/max over the coves you would survive; null when no other cove exists.
+ * The caller freezes it alongside the frozen tide report — same input, same output.
+ */
+export function payoutExpectationGains(
+  bands: readonly TideBand[],
+  myZone: number | null,
+  rake: number,
+): number[] {
+  const ratios = bands.map((b) => TIDE_BAND_RATIO_ESTIMATE[b]);
+  const sum = ratios.reduce((a, b) => a + b, 0);
+  return ratios
+    .filter((_, zone) => zone !== myZone)
+    .map((r) => ((1 - rake) * r) / (sum - r));
+}
+
+export function payoutExpectationRange(
+  bands: readonly TideBand[],
+  myZone: number | null,
+  rake: number,
+): PayoutExpectation | null {
+  const gains = payoutExpectationGains(bands, myZone, rake);
+  if (gains.length === 0) return null;
+  return { minGain: Math.min(...gains), maxGain: Math.max(...gains) };
+}

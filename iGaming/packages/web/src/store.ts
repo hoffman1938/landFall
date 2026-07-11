@@ -5,12 +5,13 @@
  * read-only via @landfall/core.
  */
 import { create } from 'zustand';
-import { MAX_STAKE_MINOR, ZONE_COUNT } from '@landfall/core';
+import { MAX_STAKE_MINOR, MIN_STAKE_MINOR, ZONE_COUNT } from '@landfall/core';
 import type {
   ActionReceipt,
   ChatEntry,
   FleetMode,
   FleetPlanPublic,
+  RoomInfo,
   PhaseInfo,
   PlayerPublic,
   PoolsState,
@@ -47,6 +48,16 @@ interface State {
   name: string | null;
   balanceMinor: number;
   chainCommitment: string | null;
+  /** Current room + lobby (C1/C2). */
+  roomId: string | null;
+  rooms: RoomInfo[];
+  roomMinStakeMinor: number;
+  roomMaxStakeMinor: number;
+  whaleCapFraction: number;
+  /** Last known exact handle (from lock snapshots) — whale-cap pre-check estimate (B5). */
+  lastKnownHandleMinor: number | null;
+  /** Rounds in which this client flew a flag — mirrors the B4 cooldown for the UI. */
+  myFlagRounds: number[];
   round: RoundHeader | null;
   phase: PhaseInfo | null;
   pools: PoolsState | null;
@@ -85,6 +96,8 @@ interface State {
   sendAnchor(zone: number): void;
   /** Withdraw the active fleet order before lock; the full stake is refunded. */
   cancelOrder(): void;
+  /** Switch rooms (C1). */
+  joinRoom(roomId: string): void;
   sendSignal(kind: SignalKind, zone?: number): void;
   sendChat(text: string): void;
   setFleetMode(mode: FleetMode): void;
@@ -158,6 +171,12 @@ export const useStore = create<State>((set, get) => {
             name: msg.name,
             balanceMinor: msg.balanceMinor,
             chainCommitment: msg.chainCommitment,
+            roomId: msg.roomId,
+            rooms: msg.rooms,
+            roomMinStakeMinor: msg.minStakeMinor,
+            roomMaxStakeMinor: msg.maxStakeMinor,
+            whaleCapFraction: msg.whaleCapFraction,
+            lastKnownHandleMinor: null,
             round: msg.round,
             phase: msg.phase,
             pools: msg.pools ?? null,
@@ -231,7 +250,20 @@ export const useStore = create<State>((set, get) => {
           set({ signals: msg.signals });
           break;
         case 'LOCK_SNAPSHOT':
-          set({ pools: msg.pools, anchors: msg.anchors, phase: msg.phase, orderPending: false });
+          set({
+            pools: msg.pools,
+            anchors: msg.anchors,
+            phase: msg.phase,
+            orderPending: false,
+            // B5 pre-check estimate: the last exact handle this room published.
+            lastKnownHandleMinor: msg.pools.totalsMinor.reduce(
+              (a: number, n: number) => a + n,
+              0,
+            ),
+          });
+          break;
+        case 'ROOM_LIST':
+          set({ rooms: msg.rooms });
           break;
         case 'STORM_PATH':
           set({ storm: { feints: msg.feints, endsAt: msg.phase.endsAt }, phase: msg.phase });
@@ -304,6 +336,15 @@ export const useStore = create<State>((set, get) => {
             orderPending: false,
             // Signed rejection receipts (B1) join the order history too.
             ...(msg.receipt ? { receipts: [...get().receipts.slice(-59), msg.receipt] } : {}),
+            // A rejected flag did not consume the B4 cooldown — undo the mirror.
+            // (Only signal-specific codes: generic codes may belong to anchors.)
+            ...(msg.code.startsWith('SIGNAL') || msg.code === 'FLAG_COOLDOWN'
+              ? {
+                  myFlagRounds: get().myFlagRounds.filter(
+                    (r) => r !== get().round?.roundId,
+                  ),
+                }
+              : {}),
           });
           break;
       }
@@ -329,7 +370,8 @@ export const useStore = create<State>((set, get) => {
     fleetMode: 'FOCUS',
     orderPending: false,
     finalOrderUsed: false,
-    stakeInputMinor: 25_00,
+    // D3: small default so a first-session player anchors a visible, low-risk stake.
+    stakeInputMinor: 5_00,
     wreckLog: [],
     chat: [],
     events: [],
@@ -342,6 +384,13 @@ export const useStore = create<State>((set, get) => {
     lastAnchor: null,
     lastFleet: null,
     receipts: [],
+    roomId: null,
+    rooms: [],
+    roomMinStakeMinor: MIN_STAKE_MINOR,
+    roomMaxStakeMinor: MAX_STAKE_MINOR,
+    whaleCapFraction: 1,
+    lastKnownHandleMinor: null,
+    myFlagRounds: [],
 
     sendAnchor(zone) {
       const s = get();
@@ -352,6 +401,24 @@ export const useStore = create<State>((set, get) => {
         s.orderPending
       ) {
         return;
+      }
+      // B5 whale-cap pre-check: estimate the room handle from the last exact
+      // lock snapshot; warn locally before the server ever rejects. The server
+      // stays authoritative — this only prevents surprise rejects.
+      if (s.lastKnownHandleMinor !== null && s.whaleCapFraction < 1) {
+        const othersEstimate = Math.max(
+          0,
+          s.lastKnownHandleMinor - (s.myFleet?.stakeMinor ?? 0),
+        );
+        const capEstimate = Math.floor(
+          (s.whaleCapFraction / (1 - s.whaleCapFraction)) * othersEstimate,
+        );
+        if (s.stakeInputMinor > capEstimate) {
+          set({
+            toast: `A single fleet is capped at ${Math.round(s.whaleCapFraction * 100)}% of the round — about ${fmt(capEstimate)} in this room right now.`,
+          });
+          return;
+        }
       }
       if (s.fleetMode === 'SPLIT') {
         const current = s.myFleet;
@@ -395,9 +462,22 @@ export const useStore = create<State>((set, get) => {
       if (send({ type: 'CANCEL_ORDER' })) set({ orderPending: true });
     },
     sendSignal(kind, zone) {
-      const target = zone ?? get().myFleet?.primaryZone ?? get().myAnchor?.zone;
+      const s = get();
+      const target = zone ?? s.myFleet?.primaryZone ?? s.myAnchor?.zone;
       if (target === undefined) return;
-      send({ type: 'SIGNAL', zone: target, kind });
+      if (send({ type: 'SIGNAL', zone: target, kind })) {
+        // Optimistic B4 cooldown mirror; reverted if the server rejects.
+        const roundId = s.round?.roundId;
+        if (roundId !== undefined && !s.myFlagRounds.includes(roundId)) {
+          set({ myFlagRounds: [...s.myFlagRounds.slice(-9), roundId] });
+        }
+      }
+    },
+    /** Switch rooms (C1); any live order is refunded server-side first. */
+    joinRoom(roomId) {
+      const s = get();
+      if (!s.connected || roomId === s.roomId) return;
+      send({ type: 'JOIN_ROOM', roomId });
     },
     sendChat(text) {
       const trimmed = text.trim();
@@ -441,9 +521,9 @@ export const useStore = create<State>((set, get) => {
     },
     /** Roulette-style double: 2× the input; if already anchored, re-anchor same zone at 2×. */
     doubleStake() {
-      const { stakeInputMinor, myFleet } = get();
+      const { stakeInputMinor, myFleet, roomMaxStakeMinor } = get();
       const base = myFleet?.stakeMinor ?? stakeInputMinor;
-      const doubled = Math.min(MAX_STAKE_MINOR, base * 2);
+      const doubled = Math.min(roomMaxStakeMinor, base * 2);
       set({ stakeInputMinor: doubled });
     },
     dismissToast() {

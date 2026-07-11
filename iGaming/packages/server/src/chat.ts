@@ -27,7 +27,13 @@ export class ChatService {
 
   constructor(private db: Db) {}
 
-  submit(playerId: string, name: string, text: string, now = Date.now()): ChatResult {
+  submit(
+    playerId: string,
+    name: string,
+    text: string,
+    roomId: string | null = null,
+    now = Date.now(),
+  ): ChatResult {
     if (text.length > CHAT_MAX_LEN) {
       return { ok: false, code: 'TOO_LONG', message: 'Message too long.' };
     }
@@ -55,7 +61,7 @@ export class ChatService {
     b.tokens -= 1;
 
     const entry: ChatEntry = { name, text, at: now };
-    this.db.insert(chatMessages).values({ playerId, name, text, createdAt: now }).run();
+    this.db.insert(chatMessages).values({ roomId, playerId, name, text, createdAt: now }).run();
     return { ok: true, entry };
   }
 

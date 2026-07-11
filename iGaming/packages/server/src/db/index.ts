@@ -24,6 +24,8 @@ function bootstrap(sqlite: Database.Database) {
       name TEXT NOT NULL UNIQUE,
       balance_minor INTEGER NOT NULL,
       is_house INTEGER NOT NULL DEFAULT 0,
+      is_bot INTEGER NOT NULL DEFAULT 0,
+      last_room_id TEXT,
       created_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS chain_state (
@@ -35,6 +37,7 @@ function bootstrap(sqlite: Database.Database) {
     );
     CREATE TABLE IF NOT EXISTS rounds (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      room_id TEXT,
       chain_index INTEGER NOT NULL,
       prev_chain_value TEXT NOT NULL,
       seed_hex TEXT,
@@ -59,12 +62,13 @@ function bootstrap(sqlite: Database.Database) {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_stakes_round ON stakes(round_id);
-    CREATE TABLE IF NOT EXISTS surge_state (
-      id INTEGER PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS surge_pots (
+      room_id TEXT PRIMARY KEY,
       pot_minor INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS storm_reserve_ledger (
       round_id INTEGER PRIMARY KEY,
+      room_id TEXT,
       inflow_minor INTEGER NOT NULL,
       outflow_minor INTEGER NOT NULL,
       balance_minor INTEGER NOT NULL,
@@ -98,6 +102,7 @@ function bootstrap(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_receipts_round ON action_receipts(round_id, player_id);
     CREATE TABLE IF NOT EXISTS chat_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      room_id TEXT,
       player_id TEXT NOT NULL,
       name TEXT NOT NULL,
       text TEXT NOT NULL,
@@ -109,7 +114,12 @@ function bootstrap(sqlite: Database.Database) {
   addColumnIfMissing(sqlite, 'rounds', 'rake_bp', 'INTEGER');
   addColumnIfMissing(sqlite, 'rounds', 'max_payout_multiple', 'INTEGER');
   addColumnIfMissing(sqlite, 'rounds', 'power_capped', 'INTEGER');
+  addColumnIfMissing(sqlite, 'rounds', 'room_id', 'TEXT');
   addColumnIfMissing(sqlite, 'surge_events', 'flat_odds', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(sqlite, 'players', 'is_bot', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(sqlite, 'players', 'last_room_id', 'TEXT');
+  addColumnIfMissing(sqlite, 'storm_reserve_ledger', 'room_id', 'TEXT');
+  addColumnIfMissing(sqlite, 'chat_messages', 'room_id', 'TEXT');
 }
 
 function addColumnIfMissing(

@@ -11,17 +11,22 @@
  *    with core's conservation assert running inside it.
  */
 import { randomUUID } from 'node:crypto';
-import { count, desc, eq } from 'drizzle-orm';
 import {
   BLIND_FOG_MS,
   DEFAULT_TIMINGS,
+  FLAG_MAX_PER_WINDOW,
+  FLAG_WINDOW_ROUNDS,
   HOUSE_SEED_MINOR,
+  MAX_STAKE_MINOR,
+  MIN_STAKE_MINOR,
   RAKE,
   RAKE_SPLIT,
+  SIGNAL_MIN_STAKE_MINOR,
   SPLIT_PRIMARY_PERCENT,
   STORM_POWER_MAX_PAYOUT_MULTIPLE,
   SURGE_FLAT_ODDS_EVERY_N,
   SURGE_MIN_POT_MINOR,
+  WHALE_CAP_FRACTION,
   ZONE_COUNT,
   computeTideBands,
   drawZone,
@@ -52,17 +57,8 @@ import {
   type WreckWakeReplay,
 } from '@landfall/core';
 import type { ChainHandle } from './chain.js';
-import type { Db, Sqlite } from './db/index.js';
-import {
-  actionReceipts,
-  players,
-  rounds,
-  stakes,
-  stormReserveLedger,
-  surgeEvents,
-  surgeState,
-} from './db/schema.js';
-import { ReceiptSigner, ensureReceiptKey, hashActionPayload } from './receipts.js';
+import type { GameRepository } from './db/repository.js';
+import { ReceiptSigner, hashActionPayload } from './receipts.js';
 
 export interface CoordinatorEvents {
   broadcast(msg: unknown): void;
@@ -82,6 +78,8 @@ interface LiveFleet {
   secondaryZone: number | null;
   stakeMinor: number;
   lastChangeAt: number;
+  /** C5: bot stakes are marked through to the public lock snapshot. */
+  isBot: boolean;
 }
 
 interface LiveSignal {
@@ -99,6 +97,7 @@ interface LiveStakeEntry {
   zone: number;
   amountMinor: number;
   shareLabel: string;
+  isBot: boolean;
 }
 
 export interface Timings {
@@ -127,6 +126,43 @@ export const DEFAULT_ECONOMY: EconomyConfig = {
   rakeSplit: RAKE_SPLIT,
   maxPayoutMultiple: STORM_POWER_MAX_PAYOUT_MULTIPLE,
   surgeFlatEveryN: SURGE_FLAT_ODDS_EVERY_N,
+};
+
+/**
+ * Room configuration (C1/C2): each room runs an independent RoundCoordinator
+ * against this config. Tier configs live in server config (rooms JSON), not
+ * code — DEFAULT_ROOM exists for tests and single-room tools.
+ */
+export interface RoomConfig {
+  roomId: string;
+  name: string;
+  minStakeMinor: number;
+  maxStakeMinor: number;
+  /** B5: max fraction of the round handle one player may hold. */
+  whaleCapFraction: number;
+  /** House seed per zone per round. */
+  seedMinor: number;
+  /** C5: demo practice bots. Hard-false outside LANDFALL_ENV=demo (rooms.ts crashes otherwise). */
+  botsAllowed: boolean;
+  surgeProb: number;
+  /** B4: minimum anchored stake required to fly a signal flag. */
+  signalMinStakeMinor: number;
+  econ: EconomyConfig;
+  timings: Timings;
+}
+
+export const DEFAULT_ROOM: RoomConfig = {
+  roomId: 'harbor',
+  name: 'Harbor',
+  minStakeMinor: MIN_STAKE_MINOR,
+  maxStakeMinor: MAX_STAKE_MINOR,
+  whaleCapFraction: WHALE_CAP_FRACTION,
+  seedMinor: HOUSE_SEED_MINOR,
+  botsAllowed: false,
+  surgeProb: 0,
+  signalMinStakeMinor: SIGNAL_MIN_STAKE_MINOR,
+  econ: DEFAULT_ECONOMY,
+  timings: DEFAULT_TIMINGS,
 };
 
 const ANCHOR_MIN_INTERVAL_MS = 150; // human-scale re-anchor cap (security-review.md §1.16)
@@ -165,54 +201,53 @@ export class RoundCoordinator {
 
   /** Storm Reserve running balance (mirrors the last storm_reserve_ledger row). */
   private reserveBalanceMinor = 0;
+  /** B4: per-player roundIds of recently flown flags (cooldown window). */
+  private flagHistory = new Map<string, number[]>();
+
+  /** Convenience accessors preserved from the pre-room single-config API. */
+  get econ(): EconomyConfig {
+    return this.cfg.econ;
+  }
+  get surgeProb(): number {
+    return this.cfg.surgeProb;
+  }
+  private get timings(): Timings {
+    return this.cfg.timings;
+  }
 
   constructor(
-    private db: Db,
-    private sqlite: Sqlite,
+    private repo: GameRepository,
     private chain: ChainHandle,
     private events: CoordinatorEvents,
-    private timings: Timings = DEFAULT_TIMINGS,
-    /** Overridable for local testing (LANDFALL_SURGE_PROB); included in /api/round for verification. */
-    readonly surgeProb: number = 0,
-    readonly econ: EconomyConfig = DEFAULT_ECONOMY,
+    readonly cfg: RoomConfig = DEFAULT_ROOM,
   ) {
-    validateRakeConfig(econ.rake, econ.rakeSplit);
-    if (!Number.isInteger(econ.maxPayoutMultiple) || econ.maxPayoutMultiple < 1) {
-      throw new Error(`maxPayoutMultiple must be a positive integer, got ${econ.maxPayoutMultiple}`);
+    validateRakeConfig(cfg.econ.rake, cfg.econ.rakeSplit);
+    if (!Number.isInteger(cfg.econ.maxPayoutMultiple) || cfg.econ.maxPayoutMultiple < 1) {
+      throw new Error(
+        `maxPayoutMultiple must be a positive integer, got ${cfg.econ.maxPayoutMultiple}`,
+      );
     }
-    this.receiptSigner = new ReceiptSigner(ensureReceiptKey(db));
-    const lastLedger = this.db
-      .select()
-      .from(stormReserveLedger)
-      .orderBy(desc(stormReserveLedger.roundId))
-      .limit(1)
-      .get();
-    this.reserveBalanceMinor = lastLedger?.balanceMinor ?? 0;
-
-    const recent = this.db
-      .select({ z: rounds.struckZone })
-      .from(rounds)
-      .orderBy(rounds.id)
-      .all()
-      .map((r) => r.z)
-      .filter((z): z is number => z !== null);
-    this.wreckLog = recent.slice(-20);
+    if (cfg.minStakeMinor < MIN_STAKE_MINOR || cfg.maxStakeMinor > MAX_STAKE_MINOR) {
+      throw new Error(
+        `room stakes [${cfg.minStakeMinor}, ${cfg.maxStakeMinor}] outside protocol bounds`,
+      );
+    }
+    if (cfg.whaleCapFraction <= 0 || cfg.whaleCapFraction > 1) {
+      throw new Error(`whaleCapFraction ${cfg.whaleCapFraction} outside (0, 1]`);
+    }
+    this.receiptSigner = new ReceiptSigner(repo.getOrCreateReceiptKey());
+    this.reserveBalanceMinor = repo.lastReserveBalance(cfg.roomId);
+    this.wreckLog = repo.recentStruckZones(cfg.roomId, 20);
 
     // Storm Surge pot: load or seed the floor (house-funded, auditable).
-    const pot = this.db.select().from(surgeState).where(eq(surgeState.id, 1)).get();
-    if (pot) {
-      this.surgePotMinor = pot.potMinor;
+    const pot = repo.getSurgePot(cfg.roomId);
+    if (pot !== undefined) {
+      this.surgePotMinor = pot;
     } else {
       this.surgePotMinor = SURGE_MIN_POT_MINOR;
-      this.db.insert(surgeState).values({ id: 1, potMinor: this.surgePotMinor }).run();
-      const house = this.db.select().from(players).where(eq(players.isHouse, true)).get();
-      if (house) {
-        this.db
-          .update(players)
-          .set({ balanceMinor: house.balanceMinor - this.surgePotMinor })
-          .where(eq(players.id, house.id))
-          .run();
-      }
+      repo.setSurgePot(cfg.roomId, this.surgePotMinor);
+      const house = repo.getHousePlayer();
+      if (house) repo.creditPlayer(house.id, -this.surgePotMinor);
     }
   }
 
@@ -236,7 +271,7 @@ export class RoundCoordinator {
     return {
       roundId: this.roundId,
       chainIndex: this.chainIndex,
-      houseSeedMinor: HOUSE_SEED_MINOR,
+      houseSeedMinor: this.cfg.seedMinor,
       fogStartsAt: this.fogStartsAt,
       weather: this.weather,
       surgeRound: this.surgeRound,
@@ -246,7 +281,7 @@ export class RoundCoordinator {
   }
 
   poolsState(): PoolsState {
-    const totalsMinor = new Array<number>(ZONE_COUNT).fill(HOUSE_SEED_MINOR);
+    const totalsMinor = new Array<number>(ZONE_COUNT).fill(this.cfg.seedMinor);
     const boatCounts = new Array<number>(ZONE_COUNT).fill(0);
     for (const entry of this.liveStakeEntries(false)) {
       totalsMinor[entry.zone]! += entry.amountMinor;
@@ -320,21 +355,7 @@ export class RoundCoordinator {
       verdict,
       ...(reason !== undefined ? { reason } : {}),
     });
-    this.db
-      .insert(actionReceipts)
-      .values({
-        roundId: receipt.roundId,
-        seq: receipt.seq,
-        playerId: receipt.playerId,
-        action: receipt.action,
-        actionHash: receipt.actionHash,
-        ts: receipt.ts,
-        msBeforeLock: receipt.msBeforeLock,
-        verdict: receipt.verdict,
-        reason: receipt.reason ?? null,
-        sigHex: receipt.sigHex,
-      })
-      .run();
+    this.repo.insertReceipt(receipt);
     return receipt;
   }
 
@@ -388,7 +409,31 @@ export class RoundCoordinator {
         return reject('BAD_SPLIT', 'Split orders need two different harbors.');
       }
     }
+    // Room stake tier bounds (C2) — the protocol schema only enforces absolutes.
+    if (stakeMinor < this.cfg.minStakeMinor || stakeMinor > this.cfg.maxStakeMinor) {
+      return reject(
+        'STAKE_OUT_OF_TIER',
+        `This room takes ${(this.cfg.minStakeMinor / 100).toFixed(2)}–${(this.cfg.maxStakeMinor / 100).toFixed(2)} credit stakes.`,
+      );
+    }
     const existing = this.fleets.get(playerId);
+    // Whale guardrail (B5): a single player may not exceed whaleCapFraction of
+    // the round handle (house seeds included), evaluated at accept time against
+    // the handle INCLUDING this order.
+    const othersMinor =
+      ZONE_COUNT * this.cfg.seedMinor +
+      [...this.fleets.values()]
+        .filter((f) => f.playerId !== playerId)
+        .reduce((a, f) => a + f.stakeMinor, 0);
+    if (stakeMinor > this.cfg.whaleCapFraction * (othersMinor + stakeMinor)) {
+      const capMinor = Math.floor(
+        (this.cfg.whaleCapFraction / (1 - this.cfg.whaleCapFraction)) * othersMinor,
+      );
+      return reject(
+        'WHALE_CAP',
+        `A single fleet is capped at ${Math.round(this.cfg.whaleCapFraction * 100)}% of this round's handle — up to ${(capMinor / 100).toFixed(2)} right now.`,
+      );
+    }
     const now = Date.now();
     const finalOrderUsed = this.isBlindFogActive(now);
     if (finalOrderUsed && this.finalOrders.has(playerId)) {
@@ -402,14 +447,14 @@ export class RoundCoordinator {
     }
     const delta = stakeMinor - (existing?.stakeMinor ?? 0);
 
-    const player = this.db.select().from(players).where(eq(players.id, playerId)).get();
+    const player = this.repo.getPlayer(playerId);
     if (!player) return reject('NO_PLAYER', 'Unknown player.');
     if (delta > 0 && player.balanceMinor < delta) {
       return reject('INSUFFICIENT', 'Not enough credits.');
     }
 
     const newBalance = player.balanceMinor - delta;
-    this.db.update(players).set({ balanceMinor: newBalance }).where(eq(players.id, playerId)).run();
+    this.repo.setPlayerBalance(playerId, newBalance);
 
     if (existing) {
       const previousKey = this.fleetKey(existing);
@@ -433,6 +478,7 @@ export class RoundCoordinator {
         secondaryZone: mode === 'SPLIT' ? secondaryZone : null,
         stakeMinor,
         lastChangeAt: now,
+        isBot: player.isBot,
       });
       if (finalOrderUsed) this.fogMoveCount += 1;
     }
@@ -492,12 +538,12 @@ export class RoundCoordinator {
       return reject('TOO_FAST', 'Re-anchoring too fast.');
     }
 
-    const player = this.db.select().from(players).where(eq(players.id, playerId)).get();
+    const player = this.repo.getPlayer(playerId);
     if (!player) return reject('NO_PLAYER', 'Unknown player.');
 
     const refundMinor = existing.stakeMinor;
     const newBalance = player.balanceMinor + refundMinor;
-    this.db.update(players).set({ balanceMinor: newBalance }).where(eq(players.id, playerId)).run();
+    this.repo.setPlayerBalance(playerId, newBalance);
     this.fleets.delete(playerId);
 
     if (fogOrder) {
@@ -515,7 +561,13 @@ export class RoundCoordinator {
     };
   }
 
-  /** One public bluff/coordination signal per player per round. Signals never affect settlement. */
+  /**
+   * One public bluff/coordination signal per player per round. Signals never
+   * affect settlement. B4 friction: flying a flag requires an anchored fleet
+   * of at least signalMinStakeMinor THIS round, and flags are usable in at
+   * most FLAG_MAX_PER_WINDOW of any FLAG_WINDOW_ROUNDS consecutive rounds —
+   * free to read, no longer free to spam-lie at scale.
+   */
   signal(
     playerId: string,
     name: string,
@@ -532,6 +584,26 @@ export class RoundCoordinator {
         message: 'One signal flag per round. Your signal is already flying.',
       };
     }
+    const fleet = this.fleets.get(playerId);
+    if (!fleet || fleet.stakeMinor < this.cfg.signalMinStakeMinor) {
+      return {
+        ok: false,
+        code: 'SIGNAL_NEEDS_FLEET',
+        message: `Flags need an anchored fleet of at least ${(this.cfg.signalMinStakeMinor / 100).toFixed(2)} this round.`,
+      };
+    }
+    const history = this.flagHistory.get(playerId) ?? [];
+    const windowStart = this.roundId - (FLAG_WINDOW_ROUNDS - 1);
+    const recent = history.filter((r) => r >= windowStart && r < this.roundId);
+    if (recent.length >= FLAG_MAX_PER_WINDOW) {
+      const nextRound = Math.min(...recent) + FLAG_WINDOW_ROUNDS;
+      return {
+        ok: false,
+        code: 'FLAG_COOLDOWN',
+        message: `Flags fly in at most ${FLAG_MAX_PER_WINDOW} of ${FLAG_WINDOW_ROUNDS} rounds — yours returns in round ${nextRound}.`,
+      };
+    }
+    this.flagHistory.set(playerId, [...recent, this.roundId]);
     this.signals.set(playerId, { playerId, name, zone, kind });
     const publish = () =>
       this.events.broadcast({
@@ -561,11 +633,7 @@ export class RoundCoordinator {
     this.fogStarted = false;
     this.receiptSeq = 0;
 
-    const res = this.db
-      .insert(rounds)
-      .values({ chainIndex, prevChainValue, createdAt: Date.now() })
-      .run();
-    this.roundId = Number(res.lastInsertRowid);
+    this.roundId = this.repo.insertRound(this.cfg.roomId, chainIndex, prevChainValue);
 
     // Draw once, up front. Announcing the surge bit pre-anchor is deliberate and
     // safe: it comes from a digest span disjoint from the struck-zone bits, and
@@ -578,7 +646,7 @@ export class RoundCoordinator {
     // Flat-odds Golden Anchor (A4, flag-gated): every Nth surge round, counted
     // over the auditable surge_events history, pays with equal odds per stake.
     if (this.surgeRound && this.econ.surgeFlatEveryN > 0) {
-      const prior = this.db.select({ n: count() }).from(surgeEvents).get()?.n ?? 0;
+      const prior = this.repo.countSurgeEvents(this.cfg.roomId);
       this.surgeFlatOdds = (prior + 1) % this.econ.surgeFlatEveryN === 0;
     } else {
       this.surgeFlatOdds = false;
@@ -617,12 +685,13 @@ export class RoundCoordinator {
     this.setPhase('LOCKED_STORM', this.timings.stormMs);
 
     // Canonical lock snapshot: player anchors + house seeds (fixed, published).
+    // Bot stakes are marked (C5) so their Golden Anchor exclusion is recomputable.
     const snapshot: StakeEntry[] = [];
     for (let z = 0; z < ZONE_COUNT; z++) {
       snapshot.push({
         id: `house-${this.roundId}-${z}`,
         zone: z,
-        amountMinor: HOUSE_SEED_MINOR,
+        amountMinor: this.cfg.seedMinor,
         isHouseSeed: true,
       });
     }
@@ -632,56 +701,39 @@ export class RoundCoordinator {
         zone: entry.zone,
         amountMinor: entry.amountMinor,
         isHouseSeed: false,
+        ...(entry.isBot ? { isBot: true } : {}),
       });
     }
     this.lockSnapshot = snapshot;
 
     // Persist stakes + debit house seeds, atomically.
-    const housePlayer = this.db.select().from(players).where(eq(players.isHouse, true)).get();
-    const txn = this.sqlite.transaction(() => {
-      const now = Date.now();
+    const housePlayer = this.repo.getHousePlayer();
+    this.repo.inTransaction(() => {
       for (const entry of this.liveStakeEntries(true)) {
-        this.db
-          .insert(stakes)
-          .values({
-            id: entry.id,
-            roundId: this.roundId,
-            playerId: entry.playerId,
-            zone: entry.zone,
-            amountMinor: entry.amountMinor,
-            isHouseSeed: false,
-            createdAt: now,
-          })
-          .run();
+        this.repo.insertStake({
+          id: entry.id,
+          roundId: this.roundId,
+          playerId: entry.playerId,
+          zone: entry.zone,
+          amountMinor: entry.amountMinor,
+          isHouseSeed: false,
+        });
       }
       if (housePlayer) {
         for (let z = 0; z < ZONE_COUNT; z++) {
-          this.db
-            .insert(stakes)
-            .values({
-              id: `house-${this.roundId}-${z}`,
-              roundId: this.roundId,
-              playerId: housePlayer.id,
-              zone: z,
-              amountMinor: HOUSE_SEED_MINOR,
-              isHouseSeed: true,
-              createdAt: now,
-            })
-            .run();
+          this.repo.insertStake({
+            id: `house-${this.roundId}-${z}`,
+            roundId: this.roundId,
+            playerId: housePlayer.id,
+            zone: z,
+            amountMinor: this.cfg.seedMinor,
+            isHouseSeed: true,
+          });
         }
-        this.db
-          .update(players)
-          .set({ balanceMinor: housePlayer.balanceMinor - ZONE_COUNT * HOUSE_SEED_MINOR })
-          .where(eq(players.id, housePlayer.id))
-          .run();
+        this.repo.creditPlayer(housePlayer.id, -ZONE_COUNT * this.cfg.seedMinor);
       }
-      this.db
-        .update(rounds)
-        .set({ lockSnapshotJson: JSON.stringify(snapshot) })
-        .where(eq(rounds.id, this.roundId))
-        .run();
+      this.repo.setRoundLockSnapshot(this.roundId, JSON.stringify(snapshot));
     });
-    txn();
 
     this.events.broadcast({
       type: 'LOCK_SNAPSHOT',
@@ -714,7 +766,7 @@ export class RoundCoordinator {
     const stakeOwner = new Map<string, string>(); // stakeId -> playerId
     for (const entry of this.liveStakeEntries(true)) stakeOwner.set(entry.id, entry.playerId);
 
-    const housePlayer = this.db.select().from(players).where(eq(players.isHouse, true)).get();
+    const housePlayer = this.repo.getHousePlayer();
     const perPlayerNet = new Map<string, number>();
 
     // Rake split (A1): surge share feeds the pot, stormReserve share feeds the
@@ -737,30 +789,16 @@ export class RoundCoordinator {
       : null;
     let surgeResult: SurgeResult | undefined;
 
-    const txn = this.sqlite.transaction(() => {
-      const already = this.db
-        .select({ s: rounds.settledAt })
-        .from(rounds)
-        .where(eq(rounds.id, this.roundId))
-        .get();
-      if (already?.s) return; // idempotency: never settle a round twice
+    this.repo.inTransaction(() => {
+      if (this.repo.roundSettledAt(this.roundId) !== null) return; // idempotency: never settle twice
 
       for (const line of settlement.lines) {
-        this.db
-          .update(stakes)
-          .set({ outcome: line.outcome, payoutMinor: line.payoutMinor })
-          .where(eq(stakes.id, line.id))
-          .run();
+        this.repo.setStakeOutcome(line.id, line.outcome, line.payoutMinor);
 
         const ownerId = line.isHouseSeed ? housePlayer?.id : stakeOwner.get(line.id);
         if (!ownerId) continue;
         if (line.payoutMinor > 0) {
-          const p = this.db.select().from(players).where(eq(players.id, ownerId)).get()!;
-          this.db
-            .update(players)
-            .set({ balanceMinor: p.balanceMinor + line.payoutMinor })
-            .where(eq(players.id, ownerId))
-            .run();
+          this.repo.creditPlayer(ownerId, line.payoutMinor);
         }
         if (!line.isHouseSeed) {
           perPlayerNet.set(
@@ -773,52 +811,33 @@ export class RoundCoordinator {
         // House books only its rake share. The Storm Power overpayment is no
         // longer a house liability: it draws from the Storm Reserve, whose
         // funding invariant (core storm-power test) keeps E[outflow] ≤ E[inflow].
-        const p = this.db.select().from(players).where(eq(players.id, housePlayer.id)).get()!;
-        this.db
-          .update(players)
-          .set({
-            balanceMinor: p.balanceMinor + houseRakeMinor,
-          })
-          .where(eq(players.id, housePlayer.id))
-          .run();
+        this.repo.creditPlayer(housePlayer.id, houseRakeMinor);
       }
 
       // Storm Reserve ledger row (A3): auditable inflow/outflow/balance per round.
       this.reserveBalanceMinor += reserveContribMinor - reserveOutflowMinor;
-      this.db
-        .insert(stormReserveLedger)
-        .values({
-          roundId: this.roundId,
-          inflowMinor: reserveContribMinor,
-          outflowMinor: reserveOutflowMinor,
-          balanceMinor: this.reserveBalanceMinor,
-          createdAt: Date.now(),
-        })
-        .run();
+      this.repo.insertReserveLedger({
+        roomId: this.cfg.roomId,
+        roundId: this.roundId,
+        inflowMinor: reserveContribMinor,
+        outflowMinor: reserveOutflowMinor,
+        balanceMinor: this.reserveBalanceMinor,
+      });
 
       // Pot grows by this round's contribution first, then pays out if surging.
       let pot = this.surgePotMinor + surgeContribMinor;
       if (this.surgeRound) {
         if (goldenWinner) {
           const winnerPlayerId = stakeOwner.get(goldenWinner.id)!;
-          const wp = this.db.select().from(players).where(eq(players.id, winnerPlayerId)).get()!;
-          this.db
-            .update(players)
-            .set({ balanceMinor: wp.balanceMinor + pot })
-            .where(eq(players.id, winnerPlayerId))
-            .run();
+          this.repo.creditPlayer(winnerPlayerId, pot);
           perPlayerNet.set(winnerPlayerId, (perPlayerNet.get(winnerPlayerId) ?? 0) + pot);
-          this.db
-            .insert(surgeEvents)
-            .values({
-              roundId: this.roundId,
-              winnerPlayerId,
-              winnerStakeId: goldenWinner.id,
-              amountMinor: pot,
-              flatOdds: this.surgeFlatOdds,
-              createdAt: Date.now(),
-            })
-            .run();
+          this.repo.insertSurgeEvent({
+            roundId: this.roundId,
+            winnerPlayerId,
+            winnerStakeId: goldenWinner.id,
+            amountMinor: pot,
+            flatOdds: this.surgeFlatOdds,
+          });
           surgeResult = {
             potMinor: pot,
             winnerName: this.fleets.get(winnerPlayerId)?.name ?? '?',
@@ -827,47 +846,32 @@ export class RoundCoordinator {
           // House re-seeds the floor so the next pot is never trivial.
           pot = SURGE_MIN_POT_MINOR;
           if (housePlayer) {
-            const hp = this.db.select().from(players).where(eq(players.id, housePlayer.id)).get()!;
-            this.db
-              .update(players)
-              .set({ balanceMinor: hp.balanceMinor - SURGE_MIN_POT_MINOR })
-              .where(eq(players.id, housePlayer.id))
-              .run();
+            this.repo.creditPlayer(housePlayer.id, -SURGE_MIN_POT_MINOR);
           }
         } else {
           // No surviving player stake — pot rolls over, event recorded for the log.
-          this.db
-            .insert(surgeEvents)
-            .values({
-              roundId: this.roundId,
-              winnerPlayerId: null,
-              winnerStakeId: null,
-              amountMinor: pot,
-              flatOdds: this.surgeFlatOdds,
-              createdAt: Date.now(),
-            })
-            .run();
+          this.repo.insertSurgeEvent({
+            roundId: this.roundId,
+            winnerPlayerId: null,
+            winnerStakeId: null,
+            amountMinor: pot,
+            flatOdds: this.surgeFlatOdds,
+          });
           surgeResult = { potMinor: pot, winnerName: null, winnerStakeMinor: null };
         }
       }
-      this.db.update(surgeState).set({ potMinor: pot }).where(eq(surgeState.id, 1)).run();
+      this.repo.setSurgePot(this.cfg.roomId, pot);
       this.surgePotMinor = pot;
 
-      this.db
-        .update(rounds)
-        .set({
-          seedHex: this.seedHex,
-          struckZone,
-          rakeMinor: settlement.rakeMinor,
-          rakeBp: Math.round(this.econ.rake * 10_000),
-          maxPayoutMultiple: this.econ.maxPayoutMultiple,
-          powerCapped: settlement.powerCapped,
-          settledAt: Date.now(),
-        })
-        .where(eq(rounds.id, this.roundId))
-        .run();
+      this.repo.settleRound(this.roundId, {
+        seedHex: this.seedHex,
+        struckZone,
+        rakeMinor: settlement.rakeMinor,
+        rakeBp: Math.round(this.econ.rake * 10_000),
+        maxPayoutMultiple: this.econ.maxPayoutMultiple,
+        powerCapped: settlement.powerCapped,
+      });
     });
-    txn();
 
     this.wreckLog.push(struckZone);
     if (this.wreckLog.length > 20) this.wreckLog.shift();
@@ -898,7 +902,7 @@ export class RoundCoordinator {
     this.events.broadcastLandfall((playerId) => {
       const fleet = this.fleets.get(playerId);
       const balance =
-        this.db.select().from(players).where(eq(players.id, playerId)).get()?.balanceMinor ?? 0;
+        this.repo.getPlayer(playerId)?.balanceMinor ?? 0;
       const yourResult = fleet
         ? {
             outcome: resultByPlayer.get(playerId)?.outcome ?? 'SAFE',
@@ -991,7 +995,7 @@ export class RoundCoordinator {
     // Bands with hysteresis (B2): a band flips only after the pool clears the
     // threshold by a margin, so min-stake probing cannot binary-search exact
     // totals below band resolution (see core tide.ts + probing test).
-    const bands = computeTideBands(pools.totalsMinor, this.lastReportBands, HOUSE_SEED_MINOR);
+    const bands = computeTideBands(pools.totalsMinor, this.lastReportBands, this.cfg.seedMinor);
     const entries = pools.totalsMinor.map((amount, zone) => {
       const delta = prev ? amount - (prev[zone] ?? amount) : 0;
       const trend: TideTrend =
@@ -1063,6 +1067,7 @@ export class RoundCoordinator {
           zone: f.primaryZone,
           amountMinor: primary,
           shareLabel: `${SPLIT_PRIMARY_PERCENT}%`,
+          isBot: f.isBot,
         },
         {
           id: f.secondaryStakeId,
@@ -1072,6 +1077,7 @@ export class RoundCoordinator {
           zone: f.secondaryZone,
           amountMinor: secondary,
           shareLabel: `${100 - SPLIT_PRIMARY_PERCENT}%`,
+          isBot: f.isBot,
         },
       ];
     }
@@ -1084,6 +1090,7 @@ export class RoundCoordinator {
         zone: f.primaryZone,
         amountMinor: f.stakeMinor,
         shareLabel: '100%',
+        isBot: f.isBot,
       },
     ];
   }

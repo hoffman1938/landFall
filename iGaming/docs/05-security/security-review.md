@@ -208,6 +208,59 @@ security *and* fairness win of the mechanic itself and one of the reasons it was
   at all (settlement is entirely server-initiated), so there is nothing to replay from the
   client side.
 
+### 1.21 Fog-Boundary Disputes → Signed Action Receipts (remediation B1)
+
+- **Threat:** a player claims "my order was in before the fog lock and the server dropped it"
+  (or the mirror: an operator backdates/denies an order). Without evidence, both are
+  he-said/she-said — fatal for a licensed product.
+- **Control:** every accepted **and** rejected anchor / fleet order / cancel is issued an
+  HMAC-SHA256 receipt (`receipts.ts`): roundId, monotonic per-round sequence, playerId, action
+  hash, server timestamp, and `msBeforeLock` relative to the anchor-lock boundary. Receipts are
+  echoed in the ACK/ERROR frame, persisted in `action_receipts`, and rendered in the Verify
+  sheet's order history. The signing key (`server_secrets`) is separate from the fairness chain
+  terminal. HMAC is symmetric — players cannot self-verify, but any stored receipt is decidable
+  by ops/regulator against the persisted key, and the signature binds the operator.
+- **Tested:** `packages/server/test/receipts.test.ts` drives a real coordinator across the lock
+  boundary (accept at T−10ms with receipt, reject at T+10ms with signed rejection) and asserts
+  persistence, monotonic sequencing, signature validity, and tamper detection.
+
+### 1.22 Tide-Band Probing → Hysteresis (remediation B2)
+
+- **Threat:** band-edge binary search. A min-stake account nudges its anchor up/down and
+  watches the public tide band flip, extracting the exact hidden pool total that the banded
+  report exists to hide (which would resurrect the exact-pool sniping meta).
+- **Control:** band boundaries carry hysteresis (`core/src/tide.ts`): a published band changes
+  only after the underlying ratio crosses the threshold by ±10% of the adjacent band's width.
+  The flip point therefore depends on approach direction, and no probe sequence can localize a
+  pool tighter than the margin (band-scale, ≈5% of the average pool) — plus the existing
+  report cadence floor. The `seed` band stays exact (it is a factual "no player anchors here",
+  not a magnitude).
+- **Tested:** `core/test/tide.test.ts` runs a binary-searching prober against a hidden pool and
+  asserts the residual uncertainty stays band-scale and the naive threshold estimate is wrong
+  by ~the margin.
+
+### 1.23 Storm Reserve Accounting (remediation A3)
+
+- **Exposure:** the Storm Power ladder v2 pays M>1 bonuses from a reserve; a silent clamp or
+  unledgered draw would be an integrity breach.
+- **Control:** per-round `storm_reserve_ledger` rows (inflow = reserve share of rake, outflow =
+  `salvageTotal − distributable`, running balance) written inside the settlement transaction;
+  the per-round liability cap (`STORM_POWER_MAX_PAYOUT_MULTIPLE`) is **published** in the round
+  result (`powerCapped`) and recomputable from the public lock snapshot; the conservation
+  assert covers capped rounds exactly.
+
+### 1.24 Bots Policy (remediation C5) — one paragraph, zero exceptions
+
+Practice bots exist **only** in demo environments, by construction: `botsAllowed` is a
+per-room config flag that is hard-false unless the server process runs with
+`LANDFALL_ENV=demo`; a room config requesting bots in any other environment is a **startup
+crash** (`rooms.ts`), and constructing a `BotManager` against a bots-forbidden room throws.
+Bot players are marked `is_bot` in the DB, their stakes are marked in the public lock
+snapshot, and they are excluded from Golden Anchor eligibility even in demo (core
+`pickGoldenAnchor`/`pickGoldenAnchorFlat`), so demo odds match production semantics — where
+bots do not exist at all. There is no override, no warning mode, and no "just for launch"
+path (Do-Not list). Tested: `packages/server/test/rooms.test.ts`.
+
 ## 2. Summary Table: Threat → Owning Layer
 
 | Threat | Primary owning layer |
@@ -232,6 +285,9 @@ security *and* fairness win of the mechanic itself and one of the reasons it was
 | Input validation | `core` (schemas) at `server` and `web` boundaries |
 | Secure random generation | `core` (RNG module) |
 | Settlement integrity | `server` (idempotent atomic settlement + runtime conservation assert) |
+| Fog-boundary disputes | `server` (signed action receipts — §1.21) |
+| Tide-band probing | `server` + `core` (band hysteresis — §1.22) |
+| Storm Reserve accounting | `server` (ledger inside settlement txn) + `core` (published cap — §1.23) |
 
 Mapping is consistent with the module boundaries in
 [software-architecture.md](../04-architecture/software-architecture.md)§2.

@@ -118,9 +118,9 @@ Three statements must appear in fairness documentation, verbatim in substance
 
 1. *The storm never follows the money* — strike probability is exactly 1/6 per harbor,
    independent of pools; the verification tool proves it per round.
-2. *The 1% edge is exact for balanced crowds; very small rounds tilt slightly further
-   houseward* (solo-vs-seeds ≈ −1.6% at reference parameters) because your own stake
-   concentrates your zone.
+2. *The edge is exact for balanced crowds; very small rounds tilt slightly further
+   houseward* (solo-vs-seeds ≈ −2.6% at production parameters, vs. −2% gross balanced —
+   see mathematical-model.md §6) because your own stake concentrates your zone.
 3. *Crowd-reading skill redistributes EV between players, never against the house* — Landfall
    is a fixed-edge game with a zero-sum skill layer, unlike fixed-odds games where skill is
    illusory.

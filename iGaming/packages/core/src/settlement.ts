@@ -13,6 +13,13 @@ export interface StakeEntry {
   amountMinor: number;
   /** True for the house's liquidity seed stakes. */
   isHouseSeed: boolean;
+  /**
+   * True for demo practice bots (C5). Published in the lock snapshot so the
+   * Golden Anchor exclusion below is recomputable by anyone; bots settle
+   * pari-mutuel like players but can never win the Surge pot — demo odds match
+   * production semantics, where bots don't exist at all.
+   */
+  isBot?: boolean;
 }
 
 export interface SettlementLine {
@@ -157,7 +164,7 @@ export function pickGoldenAnchor(
   uWinner: number,
 ): StakeEntry | null {
   const eligible = stakes
-    .filter((s) => !s.isHouseSeed && s.zone !== struckZone && s.amountMinor > 0)
+    .filter((s) => !s.isHouseSeed && !s.isBot && s.zone !== struckZone && s.amountMinor > 0)
     .sort((a, b) => a.id.localeCompare(b.id));
   const total = eligible.reduce((a, s) => a + s.amountMinor, 0);
   if (total === 0) return null;
@@ -182,7 +189,7 @@ export function pickGoldenAnchorFlat(
   uWinner: number,
 ): StakeEntry | null {
   const eligible = stakes
-    .filter((s) => !s.isHouseSeed && s.zone !== struckZone && s.amountMinor > 0)
+    .filter((s) => !s.isHouseSeed && !s.isBot && s.zone !== struckZone && s.amountMinor > 0)
     .sort((a, b) => a.id.localeCompare(b.id));
   if (eligible.length === 0) return null;
   const idx = Math.min(eligible.length - 1, Math.floor(uWinner * eligible.length));

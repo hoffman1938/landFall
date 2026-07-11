@@ -33,6 +33,9 @@ export function TopBar() {
   const round = useStore((s) => s.round);
   const tideReport = useStore((s) => s.tideReport);
   const setRulesOpen = useStore((s) => s.setRulesOpen);
+  const roomId = useStore((s) => s.roomId);
+  const rooms = useStore((s) => s.rooms);
+  const joinRoom = useStore((s) => s.joinRoom);
   const [muted, setMuted] = useState(audio.prefs.muted);
   const [volume, setVolume] = useState(audio.prefs.volume);
   const [now, setNow] = useState(Date.now());
@@ -72,7 +75,7 @@ export function TopBar() {
   const surge = round?.surgeRound && phase?.phase !== 'COOLDOWN';
 
   return (
-    <header className="relative z-20 flex h-10 shrink-0 items-center gap-1.5 overflow-visible border-b border-[var(--lf-line)] bg-[var(--lf-bg)] px-2 sm:h-9 sm:gap-2 sm:px-3">
+    <header className="relative z-20 flex h-12 shrink-0 items-center gap-1.5 overflow-visible border-b border-[var(--lf-line)] bg-[var(--lf-bg)] px-2 sm:gap-2 sm:px-3">
       <div className="flex shrink-0 items-center gap-1.5" aria-label="Landfall">
         <span className="text-[var(--lf-focus)]">
           <LighthouseIcon size={18} />
@@ -81,6 +84,32 @@ export function TopBar() {
           LANDFALL
         </span>
       </div>
+
+      {/* Room switcher (C1/C2): lobby with real human counts, never bots. */}
+      {rooms.length > 0 && (
+        <>
+          <span className="h-4 w-px shrink-0 bg-[var(--lf-line)]" aria-hidden="true" />
+          <label className="sr-only" htmlFor="lf-room-select">
+            Room
+          </label>
+          <select
+            id="lf-room-select"
+            value={roomId ?? ''}
+            onChange={(e) => {
+              audio.click('nav');
+              joinRoom(e.target.value);
+            }}
+            className="h-11 max-w-40 shrink-0 rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface)] px-1.5 text-sm font-bold text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+            title="Switch rooms — your live order is refunded first"
+          >
+            {rooms.map((r) => (
+              <option key={r.roomId} value={r.roomId}>
+                {r.name} · {(r.minStakeMinor / 100).toFixed(0)}–{(r.maxStakeMinor / 100).toFixed(0)} · {r.humanCount} 👤
+              </option>
+            ))}
+          </select>
+        </>
+      )}
 
       <span className="h-4 w-px shrink-0 bg-[var(--lf-line)]" aria-hidden="true" />
       <span
@@ -166,7 +195,7 @@ export function TopBar() {
               setMuted(nextMuted);
               audio.setPrefs({ muted: nextMuted });
             }}
-            className="flex h-9 w-9 items-center justify-center rounded-md text-[var(--lf-dim)] hover:bg-[var(--lf-surface-2)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] sm:h-8 sm:w-8"
+            className="flex h-11 w-11 items-center justify-center rounded-md text-[var(--lf-dim)] hover:bg-[var(--lf-surface-2)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
             aria-label={muted ? 'Unmute' : 'Mute'}
           >
             {muted ? <SoundOffIcon size={16} /> : <SoundOnIcon size={16} />}
@@ -196,7 +225,7 @@ export function TopBar() {
             audio.click('nav');
             setRulesOpen(true);
           }}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[var(--lf-dim)] hover:bg-[var(--lf-surface-2)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] sm:h-8 sm:w-8"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--lf-dim)] hover:bg-[var(--lf-surface-2)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
           aria-label="How to play"
         >
           <QuestionIcon size={16} />

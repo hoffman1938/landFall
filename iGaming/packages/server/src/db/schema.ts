@@ -10,6 +10,10 @@ export const players = sqliteTable('players', {
   name: text('name').notNull().unique(),
   balanceMinor: integer('balance_minor').notNull(),
   isHouse: integer('is_house', { mode: 'boolean' }).notNull().default(false),
+  /** Demo practice bots (C5) — marked in DB, excluded from Golden Anchor. */
+  isBot: integer('is_bot', { mode: 'boolean' }).notNull().default(false),
+  /** Reconnect restores the player to their room (C1). */
+  lastRoomId: text('last_room_id'),
   createdAt: integer('created_at').notNull(),
 });
 
@@ -23,6 +27,8 @@ export const chainState = sqliteTable('chain_state', {
 
 export const rounds = sqliteTable('rounds', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  /** Room the round ran in (C1). Round ids stay globally unique. */
+  roomId: text('room_id'),
   chainIndex: integer('chain_index').notNull(),
   prevChainValue: text('prev_chain_value').notNull(),
   seedHex: text('seed_hex'), // null until reveal
@@ -49,8 +55,9 @@ export const stakes = sqliteTable('stakes', {
   createdAt: integer('created_at').notNull(),
 });
 
-export const surgeState = sqliteTable('surge_state', {
-  id: integer('id').primaryKey(),
+/** Per-room Storm Surge pots (C1 replaced the single global surge_state row). */
+export const surgePots = sqliteTable('surge_pots', {
+  roomId: text('room_id').primaryKey(),
   potMinor: integer('pot_minor').notNull(),
 });
 
@@ -61,6 +68,8 @@ export const surgeState = sqliteTable('surge_state', {
  */
 export const stormReserveLedger = sqliteTable('storm_reserve_ledger', {
   roundId: integer('round_id').primaryKey(),
+  /** Reserve balances are per room (C1). */
+  roomId: text('room_id'),
   inflowMinor: integer('inflow_minor').notNull(),
   outflowMinor: integer('outflow_minor').notNull(),
   balanceMinor: integer('balance_minor').notNull(),
@@ -103,6 +112,8 @@ export const actionReceipts = sqliteTable('action_receipts', {
 
 export const chatMessages = sqliteTable('chat_messages', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  /** Chat is scoped per room (C1). */
+  roomId: text('room_id'),
   playerId: text('player_id').notNull(),
   name: text('name').notNull(),
   text: text('text').notNull(),

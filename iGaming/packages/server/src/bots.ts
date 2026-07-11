@@ -19,10 +19,6 @@ import type { Db } from './db/index.js';
 import { players } from './db/schema.js';
 import { randomName } from './names.js';
 
-// High-roller table: bots stake 100–3000 credits (weighted by repetition) so
-// pools are fat and wrecks pay real salvage. Doubled again on surge rounds.
-const STAKES_MINOR = [100_00, 250_00, 500_00, 1000_00, 1000_00, 2000_00, 3000_00];
-
 interface Bot {
   id: string;
   name: string;
@@ -33,18 +29,33 @@ export class BotManager {
   private poll: NodeJS.Timeout | null = null;
   private pending: NodeJS.Timeout[] = [];
   private lastRound = 0;
+  /** Per-tier stake table (D3/C2): multiples of the room's min stake, clamped
+   *  to the tier ceiling — a min-stake human is always visible in the pools. */
+  private stakesMinor: number[];
 
   constructor(
     private db: Db,
     private coordinator: RoundCoordinator,
     private count: number,
-  ) {}
+  ) {
+    // C5: constructing a BotManager for a room that does not allow bots is a
+    // programming error, and it crashes rather than warns.
+    if (!coordinator.cfg.botsAllowed) {
+      throw new Error(
+        `BOTS POLICY VIOLATION: BotManager constructed for room "${coordinator.cfg.roomId}" with botsAllowed=false`,
+      );
+    }
+    const { minStakeMinor, maxStakeMinor } = coordinator.cfg;
+    this.stakesMinor = [2, 5, 5, 10, 25, 50, 100].map((m) =>
+      Math.max(minStakeMinor, Math.min(maxStakeMinor, m * minStakeMinor)),
+    );
+  }
 
   start(): void {
     for (let i = 0; i < this.count; i++) this.bots.push(this.ensureBot(i));
     this.poll = setInterval(() => this.tick(), 200);
     console.log(
-      `[bots] ${this.bots.length} practice bots active: ${this.bots.map((b) => b.name).join(', ')}`,
+      `[bots] room ${this.coordinator.cfg.roomId}: ${this.bots.length} practice bots active: ${this.bots.map((b) => b.name).join(', ')}`,
     );
   }
 
@@ -53,13 +64,11 @@ export class BotManager {
     for (const t of this.pending) clearTimeout(t);
   }
 
-  /** Bots have stable ids (`bot-0`…`bot-N`) so they persist across server restarts. */
+  /** Bots have stable per-room ids so they persist across server restarts,
+   *  and are marked is_bot in the DB (C5: excluded from Golden Anchor). */
   private ensureBot(i: number): Bot {
-    const existing = this.db
-      .select()
-      .from(players)
-      .where(eq(players.id, `bot-${i}`))
-      .get();
+    const id = `bot-${this.coordinator.cfg.roomId}-${i}`;
+    const existing = this.db.select().from(players).where(eq(players.id, id)).get();
     if (existing) return { id: existing.id, name: existing.name };
     let name = randomName();
     while (this.db.select().from(players).where(eq(players.name, name)).get()) {
@@ -68,14 +77,16 @@ export class BotManager {
     this.db
       .insert(players)
       .values({
-        id: `bot-${i}`,
+        id,
         name,
         balanceMinor: STARTING_BALANCE_MINOR,
         isHouse: false,
+        isBot: true,
+        lastRoomId: this.coordinator.cfg.roomId,
         createdAt: Date.now(),
       })
       .run();
-    return { id: `bot-${i}`, name };
+    return { id, name };
   }
 
   private tick(): void {
@@ -90,7 +101,8 @@ export class BotManager {
       this.topUp(bot);
       // Bots chase surge rounds like humans do — bigger stakes when the pot pays.
       const surgeBoost = round.surgeRound ? 2 : 1;
-      const stake = STAKES_MINOR[Math.floor(Math.random() * STAKES_MINOR.length)]! * surgeBoost;
+      const base = this.stakesMinor[Math.floor(Math.random() * this.stakesMinor.length)]!;
+      const stake = Math.min(this.coordinator.cfg.maxStakeMinor, base * surgeBoost);
 
       // Initial anchor at a random moment in the first ~70% of the window.
       const t1 = 300 + Math.random() * Math.max(500, windowMs * 0.7 - 300);

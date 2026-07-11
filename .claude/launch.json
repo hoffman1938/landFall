@@ -3,13 +3,13 @@
   "configurations": [
     {
       "name": "landfall-server",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["-C", "iGaming", "--filter", "@landfall/server", "dev"],
+      "runtimeExecutable": "C:\\Users\\gtsulaia\\Desktop\\landFall\\.claude\\run-server.cmd",
+      "runtimeArgs": [],
       "port": 8787
     },
     {
       "name": "landfall-web",
-      "runtimeExecutable": "C:\\Users\\Giorgi\\Documents\\GitHub\\landFall\\.claude\\run-web.cmd",
+      "runtimeExecutable": "C:\\Users\\gtsulaia\\Desktop\\landFall\\.claude\\run-web.cmd",
       "runtimeArgs": [],
       "port": 5173,
       "autoPort": true

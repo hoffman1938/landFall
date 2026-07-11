@@ -156,37 +156,41 @@ Properties (validated by simulation, §7):
 - In balanced play the seeds' own pari-mutuel EV is the same −`r/K` as any player's; the
   house's total expected take remains rake-driven and bounded.
 - **Low-population honesty note:** a solo player staking `S` alongside seeds `h` on every zone
-  faces slightly worse than the nominal 1% edge, because their own stake makes their zone the
-  largest pool (they are the "whale" of their own round). Measured: a 10-credit solo stake
-  against 50-credit seeds has EV ≈ **−1.62%** of stake (vs. −1% in balanced crowds), with the
-  difference accruing to the house's seed stakes, not to the rake. This must appear in the
-  fairness documentation rather than being discovered by a player with a calculator: the honest
-  statement is *"the nominal 1% edge is exact for balanced crowds; tiny rounds tilt slightly
-  further in the house's favor because your own stake concentrates your zone."* Raising `h`
-  relative to typical stakes shrinks this deviation (the player's stake perturbs the pools
-  less); `h = 50` vs. min stake 1 keeps the deviation under ~0.1% for minimum-stake players.
+  faces slightly worse than the nominal `r/K` gross edge, because their own stake makes their
+  zone the largest pool (they are the "whale" of their own round). At production parameters a
+  10-credit solo stake against 50-credit seeds has analytic EV ≈ **−2.56%** of stake
+  (vs. −2% gross in balanced crowds), with the difference accruing to the house's seed stakes,
+  not to the rake — re-measured by the A6 sim harness on every constants change. This must
+  appear in the fairness documentation rather than being discovered by a player with a
+  calculator: the honest statement is *"the nominal edge is exact for balanced crowds; tiny
+  rounds tilt slightly further in the house's favor because your own stake concentrates your
+  zone."* Raising `h` relative to typical stakes shrinks this deviation (the player's stake
+  perturbs the pools less); `h = 50` vs. min stake 1 keeps the deviation small for
+  minimum-stake players.
 
 ## 7. Simulation Spot-Check (informal; formal methodology in simulation-methodology.md)
 
 The formal, CI-integrated validation runs against the **production** `settleRound`/`drawZone`
 (not a reimplementation): `packages/core/scripts/simulate.ts` (methodology in
 [simulation-methodology.md](simulation-methodology.md)). Results at production constants
-(`r = 0.12`, split 0.5/0.25/0.25, ladder v2, cap 25×) — measured values are inserted by the
-A6 revalidation run and MUST match theory within the stated tolerances:
+(`r = 0.12`, split 0.5/0.25/0.25, ladder v2, cap 25×) — 10,000,000 rounds, 2026-07-11,
+`pnpm --filter @landfall/core sim -- --rounds=10000000` (LCG seed 20260711, production HMAC draw):
 
-| Check | Simulated | Theoretical |
+| Check | Simulated (10M rounds) | Theoretical |
 |---|---|---|
-| Gross take (rake) | _pending A6 rerun_ | 2% of handle (`r/K`) |
-| Operator hold (house share) | _pending A6 rerun_ | ≈ 1% of handle |
-| Surge funding | _pending A6 rerun_ | 0.5% of handle |
-| Storm Reserve inflow | _pending A6 rerun_ | 0.5% of handle |
-| Storm Reserve outflow (ladder overpayment) | _pending A6 rerun_ | ≤ 0.5% (funding invariant) |
-| Reserve drift | _pending A6 rerun_ | ≈ 0, slightly positive |
-| Survivor pass-through of struck pool | _pending A6 rerun_ | 88% (`1 − r`) |
-| Conservation (all rounds, incl. capped) | _pending A6 rerun_ | exact |
+| Gross take (rake) | 2.0013% of handle | 2% of handle (`r/K`) |
+| Operator hold (house share) | 1.0009% of handle | ≈ 1% of handle |
+| Surge funding | 0.5002% of handle | 0.5% of handle |
+| Storm Reserve inflow | 0.5002% of handle | 0.5% of handle |
+| Storm Reserve outflow (ladder overpayment) | 0.4878% of handle | ≤ 0.5% (funding invariant) |
+| Reserve drift | +0.0125% of handle (min balance −31.2k credits early, +4.15M final) | ≈ 0, slightly positive |
+| Liability cap hits | 13 rounds in 10M (all disclosed via `powerCapped`) | ~1 in 10⁶ (Perfect Storm + fat Cat 6) |
+| Survivor pass-through at ×1 | exact, 0 violations | 88% (`1 − r`) |
+| Conservation (all rounds, incl. capped) | exact (assert never fired) | exact |
+| Solo-player EV (10.00 vs 50-seed pools, ×1) | −2.452% of stake | −2.564% (§6 analytic) |
 
-Solo-player deviation (§6) is re-measured with the same harness. Rerun the script whenever any
-Workstream-A constant changes — the release gate (§13 of the remediation program) requires it.
+Rerun the script whenever any Workstream-A constant changes — the release gate (§13 of the
+remediation program) requires it; the script exits non-zero when a check leaves tolerance.
 
 ## 8. Worked Example — Full Round, Real Numbers
 

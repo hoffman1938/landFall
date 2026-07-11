@@ -68,6 +68,25 @@ export const SURGE_MIN_POT_MINOR = 500_00; // house re-seeds the pot floor after
 export const SURGE_FLAT_ODDS_EVERY_N = 0;
 
 /**
+ * Whale guardrail (B5) — a single player's total round stake may not exceed
+ * this fraction of the round handle (house seeds included), evaluated at
+ * accept time against the handle INCLUDING the candidate stake: you can never
+ * be more than a quarter of the room. Pari-mutuel-native: caps payout
+ * domination and pool-reading leverage at once. Per-room overridable.
+ */
+export const WHALE_CAP_FRACTION = 0.25;
+
+/**
+ * Signal flag friction (B4) — flags stay free to read, not free to spam-lie:
+ * flying one requires an anchored fleet of at least SIGNAL_MIN_STAKE_MINOR in
+ * that round, and flags are usable in at most FLAG_MAX_PER_WINDOW of any
+ * FLAG_WINDOW_ROUNDS consecutive rounds per account.
+ */
+export const SIGNAL_MIN_STAKE_MINOR = 5_00;
+export const FLAG_MAX_PER_WINDOW = 2;
+export const FLAG_WINDOW_ROUNDS = 3;
+
+/**
  * Storm Power — the per-round salvage multiplier ladder (hurricane categories).
  * Drawn provably-fair from digest span [35,40) (20 bits); survivors' salvage is
  * multiplied by M. Probabilities are exact integer counts in 2^20 space.

@@ -120,9 +120,11 @@ One watched round teaches the complete ruleset. There is exactly one button that
   pays; this is stated in-game plainly to preempt the natural "the storm chases the money"
   suspicion, and is exactly what the verification tool proves round by round).
 - **Settlement (pari-mutuel):** struck players lose their stakes. Each survivor receives
-  `stake + (1 − r) × struckPool × (stake / survivorPoolTotal)`. Rake `r = 6%` of the struck pool
-  only → effective house edge = `r/K` = **1% of total handle**, invariant to crowd distribution
-  (proof and simulation: [mathematical-model.md](../03-math/mathematical-model.md)§3, §7).
+  `stake + (1 − r) × struckPool × (stake / survivorPoolTotal)` — **survivors receive 88% of
+  the wrecked pool** (`r = 0.12` on the struck pool only). The gross take is `r/K` = 2% of
+  handle, split house/surge/reserve (0.5/0.25/0.25), for a net operator hold ≈ 1% of handle
+  and a long-run player return ≈ 98%, invariant to crowd distribution (proof and simulation:
+  [mathematical-model.md](../03-math/mathematical-model.md)§1, §3, §7).
 - **House-seeded pools:** the house anchors a fixed baseline stake (e.g. 50 credits) on every
   harbor each round, participating under pari-mutuel rules like any player. Purpose: liquidity
   (solo and low-population rounds remain playable and meaningfully paid). The seeds are fixed,
@@ -132,14 +134,16 @@ One watched round teaches the complete ruleset. There is exactly one button that
   [mathematical-model.md](../03-math/mathematical-model.md)§6).
 - **Sitting out:** placing no anchor is always allowed; spectating (and chatting) is a
   first-class state.
-- **⛈ Storm Power (salvage multiplier, added by product request):** every storm has a hidden
-  hurricane category revealed at landfall that multiplies all survivors' salvage — ×0.5
-  (common) up to ×500 ("Perfect Storm", ~1 in 50,000). The ladder is variance-neutral
-  (E[M] = 1 exactly — [mathematical-model.md](../03-math/mathematical-model.md)§10), so it adds
-  Aviator-grade tail dreams ("my 1 credit can become hundreds") without touching the edge; a
-  surviving win never becomes a loss. Provably fair from the same digest.
-- **⚡ Storm Surge (progressive jackpot, added by product request):** half the rake feeds a
-  visible, always-growing pot; ~1 round in 25 (provably-fair trigger, announced before
+- **⛈ Storm Power (salvage multiplier, ladder v2):** every storm has a hidden hurricane
+  category revealed at landfall that multiplies all survivors' salvage — **never below ×1**
+  (Category 1 leaves salvage untouched), a felt ×1.25 bonus ~1 round in 12.5, up to a nominal
+  ×500 ("Perfect Storm", ~1 in 1,048,576). The bonus above ×1 is funded by the Storm Reserve
+  (a disclosed share of the rake) under an exact funding invariant, and a round's total salvage
+  is capped at a published multiple of the round handle
+  ([mathematical-model.md](../03-math/mathematical-model.md)§10). A surviving win never becomes
+  a loss. Provably fair from the same digest.
+- **⚡ Storm Surge (progressive jackpot, added by product request):** a fixed share of the rake
+  feeds a visible, always-growing pot; ~1 round in 25 (provably-fair trigger, announced before
   anchoring) is a **surge round** — after the storm, the **Golden Anchor** picks one surviving
   player (odds ∝ stake) who wins the entire pot. Restores the "someone just won 500x" marquee
   moment Landfall traded away vs. Crash, without breaking pari-mutuel zero-liability. Full math:

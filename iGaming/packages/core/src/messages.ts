@@ -66,6 +66,12 @@ export const cancelOrderMsg = z.object({
   type: z.literal('CANCEL_ORDER'),
 });
 
+/** Switch rooms (C1). Any live order in the old room is cancelled+refunded first. */
+export const joinRoomMsg = z.object({
+  type: z.literal('JOIN_ROOM'),
+  roomId: z.string().min(1).max(64),
+});
+
 export const clientMessage = z.discriminatedUnion('type', [
   helloMsg,
   anchorMsg,
@@ -73,6 +79,7 @@ export const clientMessage = z.discriminatedUnion('type', [
   chatMsg,
   signalMsg,
   cancelOrderMsg,
+  joinRoomMsg,
 ]);
 export type ClientMessage = z.infer<typeof clientMessage>;
 
@@ -149,6 +156,18 @@ export interface PlayerPublic {
   shareLabel?: string;
 }
 
+/** Lobby room card (C1/C2): name, stakes, REAL human count (bots never counted). */
+export interface RoomInfo {
+  roomId: string;
+  name: string;
+  minStakeMinor: number;
+  maxStakeMinor: number;
+  /** Connected human players (population honesty — excludes bots). */
+  humanCount: number;
+  /** Demo practice bots allowed in this room (never true outside demo env). */
+  botsAllowed: boolean;
+}
+
 export type ServerMessage =
   | {
       type: 'WELCOME';
@@ -157,6 +176,12 @@ export type ServerMessage =
       balanceMinor: number;
       chainCommitment: string;
       houseSeedMinor: number;
+      roomId: string;
+      rooms: RoomInfo[];
+      /** Room stake limits for client-side pre-checks (B5/C2). */
+      minStakeMinor: number;
+      maxStakeMinor: number;
+      whaleCapFraction: number;
       round: RoundHeader;
       phase: PhaseInfo;
       /** Exact pools are present only outside the live decision window. */
@@ -220,6 +245,7 @@ export type ServerMessage =
       powerCapped: boolean;
     }
   | { type: 'PHASE'; phase: PhaseInfo }
+  | { type: 'ROOM_LIST'; rooms: RoomInfo[] }
   | { type: 'CHAT_MESSAGE'; entry: ChatEntry }
   | { type: 'SYSTEM_MESSAGE'; text: string; at: number }
   | {

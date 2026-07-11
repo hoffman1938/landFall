@@ -1,0 +1,35 @@
+{
+  "$comment": "Default stake-tier rooms (remediation C2). Tier configs live here — server config, not code. Casuals never share a room with 100× their stake: Skiff 1–50, Schooner 5–500, Flagship 50–5000 credits. botsAllowed only takes effect under LANDFALL_ENV=demo; any other environment refuses to start if a room requests bots (C5).",
+  "rooms": [
+    {
+      "roomId": "skiff",
+      "name": "Skiff Harbor",
+      "minStakeMinor": 100,
+      "maxStakeMinor": 5000,
+      "whaleCapFraction": 0.25,
+      "seedMinor": 2500,
+      "signalMinStakeMinor": 200,
+      "botsAllowed": true
+    },
+    {
+      "roomId": "schooner",
+      "name": "Schooner Bay",
+      "minStakeMinor": 500,
+      "maxStakeMinor": 50000,
+      "whaleCapFraction": 0.25,
+      "seedMinor": 5000,
+      "signalMinStakeMinor": 500,
+      "botsAllowed": true
+    },
+    {
+      "roomId": "flagship",
+      "name": "Flagship Sound",
+      "minStakeMinor": 5000,
+      "maxStakeMinor": 500000,
+      "whaleCapFraction": 0.25,
+      "seedMinor": 25000,
+      "signalMinStakeMinor": 5000,
+      "botsAllowed": false
+    }
+  ]
+}
