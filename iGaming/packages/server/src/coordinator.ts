@@ -39,6 +39,7 @@ import {
   stormPowerFromRoll,
   weatherFromRoll,
   type DrawResult,
+  type FlagReveal,
   type FleetMode,
   type FleetPlanPublic,
   type PhaseInfo,
@@ -57,8 +58,18 @@ import {
   type WreckWakeReplay,
 } from '@landfall/core';
 import type { ChainHandle } from './chain.js';
-import type { GameRepository } from './db/repository.js';
+import type { GameRepository, SkipperRecordRow } from './db/repository.js';
+import { LimitsService, utcDayKey } from './limits.js';
 import { ReceiptSigner, hashActionPayload } from './receipts.js';
+
+/**
+ * Flag honesty (E2/B4 replay ribbon + E1 bluff counter): RALLY/HOLD claim the
+ * skipper is at that cove; FLEE claims they are not. Judged against the fleet's
+ * actual zones at lock — a fleetless flagger's RALLY/HOLD is a bluff by definition.
+ */
+export function flagHonest(kind: SignalKind, zone: number, fleetZones: Set<number>): boolean {
+  return kind === 'FLEE' ? !fleetZones.has(zone) : fleetZones.has(zone);
+}
 
 export interface CoordinatorEvents {
   broadcast(msg: unknown): void;
@@ -203,6 +214,8 @@ export class RoundCoordinator {
   private reserveBalanceMinor = 0;
   /** B4: per-player roundIds of recently flown flags (cooldown window). */
   private flagHistory = new Map<string, number[]>();
+  /** Boat counts at fog start (E2): lock − fog = the replay's net movement arrows. */
+  private fogBoatCounts: number[] | null = null;
 
   /** Convenience accessors preserved from the pre-room single-config API. */
   get econ(): EconomyConfig {
@@ -220,6 +233,8 @@ export class RoundCoordinator {
     private chain: ChainHandle,
     private events: CoordinatorEvents,
     readonly cfg: RoomConfig = DEFAULT_ROOM,
+    /** Responsible-gambling service (F1/F2), shared across rooms. Optional for tests/tools. */
+    private limits?: LimitsService,
   ) {
     validateRakeConfig(cfg.econ.rake, cfg.econ.rakeSplit);
     if (!Number.isInteger(cfg.econ.maxPayoutMultiple) || cfg.econ.maxPayoutMultiple < 1) {
@@ -443,6 +458,11 @@ export class RoundCoordinator {
         `This room takes ${(this.cfg.minStakeMinor / 100).toFixed(2)}–${(this.cfg.maxStakeMinor / 100).toFixed(2)} credit stakes.`,
       );
     }
+    // Responsible gambling (F1/F2): the player's own limits precede house rules.
+    if (this.limits) {
+      const rg = this.limits.checkOrder(playerId, stakeMinor);
+      if (!rg.ok) return reject(rg.code!, rg.message!);
+    }
     const existing = this.fleets.get(playerId);
     // Whale guardrail (B5): a single player may not exceed whaleCapFraction of
     // the round handle (house seeds included), evaluated at accept time against
@@ -661,6 +681,7 @@ export class RoundCoordinator {
     this.lastReportBands = null;
     this.currentTideReport = null;
     this.fogStarted = false;
+    this.fogBoatCounts = null;
     this.receiptSeq = 0;
 
     this.roundId = this.repo.insertRound(this.cfg.roomId, chainIndex, prevChainValue);
@@ -797,7 +818,22 @@ export class RoundCoordinator {
     for (const entry of this.liveStakeEntries(true)) stakeOwner.set(entry.id, entry.playerId);
 
     const housePlayer = this.repo.getHousePlayer();
+
+    // Per-player nets are pure functions of the settlement lines — computed up
+    // front so the Skipper Records (E1) and RG day-loss ledger (F1) can be
+    // written inside the same settlement transaction below.
     const perPlayerNet = new Map<string, number>();
+    for (const line of settlement.lines) {
+      if (line.isHouseSeed) continue;
+      const ownerId = stakeOwner.get(line.id);
+      if (!ownerId) continue;
+      perPlayerNet.set(
+        ownerId,
+        (perPlayerNet.get(ownerId) ?? 0) + line.payoutMinor - line.amountMinor,
+      );
+    }
+    // Salvage-only nets (E1 "biggest salvage"): before any Golden Anchor credit.
+    const salvageNetByPlayer = new Map(perPlayerNet);
 
     // Rake split (A1): surge share feeds the pot, stormReserve share feeds the
     // reserve ledger, the house books the remainder (rounding dust included).
@@ -817,6 +853,7 @@ export class RoundCoordinator {
           this.draw!.uWinner,
         )
       : null;
+    const surgeWinnerPlayerId = goldenWinner ? (stakeOwner.get(goldenWinner.id) ?? null) : null;
     let surgeResult: SurgeResult | undefined;
 
     this.repo.inTransaction(() => {
@@ -829,12 +866,6 @@ export class RoundCoordinator {
         if (!ownerId) continue;
         if (line.payoutMinor > 0) {
           this.repo.creditPlayer(ownerId, line.payoutMinor);
-        }
-        if (!line.isHouseSeed) {
-          perPlayerNet.set(
-            ownerId,
-            (perPlayerNet.get(ownerId) ?? 0) + line.payoutMinor - line.amountMinor,
-          );
         }
       }
       if (housePlayer) {
@@ -857,8 +888,8 @@ export class RoundCoordinator {
       // Pot grows by this round's contribution first, then pays out if surging.
       let pot = this.surgePotMinor + surgeContribMinor;
       if (this.surgeRound) {
-        if (goldenWinner) {
-          const winnerPlayerId = stakeOwner.get(goldenWinner.id)!;
+        if (goldenWinner && surgeWinnerPlayerId) {
+          const winnerPlayerId = surgeWinnerPlayerId;
           this.repo.creditPlayer(winnerPlayerId, pot);
           perPlayerNet.set(winnerPlayerId, (perPlayerNet.get(winnerPlayerId) ?? 0) + pot);
           this.repo.insertSurgeEvent({
@@ -901,7 +932,23 @@ export class RoundCoordinator {
         maxPayoutMultiple: this.econ.maxPayoutMultiple,
         powerCapped: settlement.powerCapped,
       });
+
+      // Skipper Records (E1) + RG day-loss ledger (F1): same txn as the
+      // settlement so neither can ever disagree with a settled round.
+      this.updateSkipperRecords(settlement.lines, salvageNetByPlayer, surgeWinnerPlayerId);
+      const dayKey = utcDayKey();
+      for (const f of this.fleets.values()) {
+        const net = perPlayerNet.get(f.playerId) ?? 0;
+        if (net !== 0) this.repo.addDayLoss(f.playerId, dayKey, -net);
+      }
     });
+
+    // F1: in-memory session accounting, after the txn committed.
+    if (this.limits) {
+      for (const f of this.fleets.values()) {
+        this.limits.noteSessionNet(f.playerId, perPlayerNet.get(f.playerId) ?? 0);
+      }
+    }
 
     this.wreckLog.push(struckZone);
     if (this.wreckLog.length > 20) this.wreckLog.shift();
@@ -912,7 +959,7 @@ export class RoundCoordinator {
       outcome: resultByPlayer.get(f.playerId)?.outcome ?? 'SAFE',
       netMinor: perPlayerNet.get(f.playerId) ?? 0,
     }));
-    const replay = this.buildReplay(snapshot, struckZone);
+    const replay = this.buildReplay(snapshot, struckZone, salvageNetByPlayer);
 
     const base = {
       type: 'LANDFALL' as const,
@@ -989,6 +1036,7 @@ export class RoundCoordinator {
   private beginFog(): void {
     if (this.phase !== 'ANCHOR_OPEN' || this.fogStarted) return;
     this.fogStarted = true;
+    this.fogBoatCounts = this.poolsState().boatCounts;
     this.currentTideReport = { ...this.tideReportState(), frozen: true, generatedAt: Date.now() };
     this.events.broadcast({
       type: 'FOG_STARTED',
@@ -1125,7 +1173,51 @@ export class RoundCoordinator {
     ];
   }
 
-  private buildReplay(snapshot: StakeEntry[], struckZone: number): WreckWakeReplay {
+  /**
+   * Skipper Record updates (E1) — one row per player with a fleet at lock,
+   * written inside the settlement transaction. Cosmetic only: nothing here is
+   * ever read back into gameplay, odds, or settlement.
+   */
+  private updateSkipperRecords(
+    lines: { id: string; outcome: 'SAFE' | 'WRECKED' }[],
+    salvageNetByPlayer: Map<string, number>,
+    surgeWinnerPlayerId: string | null,
+  ): void {
+    const lineById = new Map(lines.map((line) => [line.id, line]));
+    for (const f of this.fleets.values()) {
+      const entries = this.entriesForFleet(f);
+      const wrecked = entries.filter(
+        (entry) => lineById.get(entry.id)?.outcome === 'WRECKED',
+      ).length;
+      const rec: SkipperRecordRow = this.repo.getSkipperRecord(f.playerId) ?? {
+        playerId: f.playerId,
+        currentStreak: 0,
+        bestStreak: 0,
+        bluffsCalled: 0,
+        biggestSalvageMinor: 0,
+        roundsSailed: 0,
+        surgeWins: 0,
+      };
+      rec.roundsSailed += 1;
+      // Streak = rounds in a row without losing a single boat (SPLIT breaks it too).
+      rec.currentStreak = wrecked === 0 ? rec.currentStreak + 1 : 0;
+      rec.bestStreak = Math.max(rec.bestStreak, rec.currentStreak);
+      const salvage = salvageNetByPlayer.get(f.playerId) ?? 0;
+      if (salvage > rec.biggestSalvageMinor) rec.biggestSalvageMinor = salvage;
+      if (surgeWinnerPlayerId === f.playerId) rec.surgeWins += 1;
+      const signal = this.signals.get(f.playerId);
+      if (signal && !flagHonest(signal.kind, signal.zone, new Set(entries.map((e) => e.zone)))) {
+        rec.bluffsCalled += 1;
+      }
+      this.repo.upsertSkipperRecord(rec);
+    }
+  }
+
+  private buildReplay(
+    snapshot: StakeEntry[],
+    struckZone: number,
+    salvageNetByPlayer: Map<string, number>,
+  ): WreckWakeReplay {
     const pools = new Array<number>(ZONE_COUNT).fill(0);
     for (const stake of snapshot) pools[stake.zone]! += stake.amountMinor;
     let mostCrowdedSafeZone: number | null = null;
@@ -1151,6 +1243,29 @@ export class RoundCoordinator {
             struckZone + 1
           } took the storm.`
         : `The room held steady before Harbor ${struckZone + 1} took the storm.`;
+
+    // E2: net fog movement (lock − fog-start boat counts), from public counts only.
+    const lockBoatCounts = this.poolsState().boatCounts;
+    const fogNetBoats = this.fogBoatCounts
+      ? lockBoatCounts.map((n, z) => n - (this.fogBoatCounts![z] ?? 0))
+      : undefined;
+
+    // E2: biggest salvage — post-reveal exact data is public by design.
+    let biggestSalvage: { name: string; amountMinor: number } | null = null;
+    for (const f of this.fleets.values()) {
+      const salvage = salvageNetByPlayer.get(f.playerId) ?? 0;
+      if (salvage > 0 && salvage > (biggestSalvage?.amountMinor ?? 0)) {
+        biggestSalvage = { name: f.name, amountMinor: salvage };
+      }
+    }
+
+    // E2/B4: the flag honesty ribbon — every flown flag, judged at reveal.
+    const flagReveals: FlagReveal[] = [...this.signals.values()].map((s) => {
+      const fleet = this.fleets.get(s.playerId);
+      const zones = new Set(fleet ? this.entriesForFleet(fleet).map((e) => e.zone) : []);
+      return { name: s.name, zone: s.zone, kind: s.kind, honest: flagHonest(s.kind, s.zone, zones) };
+    });
+
     return {
       headline,
       finalOrders: this.finalOrders.size,
@@ -1160,6 +1275,9 @@ export class RoundCoordinator {
       mostCrowdedSafeZone,
       mostCrowdedSafePoolMinor,
       signalSummary,
+      ...(fogNetBoats ? { fogNetBoats } : {}),
+      biggestSalvage,
+      flagReveals,
     };
   }
 

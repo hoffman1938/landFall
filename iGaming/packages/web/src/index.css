@@ -161,6 +161,26 @@ button {
   animation: lf-caption 240ms ease-out both;
 }
 
+/*
+ * First-loss trust moment (E3, ux-redesign-v2.md §6.3): the verify stamp glows
+ * a few beats on the first loss ≥ 10× min stake — fairness offered exactly
+ * when doubt is felt. Focus cyan, NEVER amber (amber is payout-only).
+ */
+@keyframes lf-verify-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 14px 3px var(--lf-focus);
+  }
+}
+.lf-verify-glow {
+  border-color: var(--lf-focus) !important;
+  color: var(--lf-text);
+  animation: lf-verify-glow 1.2s ease-in-out 3;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lf-rise,
   .lf-sheet,
@@ -171,6 +191,11 @@ button {
   }
   .lf-pulse {
     animation: none;
+  }
+  /* Reduced motion still gets the trust cue — static highlight, no pulse. */
+  .lf-verify-glow {
+    animation: none;
+    box-shadow: 0 0 10px 2px var(--lf-focus);
   }
 }
 

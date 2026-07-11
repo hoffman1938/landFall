@@ -11,6 +11,7 @@ export function ResultBanner() {
   const lastLandfall = useStore((s) => s.lastLandfall);
   const myName = useStore((s) => s.name);
   const openVerify = useStore((s) => s.openVerify);
+  const verifyGlow = useStore((s) => s.verifyGlow);
 
   const show = lastLandfall && (phase?.phase === 'RESOLVED' || phase?.phase === 'COOLDOWN');
   if (!show) return null;
@@ -111,9 +112,14 @@ export function ResultBanner() {
         <span className="hidden sm:inline">
           {replay.fogMoves} fog moves · wreck {fmt(replay.struckPoolMinor)}
         </span>
+        {/* E3 first-loss trust moment: the stamp glows once (focus cyan, never
+            amber) on the first loss ≥ 10× min stake — fairness offered exactly
+            when doubt is felt (ux-redesign-v2.md §6.3). */}
         <button
           onClick={() => openVerify(lastLandfall.roundId)}
-          className="ml-auto flex shrink-0 items-center gap-1 rounded-lg border border-[var(--lf-line)] px-2 py-1 font-semibold hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)]"
+          className={`ml-auto flex shrink-0 items-center gap-1 rounded-lg border border-[var(--lf-line)] px-2 py-1 font-semibold hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)] ${
+            verifyGlow ? 'lf-verify-glow' : ''
+          }`}
           title="Verify this round cryptographically"
         >
           <ShieldCheckIcon size={14} />

@@ -95,9 +95,11 @@ regulatory analysis is out of scope for Phase 1. For future context (tracked as 
 for the Legal & Compliance team, expanded later if this ever moves toward any real deployment):
 real-money instant games in most regulated markets require independent RNG certification (e.g.
 from testing labs such as iTech Labs or GLI), documented RTP disclosure, and responsible-gambling
-tooling (deposit limits, reality checks, self-exclusion). None of this is implemented in this
-educational build, but the provably-fair RNG design in this project is intentionally built to the
-same cryptographic standard real certified games use, so that the *mathematical* foundation would
+tooling (deposit limits, reality checks, self-exclusion). Independent certification remains out
+of scope for this educational build, but the RG tooling now exists demo-grade (remediation
+F1/F2: server-enforced loss/stake limits with a 24h raise cooldown, reality checks, and a
+self-exclusion lockout), and the provably-fair RNG design is intentionally built to the same
+cryptographic standard real certified games use, so that the *mathematical* foundation would
 not need to be redone if this project were ever extended toward that context.
 
 ## 5. Gaps / Opportunities

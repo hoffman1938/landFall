@@ -10,14 +10,17 @@
  * of it. Implementations must be synchronous or provide equivalent isolation.
  */
 import { randomBytes } from 'node:crypto';
-import { count, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq } from 'drizzle-orm';
 import type { ActionReceipt } from '@landfall/core';
 import type { Db, Sqlite } from './index.js';
 import {
   actionReceipts,
   actionTelemetry,
+  playerDayLoss,
+  playerLimits,
   players,
   rounds,
+  skipperRecords,
   stakes,
   stormReserveLedger,
   surgeEvents,
@@ -106,6 +109,38 @@ export interface GameRepository {
 
   // behavioral telemetry (B3) — accepted round actions, for the offline collusion scan
   insertTelemetry(row: TelemetryInsert): void;
+
+  // skipper records (E1) — cosmetic reputation, written inside the settlement txn
+  getPlayerByName(name: string): PlayerRow | undefined;
+  getSkipperRecord(playerId: string): SkipperRecordRow | undefined;
+  upsertSkipperRecord(row: SkipperRecordRow): void;
+
+  // responsible gambling (F1/F2)
+  getPlayerLimits(playerId: string): PlayerLimitsRow | undefined;
+  upsertPlayerLimits(row: PlayerLimitsRow): void;
+  /** Signed day net loss (positive = down). Written inside the settlement txn. */
+  getDayLoss(playerId: string, dayKey: string): number;
+  addDayLoss(playerId: string, dayKey: string, deltaMinor: number): void;
+}
+
+export interface SkipperRecordRow {
+  playerId: string;
+  currentStreak: number;
+  bestStreak: number;
+  bluffsCalled: number;
+  biggestSalvageMinor: number;
+  roundsSailed: number;
+  surgeWins: number;
+}
+
+export interface PlayerLimitsRow {
+  playerId: string;
+  sessionLossLimitMinor: number | null;
+  dailyLossLimitMinor: number | null;
+  stakePerRoundCapMinor: number | null;
+  realityCheckMinutes: number | null;
+  pendingJson: string | null;
+  excludedUntil: number | null;
 }
 
 export interface TelemetryInsert {
@@ -303,6 +338,89 @@ export class DrizzleSqliteRepository implements GameRepository {
     this.db
       .insert(actionTelemetry)
       .values({ ...row, createdAt: Date.now() })
+      .run();
+  }
+
+  getPlayerByName(name: string): PlayerRow | undefined {
+    const p = this.db.select().from(players).where(eq(players.name, name)).get();
+    return p ? this.getPlayer(p.id) : undefined;
+  }
+
+  getSkipperRecord(playerId: string): SkipperRecordRow | undefined {
+    const r = this.db
+      .select()
+      .from(skipperRecords)
+      .where(eq(skipperRecords.playerId, playerId))
+      .get();
+    return r
+      ? {
+          playerId: r.playerId,
+          currentStreak: r.currentStreak,
+          bestStreak: r.bestStreak,
+          bluffsCalled: r.bluffsCalled,
+          biggestSalvageMinor: r.biggestSalvageMinor,
+          roundsSailed: r.roundsSailed,
+          surgeWins: r.surgeWins,
+        }
+      : undefined;
+  }
+
+  upsertSkipperRecord(row: SkipperRecordRow): void {
+    const values = { ...row, updatedAt: Date.now() };
+    this.db
+      .insert(skipperRecords)
+      .values(values)
+      .onConflictDoUpdate({ target: skipperRecords.playerId, set: values })
+      .run();
+  }
+
+  getPlayerLimits(playerId: string): PlayerLimitsRow | undefined {
+    const r = this.db
+      .select()
+      .from(playerLimits)
+      .where(eq(playerLimits.playerId, playerId))
+      .get();
+    return r
+      ? {
+          playerId: r.playerId,
+          sessionLossLimitMinor: r.sessionLossLimitMinor,
+          dailyLossLimitMinor: r.dailyLossLimitMinor,
+          stakePerRoundCapMinor: r.stakePerRoundCapMinor,
+          realityCheckMinutes: r.realityCheckMinutes,
+          pendingJson: r.pendingJson,
+          excludedUntil: r.excludedUntil,
+        }
+      : undefined;
+  }
+
+  upsertPlayerLimits(row: PlayerLimitsRow): void {
+    const values = { ...row, updatedAt: Date.now() };
+    this.db
+      .insert(playerLimits)
+      .values(values)
+      .onConflictDoUpdate({ target: playerLimits.playerId, set: values })
+      .run();
+  }
+
+  getDayLoss(playerId: string, dayKey: string): number {
+    return (
+      this.db
+        .select()
+        .from(playerDayLoss)
+        .where(and(eq(playerDayLoss.playerId, playerId), eq(playerDayLoss.dayKey, dayKey)))
+        .get()?.netLossMinor ?? 0
+    );
+  }
+
+  addDayLoss(playerId: string, dayKey: string, deltaMinor: number): void {
+    const existing = this.getDayLoss(playerId, dayKey);
+    this.db
+      .insert(playerDayLoss)
+      .values({ playerId, dayKey, netLossMinor: existing + deltaMinor })
+      .onConflictDoUpdate({
+        target: [playerDayLoss.playerId, playerDayLoss.dayKey],
+        set: { netLossMinor: existing + deltaMinor },
+      })
       .run();
   }
 }

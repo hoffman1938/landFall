@@ -11,6 +11,7 @@ import type {
   ChatEntry,
   FleetMode,
   FleetPlanPublic,
+  LimitsState,
   RoomInfo,
   PhaseInfo,
   PlayerPublic,
@@ -18,6 +19,7 @@ import type {
   RoundHeader,
   SignalKind,
   SignalPublic,
+  SkipperRecordPublic,
   TideReport,
   WreckWakeReplay,
 } from '@landfall/core';
@@ -35,6 +37,21 @@ export interface LandfallInfo {
   stormPower?: { label: string; mNum: number; mDen: number };
   /** True when the per-round liability cap clamped the Storm Power payout. */
   powerCapped?: boolean;
+}
+
+/**
+ * One Wreck Wake Replay card (E2): everything needed to retell a settled round,
+ * built from the public LANDFALL payload only — no private data ever enters
+ * the stack or the exported image.
+ */
+export interface ReplayCard {
+  roundId: number;
+  struckZone: number;
+  replay: WreckWakeReplay;
+  stormPower?: { label: string; mNum: number; mDen: number };
+  powerCapped: boolean;
+  surge?: { potMinor: number; winnerName: string | null; winnerStakeMinor: number | null };
+  at: number;
 }
 
 export interface StormInfo {
@@ -92,6 +109,22 @@ interface State {
    * server accepted/rejected and when — shown in the Verify sheet per round.
    */
   receipts: ActionReceipt[];
+  /** Wreck Wake Replay card stack (E2), newest last, capped at 20. */
+  replayCards: ReplayCard[];
+  /** The Wreck Log card-stack sheet (E2). */
+  wreckLogOpen: boolean;
+  /** Skipper profile card (E1): open lookup, or null. */
+  skipperCard: { name: string; record: SkipperRecordPublic | null; loading: boolean } | null;
+  /** Responsible-gambling state (F1/F2), server-authoritative. */
+  limits: LimitsState | null;
+  /** Epoch ms this connection began — session clock (F2) + reality checks. */
+  sessionStartAt: number | null;
+  /** Pending reality check (F1) — calm, dismissible, never amber. */
+  realityCheck: { elapsedMinutes: number; sessionNetMinor: number; at: number } | null;
+  /** Play-limits settings sheet (F1/F2). */
+  limitsOpen: boolean;
+  /** E3: the verify stamp glows once on the first loss ≥ 10× min stake. */
+  verifyGlow: boolean;
 
   sendAnchor(zone: number): void;
   /** Withdraw the active fleet order before lock; the full stake is refunded. */
@@ -109,6 +142,22 @@ interface State {
   rebet(): void;
   doubleStake(): void;
   dismissToast(): void;
+  /** E1: request a skipper's record by display name and open the card. */
+  openSkipper(name: string): void;
+  closeSkipper(): void;
+  /** E2: open/close the Wreck Log replay-card stack. */
+  setWreckLogOpen(open: boolean): void;
+  /** F1: patch self-set limits (omitted = unchanged, null = clear). */
+  sendLimits(patch: {
+    sessionLossLimitMinor?: number | null;
+    dailyLossLimitMinor?: number | null;
+    stakePerRoundCapMinor?: number | null;
+    realityCheckMinutes?: number | null;
+  }): void;
+  /** F2: demo-grade self-exclusion — the lockout only ever extends. */
+  sendExclusion(minutes: number): void;
+  setLimitsOpen(open: boolean): void;
+  dismissRealityCheck(): void;
 }
 
 let ws: WebSocket | null = null;
@@ -191,6 +240,8 @@ export const useStore = create<State>((set, get) => {
             wreckLog: msg.wreckLog,
             chat: msg.chatTail,
             storm: null,
+            limits: msg.limits ?? null,
+            sessionStartAt: msg.sessionStartAt ?? Date.now(),
           });
           break;
         }
@@ -207,6 +258,7 @@ export const useStore = create<State>((set, get) => {
             orderPending: false,
             finalOrderUsed: false,
             storm: null,
+            verifyGlow: false, // the E3 glow lives only on the loss card itself
             lastLandfall: get().lastLandfall, // keep last result visible until next landfall
           });
           if (msg.round.surgeRound) audio.surgeCall();
@@ -270,11 +322,34 @@ export const useStore = create<State>((set, get) => {
           audio.wind(Math.max(500, msg.phase.endsAt - Date.now()));
           break;
         case 'LANDFALL': {
+          // E3 first-loss trust moment: the verify stamp glows ONCE per profile
+          // on the first loss ≥ 10× the room min stake (ux-redesign-v2.md §6.3).
+          let verifyGlow = get().verifyGlow;
+          if (
+            msg.yourResult.outcome === 'WRECKED' &&
+            -msg.yourResult.netMinor >= 10 * get().roomMinStakeMinor &&
+            localStorage.getItem('landfall.firstLossGlow') !== '1'
+          ) {
+            localStorage.setItem('landfall.firstLossGlow', '1');
+            verifyGlow = true;
+          }
+          const card: ReplayCard = {
+            roundId: msg.roundId,
+            struckZone: msg.struckZone,
+            replay: msg.replay,
+            ...(msg.stormPower ? { stormPower: msg.stormPower } : {}),
+            powerCapped: msg.powerCapped ?? false,
+            ...(msg.surge ? { surge: msg.surge } : {}),
+            at: Date.now(),
+          };
           set({
             phase: msg.phase,
             orderPending: false,
             balanceMinor: msg.balanceMinor,
             wreckLog: msg.wreckLog,
+            verifyGlow,
+            // E2: the Wreck Log is a stack of the last 20 replay cards.
+            replayCards: [...get().replayCards.slice(-19), card],
             lastLandfall: {
               roundId: msg.roundId,
               struckZone: msg.struckZone,
@@ -318,6 +393,27 @@ export const useStore = create<State>((set, get) => {
           break;
         case 'CHAT_MESSAGE':
           set({ chat: [...get().chat.slice(-99), msg.entry] });
+          break;
+        case 'SKIPPER_RECORD': {
+          // E1: fill the open card only if it's still the record the user asked for.
+          const open = get().skipperCard;
+          if (open && open.name === msg.name) {
+            set({ skipperCard: { name: msg.name, record: msg.record, loading: false } });
+          }
+          break;
+        }
+        case 'LIMITS_STATE':
+          set({ limits: msg.limits });
+          break;
+        case 'REALITY_CHECK':
+          // Calm by design (F1): no sound, no amber — just the facts.
+          set({
+            realityCheck: {
+              elapsedMinutes: msg.elapsedMinutes,
+              sessionNetMinor: msg.sessionNetMinor,
+              at: msg.at,
+            },
+          });
           break;
         case 'SYSTEM_MESSAGE': {
           const kind = msg.text.includes('GOLDEN ANCHOR')
@@ -391,6 +487,14 @@ export const useStore = create<State>((set, get) => {
     whaleCapFraction: 1,
     lastKnownHandleMinor: null,
     myFlagRounds: [],
+    replayCards: [],
+    wreckLogOpen: false,
+    skipperCard: null,
+    limits: null,
+    sessionStartAt: null,
+    realityCheck: null,
+    limitsOpen: false,
+    verifyGlow: false,
 
     sendAnchor(zone) {
       const s = get();
@@ -490,7 +594,7 @@ export const useStore = create<State>((set, get) => {
       set({ stakeInputMinor: minor });
     },
     openVerify(roundId) {
-      set({ verifyRoundId: roundId });
+      set({ verifyRoundId: roundId, verifyGlow: false });
     },
     setRulesOpen(open) {
       set({ rulesOpen: open });
@@ -528,6 +632,29 @@ export const useStore = create<State>((set, get) => {
     },
     dismissToast() {
       set({ toast: null });
+    },
+    /** E1: cosmetic record lookup — display only, never gameplay. */
+    openSkipper(name) {
+      set({ skipperCard: { name, record: null, loading: true } });
+      send({ type: 'GET_SKIPPER', name });
+    },
+    closeSkipper() {
+      set({ skipperCard: null });
+    },
+    setWreckLogOpen(open) {
+      set({ wreckLogOpen: open });
+    },
+    sendLimits(patch) {
+      send({ type: 'SET_LIMITS', ...patch });
+    },
+    sendExclusion(minutes) {
+      send({ type: 'SET_EXCLUSION', minutes });
+    },
+    setLimitsOpen(open) {
+      set({ limitsOpen: open });
+    },
+    dismissRealityCheck() {
+      set({ realityCheck: null });
     },
   };
 });

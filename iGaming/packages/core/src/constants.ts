@@ -197,4 +197,14 @@ export const CHAT_MAX_LEN = 200;
 export const CHAT_MIN_INTERVAL_MS = 2_000;
 export const CHAT_BURST = 3;
 
+/**
+ * Responsible gambling (F1/F2) — self-set limits are server-enforced on the
+ * anchor accept path. Tightening a limit applies immediately; LOOSENING one
+ * (raising or clearing) only takes effect after this cooldown (industry
+ * standard). Self-exclusion can only ever be extended, never shortened.
+ */
+export const LIMIT_RAISE_COOLDOWN_MS = 24 * 60 * 60 * 1_000;
+export const REALITY_CHECK_MAX_MINUTES = 480;
+export const EXCLUSION_MAX_MINUTES = 365 * 24 * 60;
+
 export const SEED_CHAIN_LENGTH = 10_000; // seeds per season

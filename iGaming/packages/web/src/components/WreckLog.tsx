@@ -1,11 +1,17 @@
-/** Compact strip of recent struck-cove results — small chips, latest highlighted. */
+/**
+ * Compact strip of recent struck-cove results — small chips, latest
+ * highlighted. The strip itself opens the Wreck Log sheet (E2): the same
+ * history retold as replay cards with fog arrows, salvage and flag reveals.
+ */
 import { HARBOR_NAMES } from '@landfall/core';
+import { audio } from '../audio/engine';
 import { useStore } from '../store';
 
 const MAX_VISIBLE_RESULTS = 14;
 
 export function WreckLog() {
   const wreckLog = useStore((s) => s.wreckLog);
+  const setWreckLogOpen = useStore((s) => s.setWreckLogOpen);
   const visibleResults = wreckLog.slice(-MAX_VISIBLE_RESULTS);
 
   return (
@@ -13,12 +19,18 @@ export function WreckLog() {
       className="lf-surface pointer-events-auto absolute left-2 top-2 z-10 flex h-7 max-w-[calc(100%-4.5rem)] items-center gap-1.5 rounded-lg px-2"
       aria-label="Recent wreck history"
     >
-      <span
-        className="shrink-0 text-[9px] font-extrabold tracking-[0.05em] text-[var(--lf-dim)]"
-        aria-hidden="true"
+      <button
+        type="button"
+        onClick={() => {
+          audio.click('nav');
+          setWreckLogOpen(true);
+        }}
+        className="-mx-2 flex h-11 shrink-0 items-center self-center rounded-lg px-2 text-[9px] font-extrabold tracking-[0.05em] text-[var(--lf-dim)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+        aria-label="Open the Wreck Log replay cards"
+        title="Open the Wreck Log — replay cards for recent rounds"
       >
         WRECKS
-      </span>
+      </button>
 
       {visibleResults.length === 0 ? (
         <span className="truncate text-[10px] font-medium text-[var(--lf-dim)]">

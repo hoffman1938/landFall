@@ -22,6 +22,7 @@ import {
   type Timings,
 } from './coordinator.js';
 import type { GameRepository } from './db/repository.js';
+import type { LimitsService } from './limits.js';
 
 /** JSON shape of one room in the config file (all fields optional but roomId/name). */
 export interface RoomConfigJson {
@@ -122,9 +123,14 @@ export class RoomManager {
     chain: ChainHandle,
     configs: RoomConfig[],
     makeEvents: (roomId: string) => CoordinatorEvents,
+    /** F1/F2: one shared service — limits follow the player across rooms. */
+    limits?: LimitsService,
   ) {
     for (const cfg of configs) {
-      this.rooms.set(cfg.roomId, new RoundCoordinator(repo, chain, makeEvents(cfg.roomId), cfg));
+      this.rooms.set(
+        cfg.roomId,
+        new RoundCoordinator(repo, chain, makeEvents(cfg.roomId), cfg, limits),
+      );
     }
   }
 

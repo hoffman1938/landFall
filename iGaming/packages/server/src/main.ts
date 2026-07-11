@@ -13,6 +13,7 @@ import { openDb } from './db/index.js';
 import { DrizzleSqliteRepository } from './db/repository.js';
 import { players } from './db/schema.js';
 import { Hub } from './hub.js';
+import { LimitsService } from './limits.js';
 import { RoomManager, isDemoEnv, loadRoomConfigs } from './rooms.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -65,7 +66,9 @@ if (!house) {
 
 const chain = ensureChain(db);
 const chat = new ChatService(db);
-const hub = new Hub(db, chat, chain.commitment);
+// Responsible gambling (F1/F2): one service across all rooms, server-enforced.
+const limits = new LimitsService(repo);
+const hub = new Hub(db, chat, chain.commitment, limits);
 // Surge probability overridable for local testing; recorded in /api/round for verification.
 const surgeProb = Number(process.env.LANDFALL_SURGE_PROB ?? SURGE_PROB);
 
@@ -78,7 +81,7 @@ const makeEvents = (roomId: string): CoordinatorEvents => ({
   broadcastLandfall: (build) => hub.broadcastLandfallToRoom(roomId, build),
   systemMessage: (text) => hub.systemMessageToRoom(roomId, text),
 });
-const rooms = new RoomManager(repo, chain, roomConfigs, makeEvents);
+const rooms = new RoomManager(repo, chain, roomConfigs, makeEvents, limits);
 hub.rooms = rooms;
 
 const app = createApp(db, chain.commitment, surgeProb, econ);

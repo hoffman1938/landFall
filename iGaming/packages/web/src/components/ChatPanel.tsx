@@ -34,6 +34,7 @@ export function ChatPanel({ showHeader = true, dense = false }: ChatPanelProps) 
   const myName = useStore((state) => state.name);
   const connected = useStore((state) => state.connected);
   const sendChat = useStore((state) => state.sendChat);
+  const openSkipper = useStore((state) => state.openSkipper);
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputId = useId();
@@ -101,16 +102,23 @@ export function ChatPanel({ showHeader = true, dense = false }: ChatPanelProps) 
                   {visibleTime}
                 </time>
                 <p className="min-w-0 break-words leading-relaxed">
-                  <span
-                    className={
+                  {/* E1: a name opens that skipper's cosmetic record card. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      audio.click('nav');
+                      openSkipper(message.name);
+                    }}
+                    title={`View ${message.name}'s skipper record`}
+                    className={`inline min-h-0 cursor-pointer rounded-sm p-0 text-left underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] ${
                       mine
                         ? 'font-bold text-[var(--lf-focus)]'
                         : 'font-semibold text-[var(--lf-dim)]'
-                    }
+                    }`}
                   >
                     {message.name}
                     {mine ? <span className="sr-only"> (you)</span> : null}:
-                  </span>{' '}
+                  </button>{' '}
                   <span className="text-[var(--lf-text)]">{message.text}</span>
                 </p>
               </div>

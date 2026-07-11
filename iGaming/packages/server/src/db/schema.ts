@@ -133,6 +133,51 @@ export const actionTelemetry = sqliteTable('action_telemetry', {
   createdAt: integer('created_at').notNull(),
 });
 
+/**
+ * Skipper Record (E1) — per-player cosmetic reputation. Read for display only;
+ * NEVER an input to gameplay, odds, or settlement. Bots get records too so
+ * demo profile cards work; the house never sails.
+ */
+export const skipperRecords = sqliteTable('skipper_records', {
+  playerId: text('player_id').primaryKey(),
+  currentStreak: integer('current_streak').notNull().default(0),
+  bestStreak: integer('best_streak').notNull().default(0),
+  /** Flags revealed dishonest at reveal (flag zone ≠ fleet reality at lock). */
+  bluffsCalled: integer('bluffs_called').notNull().default(0),
+  biggestSalvageMinor: integer('biggest_salvage_minor').notNull().default(0),
+  roundsSailed: integer('rounds_sailed').notNull().default(0),
+  surgeWins: integer('surge_wins').notNull().default(0),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+/**
+ * Responsible-gambling limits (F1) + demo-grade self-exclusion (F2).
+ * Tightening applies immediately; loosenings wait in pending_json
+ * ({field: {value, effectiveAt}}) behind the 24h cooldown.
+ */
+export const playerLimits = sqliteTable('player_limits', {
+  playerId: text('player_id').primaryKey(),
+  sessionLossLimitMinor: integer('session_loss_limit_minor'),
+  dailyLossLimitMinor: integer('daily_loss_limit_minor'),
+  stakePerRoundCapMinor: integer('stake_per_round_cap_minor'),
+  realityCheckMinutes: integer('reality_check_minutes'),
+  pendingJson: text('pending_json'),
+  excludedUntil: integer('excluded_until'),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+/**
+ * Per-player daily net loss (F1) — one row per player per UTC day, written
+ * inside the settlement transaction. Positive = down, negative = up; the
+ * daily loss limit compares against max(0, net).
+ */
+export const playerDayLoss = sqliteTable('player_day_loss', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  playerId: text('player_id').notNull(),
+  dayKey: text('day_key').notNull(), // 'YYYY-MM-DD', UTC
+  netLossMinor: integer('net_loss_minor').notNull(),
+});
+
 export const chatMessages = sqliteTable('chat_messages', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   /** Chat is scoped per room (C1). */

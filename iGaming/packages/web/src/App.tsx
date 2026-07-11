@@ -6,13 +6,17 @@
  */
 import { lazy, Suspense, useEffect } from 'react';
 import { ControlDeck } from './components/ControlDeck';
+import { LimitsModal } from './components/LimitsModal';
+import { RealityCheck } from './components/RealityCheck';
 import { ResultBanner } from './components/ResultBanner';
 import { RulesModal } from './components/RulesModal';
 import { SecondaryPanel } from './components/SecondaryPanel';
+import { SkipperCard } from './components/SkipperCard';
 import { StormClock } from './components/StormClock';
 import { TopBar } from './components/TopBar';
 import { VerifyModal } from './components/VerifyModal';
 import { WreckLog } from './components/WreckLog';
+import { WreckLogSheet } from './components/WreckLogSheet';
 import { useStore } from './store';
 
 const HarborMap = lazy(() =>
@@ -72,6 +76,12 @@ export default function App() {
       </main>
       <VerifyModal />
       <RulesModal />
+      {/* E1/E2: cosmetic skipper cards + replay-card Wreck Log. */}
+      <SkipperCard />
+      <WreckLogSheet />
+      {/* F1/F2: play limits, session clock, self-exclusion, reality checks. */}
+      <LimitsModal />
+      <RealityCheck />
     </div>
   );
 }

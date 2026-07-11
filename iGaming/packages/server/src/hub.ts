@@ -14,12 +14,14 @@ import {
   type ChatEntry,
   type RoomInfo,
   type ServerMessage,
+  type SkipperRecordPublic,
 } from '@landfall/core';
 import type { ChatService } from './chat.js';
 import type { RoundCoordinator } from './coordinator.js';
 import type { Db } from './db/index.js';
+import type { LimitsService } from './limits.js';
 import type { RoomManager } from './rooms.js';
-import { chatMessages, players } from './db/schema.js';
+import { chatMessages, players, skipperRecords } from './db/schema.js';
 import { randomName } from './names.js';
 
 interface Session {
@@ -27,6 +29,10 @@ interface Session {
   playerId: string | null;
   name: string | null;
   roomId: string | null;
+  /** Session clock (F2) + reality-check elapsed base (F1). */
+  startedAt: number;
+  /** F1: per-connection reality-check interval, driven by the player's cadence. */
+  realityTimer: NodeJS.Timeout | null;
 }
 
 export class Hub {
@@ -36,6 +42,7 @@ export class Hub {
     private db: Db,
     private chat: ChatService,
     private chainCommitment: string,
+    private limits: LimitsService,
   ) {}
 
   /** Wired after construction (hub and rooms reference each other). */
@@ -43,15 +50,52 @@ export class Hub {
 
   attach(wss: WebSocketServer): void {
     wss.on('connection', (ws) => {
-      const session: Session = { ws, playerId: null, name: null, roomId: null };
+      const session: Session = {
+        ws,
+        playerId: null,
+        name: null,
+        roomId: null,
+        startedAt: Date.now(),
+        realityTimer: null,
+      };
       this.sessions.add(session);
       ws.on('message', (raw) => this.onMessage(session, raw.toString()));
       ws.on('close', () => {
-        this.sessions.delete(session);
+        this.dropSession(session);
         this.broadcastRoomList();
       });
-      ws.on('error', () => this.sessions.delete(session));
+      ws.on('error', () => this.dropSession(session));
     });
+  }
+
+  private dropSession(session: Session): void {
+    if (session.realityTimer) clearInterval(session.realityTimer);
+    session.realityTimer = null;
+    this.sessions.delete(session);
+    // "Session" for loss limits (F1) ends when the player's LAST socket closes.
+    const pid = session.playerId;
+    if (pid && ![...this.sessions].some((s) => s.playerId === pid)) {
+      this.limits.endSession(pid);
+    }
+  }
+
+  /** (Re)arm the F1 reality-check interval to the player's chosen cadence. */
+  private scheduleRealityCheck(session: Session): void {
+    if (session.realityTimer) clearInterval(session.realityTimer);
+    session.realityTimer = null;
+    if (!session.playerId) return;
+    const minutes = this.limits.getState(session.playerId).realityCheckMinutes;
+    if (!minutes) return;
+    session.realityTimer = setInterval(() => {
+      if (!session.playerId || session.ws.readyState !== session.ws.OPEN) return;
+      const now = Date.now();
+      this.send(session, {
+        type: 'REALITY_CHECK',
+        elapsedMinutes: Math.round((now - session.startedAt) / 60_000),
+        sessionNetMinor: this.limits.sessionNet(session.playerId),
+        at: now,
+      });
+    }, minutes * 60_000);
   }
 
   /** Room-scoped broadcast: only sessions in `roomId` receive it. */
@@ -217,7 +261,47 @@ export class Hub {
         }
         break;
       }
+      case 'GET_SKIPPER': {
+        // E1: cosmetic record lookup by display name. The house never sails.
+        this.send(session, {
+          type: 'SKIPPER_RECORD',
+          name: msg.name,
+          record: this.skipperRecordByName(msg.name),
+        });
+        break;
+      }
+      case 'SET_LIMITS': {
+        const { type: _t, ...patch } = msg;
+        const limits = this.limits.setLimits(session.playerId, patch);
+        this.send(session, { type: 'LIMITS_STATE', limits });
+        this.scheduleRealityCheck(session);
+        break;
+      }
+      case 'SET_EXCLUSION': {
+        const limits = this.limits.setExclusion(session.playerId, msg.minutes);
+        this.send(session, { type: 'LIMITS_STATE', limits });
+        break;
+      }
     }
+  }
+
+  private skipperRecordByName(name: string): SkipperRecordPublic | null {
+    const player = this.db.select().from(players).where(eq(players.name, name)).get();
+    if (!player || player.isHouse) return null;
+    const rec = this.db
+      .select()
+      .from(skipperRecords)
+      .where(eq(skipperRecords.playerId, player.id))
+      .get();
+    return {
+      name: player.name,
+      currentStreak: rec?.currentStreak ?? 0,
+      bestStreak: rec?.bestStreak ?? 0,
+      bluffsCalled: rec?.bluffsCalled ?? 0,
+      biggestSalvageMinor: rec?.biggestSalvageMinor ?? 0,
+      roundsSailed: rec?.roundsSailed ?? 0,
+      surgeWins: rec?.surgeWins ?? 0,
+    };
   }
 
   private onHello(session: Session, claimedId?: string): void {
@@ -245,6 +329,8 @@ export class Hub {
 
     session.playerId = player.id;
     session.name = player.name;
+    this.limits.beginSession(player.id);
+    this.scheduleRealityCheck(session);
     // Reconnect restores the player to their room (C1); unknown/stale rooms
     // fall back to the default (first configured) room.
     const roomId =
@@ -311,6 +397,8 @@ export class Hub {
       yourFleet: room.yourFleet(player.id),
       wreckLog: room.wreckLogState(),
       chatTail,
+      limits: this.limits.getState(player.id),
+      sessionStartAt: session.startedAt,
     });
     this.broadcastRoomList();
   }

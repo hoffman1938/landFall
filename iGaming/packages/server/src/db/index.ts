@@ -123,6 +123,33 @@ function bootstrap(sqlite: Database.Database) {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_telemetry_player ON action_telemetry(player_id, round_id);
+    CREATE TABLE IF NOT EXISTS skipper_records (
+      player_id TEXT PRIMARY KEY,
+      current_streak INTEGER NOT NULL DEFAULT 0,
+      best_streak INTEGER NOT NULL DEFAULT 0,
+      bluffs_called INTEGER NOT NULL DEFAULT 0,
+      biggest_salvage_minor INTEGER NOT NULL DEFAULT 0,
+      rounds_sailed INTEGER NOT NULL DEFAULT 0,
+      surge_wins INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS player_limits (
+      player_id TEXT PRIMARY KEY,
+      session_loss_limit_minor INTEGER,
+      daily_loss_limit_minor INTEGER,
+      stake_per_round_cap_minor INTEGER,
+      reality_check_minutes INTEGER,
+      pending_json TEXT,
+      excluded_until INTEGER,
+      updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS player_day_loss (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      player_id TEXT NOT NULL,
+      day_key TEXT NOT NULL,
+      net_loss_minor INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_day_loss ON player_day_loss(player_id, day_key);
   `);
   // Additive column migrations for pre-existing dev DBs (CREATE TABLE IF NOT
   // EXISTS skips them). Idempotent: checked against pragma table_info.

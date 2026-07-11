@@ -7,9 +7,11 @@ Aviator/JetX-scale instant games without replacing its core identity.
 Public Tide Reports, Blind Fog Lock (weather-extended), one Final Order, Focus/Split Fleet
 Orders, Signal Flags (Crosswind-delayed), Stake Band Privacy, Weather Patterns, Wreck Wake
 Replay, seed-derived storm feints, and extended verification (draw, payout, Surge, Storm
-Power, Weather) — on top of the v1 core plus Storm Power and Storm Surge. Still open from the
-roadmap: Harbor Compass (gated, §6.1), signed action receipts, shareable Clip Cards, bot
-telemetry, and all of P4 (stake-tier rooms, whale guardrails, cosmetics, spectator mode).
+Power, Weather) — on top of the v1 core plus Storm Power and Storm Surge. The remediation
+program then landed signed action receipts (B1), behavioral telemetry (B3), stake-tier rooms
+with whale guardrails (C2/B5), shareable Clip Cards with the flag-honesty ribbon (E2, local
+canvas export), and cosmetic skipper reputation (E1). Still open from the roadmap: Harbor
+Compass (gated, §6.1) and spectator mode.
 
 ---
 

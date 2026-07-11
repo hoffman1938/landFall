@@ -44,6 +44,8 @@ export function TopBar() {
   const roomId = useStore((s) => s.roomId);
   const rooms = useStore((s) => s.rooms);
   const joinRoom = useStore((s) => s.joinRoom);
+  const setLimitsOpen = useStore((s) => s.setLimitsOpen);
+  const openSkipper = useStore((s) => s.openSkipper);
   const [muted, setMuted] = useState(audio.prefs.muted);
   const [volume, setVolume] = useState(audio.prefs.volume);
   const [now, setNow] = useState(Date.now());
@@ -277,6 +279,41 @@ export function TopBar() {
                     </span>
                   </span>
                 </label>
+                {/* F1/F2: server-enforced limits, session clock, self-exclusion. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    audio.click('nav');
+                    setSettingsOpen(false);
+                    setLimitsOpen(true);
+                  }}
+                  className="flex min-h-11 w-full items-center rounded-md px-2 py-1 text-left text-sm font-semibold text-[var(--lf-text)] hover:bg-[var(--lf-surface-2)]"
+                >
+                  <span>
+                    Play limits & session
+                    <span className="block text-xs font-medium leading-snug text-[var(--lf-dim)]">
+                      Loss limits, reality checks, take a break
+                    </span>
+                  </span>
+                </button>
+                {/* E1: your own cosmetic skipper record. */}
+                <button
+                  type="button"
+                  disabled={!name}
+                  onClick={() => {
+                    audio.click('nav');
+                    setSettingsOpen(false);
+                    if (name) openSkipper(name);
+                  }}
+                  className="flex min-h-11 w-full items-center rounded-md px-2 py-1 text-left text-sm font-semibold text-[var(--lf-text)] hover:bg-[var(--lf-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span>
+                    My skipper record
+                    <span className="block text-xs font-medium leading-snug text-[var(--lf-dim)]">
+                      Streaks, salvage, bluffs — bragging rights only
+                    </span>
+                  </span>
+                </button>
               </div>
             </>
           )}
