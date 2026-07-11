@@ -41,6 +41,9 @@ function bootstrap(sqlite: Database.Database) {
       struck_zone INTEGER,
       lock_snapshot_json TEXT,
       rake_minor INTEGER,
+      rake_bp INTEGER,
+      max_payout_multiple INTEGER,
+      power_capped INTEGER,
       settled_at INTEGER,
       created_at INTEGER NOT NULL
     );
@@ -60,13 +63,39 @@ function bootstrap(sqlite: Database.Database) {
       id INTEGER PRIMARY KEY,
       pot_minor INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS storm_reserve_ledger (
+      round_id INTEGER PRIMARY KEY,
+      inflow_minor INTEGER NOT NULL,
+      outflow_minor INTEGER NOT NULL,
+      balance_minor INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS surge_events (
       round_id INTEGER PRIMARY KEY,
       winner_player_id TEXT,
       winner_stake_id TEXT,
       amount_minor INTEGER NOT NULL,
+      flat_odds INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS server_secrets (
+      id INTEGER PRIMARY KEY,
+      receipt_key_hex TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS action_receipts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      round_id INTEGER NOT NULL,
+      seq INTEGER NOT NULL,
+      player_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      action_hash TEXT NOT NULL,
+      ts INTEGER NOT NULL,
+      ms_before_lock INTEGER NOT NULL,
+      verdict TEXT NOT NULL,
+      reason TEXT,
+      sig_hex TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_receipts_round ON action_receipts(round_id, player_id);
     CREATE TABLE IF NOT EXISTS chat_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       player_id TEXT NOT NULL,
@@ -75,6 +104,24 @@ function bootstrap(sqlite: Database.Database) {
       created_at INTEGER NOT NULL
     );
   `);
+  // Additive column migrations for pre-existing dev DBs (CREATE TABLE IF NOT
+  // EXISTS skips them). Idempotent: checked against pragma table_info.
+  addColumnIfMissing(sqlite, 'rounds', 'rake_bp', 'INTEGER');
+  addColumnIfMissing(sqlite, 'rounds', 'max_payout_multiple', 'INTEGER');
+  addColumnIfMissing(sqlite, 'rounds', 'power_capped', 'INTEGER');
+  addColumnIfMissing(sqlite, 'surge_events', 'flat_odds', 'INTEGER NOT NULL DEFAULT 0');
+}
+
+function addColumnIfMissing(
+  sqlite: Database.Database,
+  table: string,
+  column: string,
+  type: string,
+) {
+  const cols = sqlite.pragma(`table_info(${table})`) as { name: string }[];
+  if (!cols.some((c) => c.name === column)) {
+    sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
 }
 
 export type Db = ReturnType<typeof openDb>['db'];

@@ -33,10 +33,15 @@ export interface SettlementResult {
   rakeMinor: number;
   /** Base distributable pool (pre-Storm-Power): struck pool minus rake. */
   distributedMinor: number;
-  /** Actually distributed salvage after the Storm Power multiplier. */
+  /** Actually distributed salvage after the Storm Power multiplier (and cap, if hit). */
   salvageTotalMinor: number;
-  /** House's extra liability this round: salvageTotal − distributable (negative = house keeps the difference). */
+  /**
+   * Storm Reserve draw this round: salvageTotal − distributable (≥ 0 with the
+   * ×1-floor ladder; negative only if a sub-1 multiplier is ever passed in).
+   */
   houseDeltaMinor: number;
+  /** True when maxSalvageMinor clamped the Storm Power payout (published, never silent). */
+  powerCapped: boolean;
   survivorPoolMinor: number;
   lines: SettlementLine[];
 }
@@ -52,6 +57,12 @@ export function settleRound(
   struckZone: number,
   rake: number,
   power: SalvagePower = { mNum: 1, mDen: 1 },
+  /**
+   * Per-round liability cap (A3): total salvage never exceeds this. The clamp
+   * never cuts below the pari-mutuel base (distributable), so a survivor's
+   * salvage is never reduced below the ×1 identity.
+   */
+  maxSalvageMinor?: number,
 ): SettlementResult {
   const struck = stakes.filter((s) => s.zone === struckZone);
   const survivors = stakes.filter((s) => s.zone !== struckZone);
@@ -60,8 +71,12 @@ export function settleRound(
 
   const rakeMinor = Math.floor(struckPoolMinor * rake);
   const distributable = struckPoolMinor - rakeMinor;
-  // Storm Power: total salvage = distributable × M (exact rational, floored once).
-  const salvageTotal = Math.floor((distributable * power.mNum) / power.mDen);
+  // Storm Power: total salvage = distributable × M (exact rational, floored once),
+  // then clamped to the operator's liability cap (clamp published via powerCapped).
+  const salvageUncapped = Math.floor((distributable * power.mNum) / power.mDen);
+  const cap = maxSalvageMinor === undefined ? salvageUncapped : Math.max(maxSalvageMinor, distributable);
+  const salvageTotal = Math.min(salvageUncapped, cap);
+  const powerCapped = salvageTotal < salvageUncapped;
 
   const lines: SettlementLine[] = struck.map((s) => ({
     ...s,
@@ -81,6 +96,7 @@ export function settleRound(
       distributedMinor: 0,
       salvageTotalMinor: 0,
       houseDeltaMinor: 0,
+      powerCapped: false,
       survivorPoolMinor,
       lines,
     };
@@ -120,6 +136,7 @@ export function settleRound(
     distributedMinor: distributable,
     salvageTotalMinor: salvageTotal,
     houseDeltaMinor: salvageTotal - distributable,
+    powerCapped,
     survivorPoolMinor,
     lines,
   };
@@ -153,10 +170,31 @@ export function pickGoldenAnchor(
 }
 
 /**
+ * Flat-odds Golden Anchor (A4, flag-gated): every surviving player stake entry
+ * has an EQUAL chance, regardless of size — so small stakes visibly win pots.
+ * Same eligibility and determinism rules as pickGoldenAnchor; only the weighting
+ * differs. The mode is announced in the round header before anchoring, and the
+ * winner recomputes from the public lock snapshot like everything else.
+ */
+export function pickGoldenAnchorFlat(
+  stakes: readonly StakeEntry[],
+  struckZone: number,
+  uWinner: number,
+): StakeEntry | null {
+  const eligible = stakes
+    .filter((s) => !s.isHouseSeed && s.zone !== struckZone && s.amountMinor > 0)
+    .sort((a, b) => a.id.localeCompare(b.id));
+  if (eligible.length === 0) return null;
+  const idx = Math.min(eligible.length - 1, Math.floor(uWinner * eligible.length));
+  return eligible[idx]!;
+}
+
+/**
  * Runtime conservation assert (docs/05-security/security-review.md §1.20), Storm
  * Power aware: survivor payouts + rake === handle + houseDelta. With M=1 the
  * delta is zero and this reduces to the original pari-mutuel identity; with
- * M≠1 the delta is exactly what the house pays in (M>1) or keeps (M<1).
+ * M>1 the delta is exactly the Storm Reserve draw funding the extra salvage
+ * (cap included — the identity stays exact when the clamp fires).
  */
 export function assertConservation(r: SettlementResult): void {
   const handle = r.struckPoolMinor + r.survivorPoolMinor;

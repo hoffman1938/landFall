@@ -21,9 +21,11 @@ interface RoundRecord {
   struckZone: number;
   lockSnapshot: StakeEntry[];
   rake: number;
+  maxPayoutMultiple: number;
+  powerCapped: boolean;
   zoneCount: number;
   surgeProb: number;
-  surge: { winnerStakeId: string | null; amountMinor: number } | null;
+  surge: { winnerStakeId: string | null; amountMinor: number; flatOdds?: boolean } | null;
   stormPower: { label: string; mNum: number; mDen: number };
   weather: WeatherPattern;
 }
@@ -40,6 +42,7 @@ export function VerifyModal() {
   const roundId = useStore((s) => s.verifyRoundId);
   const openVerify = useStore((s) => s.openVerify);
   const chainCommitment = useStore((s) => s.chainCommitment);
+  const receipts = useStore((s) => s.receipts);
   const [rec, setRec] = useState<RoundRecord | null>(null);
   const [result, setResult] = useState<RoundVerificationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,10 +71,12 @@ export function VerifyModal() {
             announcedStruckZone: data.struckZone,
             zoneCount: data.zoneCount,
             rake: data.rake,
+            maxPayoutMultiple: data.maxPayoutMultiple,
             stakes: data.lockSnapshot,
             surgeProb: data.surgeProb,
             announcedSurge: data.surge !== null,
             announcedSurgeWinnerStakeId: data.surge ? data.surge.winnerStakeId : null,
+            surgeFlatOdds: data.surge?.flatOdds ?? false,
             announcedPowerLabel: data.stormPower.label,
             announcedWeatherId: data.weather.id,
           }),
@@ -167,6 +172,12 @@ export function VerifyModal() {
                   }) — matches announcement`}
                 />
               )}
+              {rec.powerCapped && (
+                <div className="text-[var(--lf-dim)]">
+                  Liability cap applied: total salvage clamped to {rec.maxPayoutMultiple}× the
+                  round handle (recomputed from the public snapshot).
+                </div>
+              )}
               {result.weatherOk !== null && (
                 <Check
                   ok={result.weatherOk}
@@ -188,6 +199,27 @@ export function VerifyModal() {
                 />
               )}
             </div>
+            {receipts.some((r) => r.roundId === roundId) && (
+              <div className="border-t border-[var(--lf-line)] pt-2">
+                <div className="mb-1 text-xs font-semibold text-[var(--lf-text)]">
+                  Your order history (server-signed receipts)
+                </div>
+                <div className="space-y-1 text-xs text-[var(--lf-dim)]">
+                  {receipts
+                    .filter((r) => r.roundId === roundId)
+                    .map((r) => (
+                      <div key={r.seq}>
+                        {r.verdict === 'ACCEPTED' ? '✓' : '✗'} {r.action.replace('_', ' ')} —{' '}
+                        {r.msBeforeLock >= 0
+                          ? `received ${(r.msBeforeLock / 1000).toFixed(2)}s before lock`
+                          : `refused ${(-r.msBeforeLock / 1000).toFixed(2)}s after lock`}
+                        {r.reason ? ` (${r.reason})` : ''} · seq #{r.seq} · sig{' '}
+                        {r.sigHex.slice(0, 8)}…
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
             <div className="border-t border-[var(--lf-line)] pt-2 text-xs text-[var(--lf-dim)]">
               Lock snapshot ({rec.lockSnapshot.length} stakes):{' '}
               {Array.from({ length: rec.zoneCount }, (_, z) => {

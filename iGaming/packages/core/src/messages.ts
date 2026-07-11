@@ -184,6 +184,8 @@ export type ServerMessage =
       balanceMinor: number;
       finalOrderUsed?: boolean;
       fleet?: FleetPlanPublic;
+      /** Signed action receipt (B1). */
+      receipt?: ActionReceipt;
     }
   | {
       type: 'CANCEL_ACK';
@@ -191,6 +193,8 @@ export type ServerMessage =
       /** True when the cancel happened during Blind Fog and consumed the one hidden order. */
       finalOrderUsed: boolean;
       refundMinor: number;
+      /** Signed action receipt (B1). */
+      receipt?: ActionReceipt;
     }
   | { type: 'SIGNAL_UPDATE'; signals: SignalPublic[] }
   | { type: 'LOCK_SNAPSHOT'; pools: PoolsState; anchors: PlayerPublic[]; phase: PhaseInfo }
@@ -212,11 +216,19 @@ export type ServerMessage =
       surge?: SurgeResult;
       /** Storm Power (hurricane category) that multiplied this round's salvage. */
       stormPower: { label: string; mNum: number; mDen: number };
+      /** True when the per-round liability cap clamped the Storm Power payout (disclosed, never silent). */
+      powerCapped: boolean;
     }
   | { type: 'PHASE'; phase: PhaseInfo }
   | { type: 'CHAT_MESSAGE'; entry: ChatEntry }
   | { type: 'SYSTEM_MESSAGE'; text: string; at: number }
-  | { type: 'ERROR'; code: string; message: string };
+  | {
+      type: 'ERROR';
+      code: string;
+      message: string;
+      /** Signed rejection receipt for late/refused round actions (B1). */
+      receipt?: ActionReceipt;
+    };
 
 export interface RoundHeader {
   roundId: number;
@@ -228,6 +240,36 @@ export interface RoundHeader {
   /** Storm Surge: is THIS round a surge round (announced before anchoring), and the live pot. */
   surgeRound: boolean;
   surgePotMinor: number;
+  /**
+   * Flat-odds Golden Anchor (A4, flag-gated): on this surge round every surviving
+   * stake has equal odds instead of stake-weighted odds. Announced pre-anchor.
+   */
+  surgeFlatOdds: boolean;
+}
+
+/**
+ * Signed action receipt (B1): the server's non-repudiable record of exactly what
+ * it accepted (or rejected) and when. HMAC-signed with the server's receipt key,
+ * persisted, echoed in the ACK, and shown in the Verify sheet's order history.
+ */
+export interface ActionReceipt {
+  roundId: number;
+  /** Monotonic per-round sequence over all accepted/rejected receipted actions. */
+  seq: number;
+  playerId: string;
+  /** What the player asked: ANCHOR | FLEET_ORDER | CANCEL_ORDER. */
+  action: string;
+  /** SHA-256 hex of the canonical action payload (zone/mode/stake…). */
+  actionHash: string;
+  /** Server receive timestamp, epoch ms. */
+  ts: number;
+  /** Milliseconds between receipt and the anchor-lock boundary (negative = after lock). */
+  msBeforeLock: number;
+  verdict: 'ACCEPTED' | 'REJECTED';
+  /** Rejection code for REJECTED receipts (e.g. ROUND_LOCKED). */
+  reason?: string;
+  /** HMAC-SHA256 over the canonical receipt string, hex. */
+  sigHex: string;
 }
 
 export interface SurgeResult {

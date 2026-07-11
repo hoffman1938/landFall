@@ -8,6 +8,7 @@ import type { WebSocket, WebSocketServer } from 'ws';
 import {
   STARTING_BALANCE_MINOR,
   clientMessage,
+  type ActionReceipt,
   type ChatEntry,
   type ServerMessage,
 } from '@landfall/core';
@@ -101,9 +102,10 @@ export class Hub {
             balanceMinor: r.balanceMinor,
             finalOrderUsed: r.finalOrderUsed,
             fleet: r.fleet,
+            receipt: r.receipt,
           });
         } else {
-          this.error(session, r.code, r.message);
+          this.error(session, r.code, r.message, r.receipt);
         }
         break;
       }
@@ -124,9 +126,10 @@ export class Hub {
             balanceMinor: r.balanceMinor,
             finalOrderUsed: r.finalOrderUsed,
             fleet: r.fleet,
+            receipt: r.receipt,
           });
         } else {
-          this.error(session, r.code, r.message);
+          this.error(session, r.code, r.message, r.receipt);
         }
         break;
       }
@@ -138,9 +141,10 @@ export class Hub {
             balanceMinor: r.balanceMinor,
             finalOrderUsed: r.finalOrderUsed,
             refundMinor: r.refundMinor,
+            receipt: r.receipt,
           });
         } else {
-          this.error(session, r.code, r.message);
+          this.error(session, r.code, r.message, r.receipt);
         }
         break;
       }
@@ -219,7 +223,7 @@ export class Hub {
     if (session.ws.readyState === session.ws.OPEN) session.ws.send(JSON.stringify(msg));
   }
 
-  private error(session: Session, code: string, message: string): void {
-    this.send(session, { type: 'ERROR', code, message });
+  private error(session: Session, code: string, message: string, receipt?: ActionReceipt): void {
+    this.send(session, { type: 'ERROR', code, message, ...(receipt ? { receipt } : {}) });
   }
 }

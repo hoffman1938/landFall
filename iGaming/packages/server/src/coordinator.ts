@@ -11,17 +11,24 @@
  *    with core's conservation assert running inside it.
  */
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { count, desc, eq } from 'drizzle-orm';
 import {
   BLIND_FOG_MS,
   DEFAULT_TIMINGS,
   HOUSE_SEED_MINOR,
   RAKE,
+  RAKE_SPLIT,
   SPLIT_PRIMARY_PERCENT,
+  STORM_POWER_MAX_PAYOUT_MULTIPLE,
+  SURGE_FLAT_ODDS_EVERY_N,
   SURGE_MIN_POT_MINOR,
-  SURGE_RAKE_SHARE,
   ZONE_COUNT,
+  computeTideBands,
   drawZone,
+  pickGoldenAnchorFlat,
+  validateRakeConfig,
+  type ActionReceipt,
+  type RakeSplit,
   pickGoldenAnchor,
   settleRound,
   stormPowerFromRoll,
@@ -46,7 +53,16 @@ import {
 } from '@landfall/core';
 import type { ChainHandle } from './chain.js';
 import type { Db, Sqlite } from './db/index.js';
-import { players, rounds, stakes, surgeEvents, surgeState } from './db/schema.js';
+import {
+  actionReceipts,
+  players,
+  rounds,
+  stakes,
+  stormReserveLedger,
+  surgeEvents,
+  surgeState,
+} from './db/schema.js';
+import { ReceiptSigner, ensureReceiptKey, hashActionPayload } from './receipts.js';
 
 export interface CoordinatorEvents {
   broadcast(msg: unknown): void;
@@ -92,6 +108,27 @@ export interface Timings {
   cooldownMs: number;
 }
 
+/**
+ * Room economy config (A1/A3) — validated on construction; env-overridable in
+ * main.ts, per-room once Workstream C lands. Rake is applied to the struck
+ * pool; the split routes it to operator / Storm Surge pot / Storm Reserve.
+ */
+export interface EconomyConfig {
+  rake: number;
+  rakeSplit: RakeSplit;
+  /** Storm Power liability cap: max total salvage = multiple × round handle. */
+  maxPayoutMultiple: number;
+  /** Flat-odds Golden Anchor cadence (A4): every Nth surge round; 0 disables. */
+  surgeFlatEveryN: number;
+}
+
+export const DEFAULT_ECONOMY: EconomyConfig = {
+  rake: RAKE,
+  rakeSplit: RAKE_SPLIT,
+  maxPayoutMultiple: STORM_POWER_MAX_PAYOUT_MULTIPLE,
+  surgeFlatEveryN: SURGE_FLAT_ODDS_EVERY_N,
+};
+
 const ANCHOR_MIN_INTERVAL_MS = 150; // human-scale re-anchor cap (security-review.md §1.16)
 
 export class RoundCoordinator {
@@ -104,6 +141,7 @@ export class RoundCoordinator {
   private draw: DrawResult | null = null;
   private weather: WeatherPattern = weatherFromRoll(0);
   private surgeRound = false;
+  private surgeFlatOdds = false;
   private surgePotMinor = 0;
   private fleets = new Map<string, LiveFleet>(); // playerId -> live fleet plan
   private signals = new Map<string, LiveSignal>(); // playerId -> one public signal per round
@@ -116,8 +154,17 @@ export class RoundCoordinator {
   private fogStartsAt = 0;
   private fogStarted = false;
   private lastReportTotals: number[] | null = null;
+  /** Bands of the last PUBLISHED report — the hysteresis anchor (B2). */
+  private lastReportBands: TideBand[] | null = null;
   private currentTideReport: TideReport | null = null;
   private wreckLog: number[] = [];
+  /** Signed action receipts (B1): per-round monotonic sequence + signer. */
+  private receiptSeq = 0;
+  private anchorLockAt = 0;
+  private receiptSigner: ReceiptSigner;
+
+  /** Storm Reserve running balance (mirrors the last storm_reserve_ledger row). */
+  private reserveBalanceMinor = 0;
 
   constructor(
     private db: Db,
@@ -127,7 +174,21 @@ export class RoundCoordinator {
     private timings: Timings = DEFAULT_TIMINGS,
     /** Overridable for local testing (LANDFALL_SURGE_PROB); included in /api/round for verification. */
     readonly surgeProb: number = 0,
+    readonly econ: EconomyConfig = DEFAULT_ECONOMY,
   ) {
+    validateRakeConfig(econ.rake, econ.rakeSplit);
+    if (!Number.isInteger(econ.maxPayoutMultiple) || econ.maxPayoutMultiple < 1) {
+      throw new Error(`maxPayoutMultiple must be a positive integer, got ${econ.maxPayoutMultiple}`);
+    }
+    this.receiptSigner = new ReceiptSigner(ensureReceiptKey(db));
+    const lastLedger = this.db
+      .select()
+      .from(stormReserveLedger)
+      .orderBy(desc(stormReserveLedger.roundId))
+      .limit(1)
+      .get();
+    this.reserveBalanceMinor = lastLedger?.balanceMinor ?? 0;
+
     const recent = this.db
       .select({ z: rounds.struckZone })
       .from(rounds)
@@ -180,6 +241,7 @@ export class RoundCoordinator {
       weather: this.weather,
       surgeRound: this.surgeRound,
       surgePotMinor: this.surgePotMinor,
+      surgeFlatOdds: this.surgeFlatOdds,
     };
   }
 
@@ -233,6 +295,49 @@ export class RoundCoordinator {
 
   // ---------- player actions ----------
 
+  /**
+   * Issue, persist and return a signed action receipt (B1). Called on every
+   * accept/reject decision for round actions — the client can later prove what
+   * the server acknowledged and exactly when, especially at the fog/lock boundary.
+   */
+  private issueReceipt(
+    playerId: string,
+    action: string,
+    payload: unknown,
+    verdict: 'ACCEPTED' | 'REJECTED',
+    reason?: string,
+  ): ActionReceipt {
+    const ts = Date.now();
+    this.receiptSeq += 1;
+    const receipt = this.receiptSigner.sign({
+      roundId: this.roundId,
+      seq: this.receiptSeq,
+      playerId,
+      action,
+      actionHash: hashActionPayload(payload),
+      ts,
+      msBeforeLock: this.anchorLockAt - ts,
+      verdict,
+      ...(reason !== undefined ? { reason } : {}),
+    });
+    this.db
+      .insert(actionReceipts)
+      .values({
+        roundId: receipt.roundId,
+        seq: receipt.seq,
+        playerId: receipt.playerId,
+        action: receipt.action,
+        actionHash: receipt.actionHash,
+        ts: receipt.ts,
+        msBeforeLock: receipt.msBeforeLock,
+        verdict: receipt.verdict,
+        reason: receipt.reason ?? null,
+        sigHex: receipt.sigHex,
+      })
+      .run();
+    return receipt;
+  }
+
   /** Back-compat wrapper: old ANCHOR messages are Focus fleet orders. */
   anchor(
     playerId: string,
@@ -240,8 +345,14 @@ export class RoundCoordinator {
     zone: number,
     stakeMinor: number,
   ):
-    | { ok: true; balanceMinor: number; finalOrderUsed: boolean; fleet: FleetPlanPublic }
-    | { ok: false; code: string; message: string } {
+    | {
+        ok: true;
+        balanceMinor: number;
+        finalOrderUsed: boolean;
+        fleet: FleetPlanPublic;
+        receipt: ActionReceipt;
+      }
+    | { ok: false; code: string; message: string; receipt?: ActionReceipt } {
     return this.fleetOrder(playerId, name, 'FOCUS', zone, null, stakeMinor);
   }
 
@@ -254,39 +365,47 @@ export class RoundCoordinator {
     secondaryZone: number | null,
     stakeMinor: number,
   ):
-    | { ok: true; balanceMinor: number; finalOrderUsed: boolean; fleet: FleetPlanPublic }
-    | { ok: false; code: string; message: string } {
+    | {
+        ok: true;
+        balanceMinor: number;
+        finalOrderUsed: boolean;
+        fleet: FleetPlanPublic;
+        receipt: ActionReceipt;
+      }
+    | { ok: false; code: string; message: string; receipt?: ActionReceipt } {
+    const payload = { mode, primaryZone, secondaryZone, stakeMinor };
+    const reject = (code: string, message: string) => ({
+      ok: false as const,
+      code,
+      message,
+      receipt: this.issueReceipt(playerId, 'FLEET_ORDER', payload, 'REJECTED', code),
+    });
     if (this.phase !== 'ANCHOR_OPEN' || Date.now() >= this.phaseEndsAt) {
-      return { ok: false, code: 'ROUND_LOCKED', message: 'Anchors are locked for this round.' };
+      return reject('ROUND_LOCKED', 'Anchors are locked for this round.');
     }
     if (mode === 'SPLIT') {
       if (secondaryZone === null || secondaryZone === primaryZone) {
-        return {
-          ok: false,
-          code: 'BAD_SPLIT',
-          message: 'Split orders need two different harbors.',
-        };
+        return reject('BAD_SPLIT', 'Split orders need two different harbors.');
       }
     }
     const existing = this.fleets.get(playerId);
     const now = Date.now();
     const finalOrderUsed = this.isBlindFogActive(now);
     if (finalOrderUsed && this.finalOrders.has(playerId)) {
-      return {
-        ok: false,
-        code: 'FINAL_ORDER_USED',
-        message: 'Blind Fog allows one final order. Your fleet is already committed.',
-      };
+      return reject(
+        'FINAL_ORDER_USED',
+        'Blind Fog allows one final order. Your fleet is already committed.',
+      );
     }
     if (existing && now - existing.lastChangeAt < ANCHOR_MIN_INTERVAL_MS) {
-      return { ok: false, code: 'TOO_FAST', message: 'Re-anchoring too fast.' };
+      return reject('TOO_FAST', 'Re-anchoring too fast.');
     }
     const delta = stakeMinor - (existing?.stakeMinor ?? 0);
 
     const player = this.db.select().from(players).where(eq(players.id, playerId)).get();
-    if (!player) return { ok: false, code: 'NO_PLAYER', message: 'Unknown player.' };
+    if (!player) return reject('NO_PLAYER', 'Unknown player.');
     if (delta > 0 && player.balanceMinor < delta) {
-      return { ok: false, code: 'INSUFFICIENT', message: 'Not enough credits.' };
+      return reject('INSUFFICIENT', 'Not enough credits.');
     }
 
     const newBalance = player.balanceMinor - delta;
@@ -323,7 +442,13 @@ export class RoundCoordinator {
     } else {
       this.scheduleTideBroadcast();
     }
-    return { ok: true, balanceMinor: newBalance, finalOrderUsed, fleet: this.fleetPublic(fleet) };
+    return {
+      ok: true,
+      balanceMinor: newBalance,
+      finalOrderUsed,
+      fleet: this.fleetPublic(fleet),
+      receipt: this.issueReceipt(playerId, 'FLEET_ORDER', payload, 'ACCEPTED'),
+    };
   }
 
   /**
@@ -334,30 +459,41 @@ export class RoundCoordinator {
   cancelOrder(
     playerId: string,
   ):
-    | { ok: true; balanceMinor: number; finalOrderUsed: boolean; refundMinor: number }
-    | { ok: false; code: string; message: string } {
+    | {
+        ok: true;
+        balanceMinor: number;
+        finalOrderUsed: boolean;
+        refundMinor: number;
+        receipt: ActionReceipt;
+      }
+    | { ok: false; code: string; message: string; receipt?: ActionReceipt } {
+    const reject = (code: string, message: string) => ({
+      ok: false as const,
+      code,
+      message,
+      receipt: this.issueReceipt(playerId, 'CANCEL_ORDER', {}, 'REJECTED', code),
+    });
     if (this.phase !== 'ANCHOR_OPEN' || Date.now() >= this.phaseEndsAt) {
-      return { ok: false, code: 'ROUND_LOCKED', message: 'Anchors are locked for this round.' };
+      return reject('ROUND_LOCKED', 'Anchors are locked for this round.');
     }
     const existing = this.fleets.get(playerId);
     if (!existing) {
-      return { ok: false, code: 'NO_ORDER', message: 'You have no active order to cancel.' };
+      return reject('NO_ORDER', 'You have no active order to cancel.');
     }
     const now = Date.now();
     const fogOrder = this.isBlindFogActive(now);
     if (fogOrder && this.finalOrders.has(playerId)) {
-      return {
-        ok: false,
-        code: 'FINAL_ORDER_USED',
-        message: 'Blind Fog allows one final order. Your fleet is already committed.',
-      };
+      return reject(
+        'FINAL_ORDER_USED',
+        'Blind Fog allows one final order. Your fleet is already committed.',
+      );
     }
     if (now - existing.lastChangeAt < ANCHOR_MIN_INTERVAL_MS) {
-      return { ok: false, code: 'TOO_FAST', message: 'Re-anchoring too fast.' };
+      return reject('TOO_FAST', 'Re-anchoring too fast.');
     }
 
     const player = this.db.select().from(players).where(eq(players.id, playerId)).get();
-    if (!player) return { ok: false, code: 'NO_PLAYER', message: 'Unknown player.' };
+    if (!player) return reject('NO_PLAYER', 'Unknown player.');
 
     const refundMinor = existing.stakeMinor;
     const newBalance = player.balanceMinor + refundMinor;
@@ -370,7 +506,13 @@ export class RoundCoordinator {
     } else {
       this.scheduleTideBroadcast();
     }
-    return { ok: true, balanceMinor: newBalance, finalOrderUsed: fogOrder, refundMinor };
+    return {
+      ok: true,
+      balanceMinor: newBalance,
+      finalOrderUsed: fogOrder,
+      refundMinor,
+      receipt: this.issueReceipt(playerId, 'CANCEL_ORDER', {}, 'ACCEPTED'),
+    };
   }
 
   /** One public bluff/coordination signal per player per round. Signals never affect settlement. */
@@ -414,8 +556,10 @@ export class RoundCoordinator {
     this.fogMoveCount = 0;
     this.lockSnapshot = null;
     this.lastReportTotals = null;
+    this.lastReportBands = null;
     this.currentTideReport = null;
     this.fogStarted = false;
+    this.receiptSeq = 0;
 
     const res = this.db
       .insert(rounds)
@@ -431,8 +575,17 @@ export class RoundCoordinator {
     this.draw = drawZone(this.seedHex, this.roundId, ZONE_COUNT);
     this.weather = weatherFromRoll(this.draw.weatherRoll);
     this.surgeRound = this.draw.uSurge < this.surgeProb;
+    // Flat-odds Golden Anchor (A4, flag-gated): every Nth surge round, counted
+    // over the auditable surge_events history, pays with equal odds per stake.
+    if (this.surgeRound && this.econ.surgeFlatEveryN > 0) {
+      const prior = this.db.select({ n: count() }).from(surgeEvents).get()?.n ?? 0;
+      this.surgeFlatOdds = (prior + 1) % this.econ.surgeFlatEveryN === 0;
+    } else {
+      this.surgeFlatOdds = false;
+    }
 
     this.setPhase('ANCHOR_OPEN', this.timings.anchorMs);
+    this.anchorLockAt = this.phaseEndsAt;
     const weatherFogBonus = this.weather.id === 'HEAVY_FOG' ? 1_000 : 0;
     const fogMs = Math.min(
       BLIND_FOG_MS + weatherFogBonus,
@@ -546,12 +699,17 @@ export class RoundCoordinator {
   private resolve(struckZone: number): void {
     this.setPhase('RESOLVED', this.timings.resolvedMs);
     const snapshot = this.lockSnapshot!;
-    // Storm Power: the same digest decides how hard the storm hits (salvage ×M).
+    // Storm Power: the same digest decides how hard the storm hits (salvage ×M),
+    // clamped by the per-round liability cap (A3) — max salvage = multiple × handle.
     const power = stormPowerFromRoll(this.draw!.stormPowerRoll);
-    const settlement = settleRound(snapshot, struckZone, RAKE, {
-      mNum: power.mNum,
-      mDen: power.mDen,
-    }); // conservation (incl. house delta) asserted inside
+    const handleMinor = snapshot.reduce((a, s) => a + s.amountMinor, 0);
+    const settlement = settleRound(
+      snapshot,
+      struckZone,
+      this.econ.rake,
+      { mNum: power.mNum, mDen: power.mDen },
+      this.econ.maxPayoutMultiple * handleMinor,
+    ); // conservation (incl. reserve delta) asserted inside
 
     const stakeOwner = new Map<string, string>(); // stakeId -> playerId
     for (const entry of this.liveStakeEntries(true)) stakeOwner.set(entry.id, entry.playerId);
@@ -559,13 +717,23 @@ export class RoundCoordinator {
     const housePlayer = this.db.select().from(players).where(eq(players.isHouse, true)).get();
     const perPlayerNet = new Map<string, number>();
 
-    // Storm Surge accounting: half the rake feeds the pot; on a surge round the
-    // whole pot goes to one surviving player stake (Golden Anchor), then the
-    // house re-seeds the floor. All inside the settlement transaction.
-    const surgeContribMinor = Math.floor(settlement.rakeMinor * SURGE_RAKE_SHARE);
-    const houseRakeMinor = settlement.rakeMinor - surgeContribMinor;
+    // Rake split (A1): surge share feeds the pot, stormReserve share feeds the
+    // reserve ledger, the house books the remainder (rounding dust included).
+    // On a surge round the whole pot goes to one surviving player stake (Golden
+    // Anchor), then the house re-seeds the floor. All inside the settlement txn.
+    const surgeContribMinor = Math.floor(settlement.rakeMinor * this.econ.rakeSplit.surge);
+    const reserveContribMinor = Math.floor(
+      settlement.rakeMinor * this.econ.rakeSplit.stormReserve,
+    );
+    const houseRakeMinor = settlement.rakeMinor - surgeContribMinor - reserveContribMinor;
+    // Storm Power overpayment (≥ 0 with the ×1-floor ladder) draws from the reserve.
+    const reserveOutflowMinor = Math.max(0, settlement.houseDeltaMinor);
     const goldenWinner = this.surgeRound
-      ? pickGoldenAnchor(snapshot, struckZone, this.draw!.uWinner)
+      ? (this.surgeFlatOdds ? pickGoldenAnchorFlat : pickGoldenAnchor)(
+          snapshot,
+          struckZone,
+          this.draw!.uWinner,
+        )
       : null;
     let surgeResult: SurgeResult | undefined;
 
@@ -602,18 +770,31 @@ export class RoundCoordinator {
         }
       }
       if (housePlayer) {
-        // House books its rake share MINUS the Storm Power delta (delta > 0 means
-        // the house funded extra salvage this round; delta < 0 means it kept the
-        // difference on a weak storm — E[delta] = 0 by the ladder's construction).
+        // House books only its rake share. The Storm Power overpayment is no
+        // longer a house liability: it draws from the Storm Reserve, whose
+        // funding invariant (core storm-power test) keeps E[outflow] ≤ E[inflow].
         const p = this.db.select().from(players).where(eq(players.id, housePlayer.id)).get()!;
         this.db
           .update(players)
           .set({
-            balanceMinor: p.balanceMinor + houseRakeMinor - settlement.houseDeltaMinor,
+            balanceMinor: p.balanceMinor + houseRakeMinor,
           })
           .where(eq(players.id, housePlayer.id))
           .run();
       }
+
+      // Storm Reserve ledger row (A3): auditable inflow/outflow/balance per round.
+      this.reserveBalanceMinor += reserveContribMinor - reserveOutflowMinor;
+      this.db
+        .insert(stormReserveLedger)
+        .values({
+          roundId: this.roundId,
+          inflowMinor: reserveContribMinor,
+          outflowMinor: reserveOutflowMinor,
+          balanceMinor: this.reserveBalanceMinor,
+          createdAt: Date.now(),
+        })
+        .run();
 
       // Pot grows by this round's contribution first, then pays out if surging.
       let pot = this.surgePotMinor + surgeContribMinor;
@@ -634,6 +815,7 @@ export class RoundCoordinator {
               winnerPlayerId,
               winnerStakeId: goldenWinner.id,
               amountMinor: pot,
+              flatOdds: this.surgeFlatOdds,
               createdAt: Date.now(),
             })
             .run();
@@ -661,6 +843,7 @@ export class RoundCoordinator {
               winnerPlayerId: null,
               winnerStakeId: null,
               amountMinor: pot,
+              flatOdds: this.surgeFlatOdds,
               createdAt: Date.now(),
             })
             .run();
@@ -676,6 +859,9 @@ export class RoundCoordinator {
           seedHex: this.seedHex,
           struckZone,
           rakeMinor: settlement.rakeMinor,
+          rakeBp: Math.round(this.econ.rake * 10_000),
+          maxPayoutMultiple: this.econ.maxPayoutMultiple,
+          powerCapped: settlement.powerCapped,
           settledAt: Date.now(),
         })
         .where(eq(rounds.id, this.roundId))
@@ -706,6 +892,7 @@ export class RoundCoordinator {
       wreckLog: this.wreckLogState(),
       replay,
       stormPower: { label: power.label, mNum: power.mNum, mDen: power.mDen },
+      powerCapped: settlement.powerCapped,
       ...(surgeResult ? { surge: surgeResult } : {}),
     };
     this.events.broadcastLandfall((playerId) => {
@@ -726,6 +913,12 @@ export class RoundCoordinator {
       const mult = power.mNum / power.mDen;
       this.events.systemMessage(
         `⛈ ${power.label} STORM — all salvage ×${mult}${mult >= 25 ? '!!!' : '!'}`,
+      );
+    }
+    // Honesty over silence: if the liability cap clamped the payout, say so.
+    if (settlement.powerCapped) {
+      this.events.systemMessage(
+        `⚖ Storm Power payout reached this round's cap (${this.econ.maxPayoutMultiple}× the round handle) — salvage was clamped to ${(settlement.salvageTotalMinor / 100).toFixed(2)}.`,
       );
     }
     if (surgeResult?.winnerName) {
@@ -795,24 +988,20 @@ export class RoundCoordinator {
     const avg = Math.max(1, total / ZONE_COUNT);
     const prev = this.lastReportTotals;
     const trendThreshold = Math.max(10_00, avg * 0.04);
+    // Bands with hysteresis (B2): a band flips only after the pool clears the
+    // threshold by a margin, so min-stake probing cannot binary-search exact
+    // totals below band resolution (see core tide.ts + probing test).
+    const bands = computeTideBands(pools.totalsMinor, this.lastReportBands, HOUSE_SEED_MINOR);
     const entries = pools.totalsMinor.map((amount, zone) => {
-      const ratio = amount / avg;
-      const band: TideBand =
-        amount <= HOUSE_SEED_MINOR
-          ? 'seed'
-          : ratio < 0.75
-            ? 'light'
-            : ratio < 1.25
-              ? 'medium'
-              : ratio < 1.8
-                ? 'heavy'
-                : 'packed';
       const delta = prev ? amount - (prev[zone] ?? amount) : 0;
       const trend: TideTrend =
         delta > trendThreshold ? 'rising' : delta < -trendThreshold ? 'falling' : 'stable';
-      return { zone, band, trend, boatCount: pools.boatCounts[zone] ?? 0 };
+      return { zone, band: bands[zone]!, trend, boatCount: pools.boatCounts[zone] ?? 0 };
     });
-    if (!frozen) this.lastReportTotals = [...pools.totalsMinor];
+    if (!frozen) {
+      this.lastReportTotals = [...pools.totalsMinor];
+      this.lastReportBands = bands;
+    }
     return { entries, generatedAt: Date.now(), frozen };
   }
 

@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import { MAX_STAKE_MINOR, ZONE_COUNT } from '@landfall/core';
 import type {
+  ActionReceipt,
   ChatEntry,
   FleetMode,
   FleetPlanPublic,
@@ -31,6 +32,8 @@ export interface LandfallInfo {
   replay: WreckWakeReplay;
   surge?: { potMinor: number; winnerName: string | null; winnerStakeMinor: number | null };
   stormPower?: { label: string; mNum: number; mDen: number };
+  /** True when the per-round liability cap clamped the Storm Power payout. */
+  powerCapped?: boolean;
 }
 
 export interface StormInfo {
@@ -73,6 +76,11 @@ interface State {
   lastAnchor: { zone: number; stakeMinor: number } | null;
   /** Last placed fleet order — preserves Focus/Split for one-click Rebet. */
   lastFleet: FleetPlanPublic | null;
+  /**
+   * Signed action receipts (B1), newest last, capped. Proof of exactly what the
+   * server accepted/rejected and when — shown in the Verify sheet per round.
+   */
+  receipts: ActionReceipt[];
 
   sendAnchor(zone: number): void;
   /** Withdraw the active fleet order before lock; the full stake is refunded. */
@@ -203,6 +211,7 @@ export const useStore = create<State>((set, get) => {
             lastAnchor: anchorFromFleet(fleet),
             lastFleet: fleet,
             finalOrderUsed: msg.finalOrderUsed ? true : get().finalOrderUsed,
+            ...(msg.receipt ? { receipts: [...get().receipts.slice(-59), msg.receipt] } : {}),
           });
           audio.splash();
           break;
@@ -214,6 +223,7 @@ export const useStore = create<State>((set, get) => {
             orderPending: false,
             balanceMinor: msg.balanceMinor,
             finalOrderUsed: msg.finalOrderUsed ? true : get().finalOrderUsed,
+            ...(msg.receipt ? { receipts: [...get().receipts.slice(-59), msg.receipt] } : {}),
           });
           audio.click('down');
           break;
@@ -243,6 +253,7 @@ export const useStore = create<State>((set, get) => {
               replay: msg.replay,
               ...(msg.surge ? { surge: msg.surge } : {}),
               ...(msg.stormPower ? { stormPower: msg.stormPower } : {}),
+              powerCapped: msg.powerCapped ?? false,
             },
           });
           // Audio sequencing: thunder scaled by Storm Power; reveal arpeggio for
@@ -288,7 +299,12 @@ export const useStore = create<State>((set, get) => {
           break;
         }
         case 'ERROR':
-          set({ toast: msg.message, orderPending: false });
+          set({
+            toast: msg.message,
+            orderPending: false,
+            // Signed rejection receipts (B1) join the order history too.
+            ...(msg.receipt ? { receipts: [...get().receipts.slice(-59), msg.receipt] } : {}),
+          });
           break;
       }
     };
@@ -325,6 +341,7 @@ export const useStore = create<State>((set, get) => {
     flagPickerAt: null,
     lastAnchor: null,
     lastFleet: null,
+    receipts: [],
 
     sendAnchor(zone) {
       const s = get();

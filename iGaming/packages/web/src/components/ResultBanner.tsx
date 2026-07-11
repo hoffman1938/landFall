@@ -42,6 +42,13 @@ export function ResultBanner() {
         </div>
       )}
 
+      {/* Liability cap disclosure — never silent (A3) */}
+      {lastLandfall.powerCapped && (
+        <div className="lf-rise rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/95 px-4 py-1.5 text-sm font-semibold text-[var(--lf-text)]">
+          Storm Power payout reached the round cap — salvage was clamped
+        </div>
+      )}
+
       {/* Golden Anchor — the rarest moment in the game */}
       {surge && surge.winnerName && (
         <div

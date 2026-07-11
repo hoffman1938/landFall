@@ -4,11 +4,17 @@
  */
 import { Hono } from 'hono';
 import { desc, eq } from 'drizzle-orm';
-import { RAKE, ZONE_COUNT, drawZone, stormPowerFromRoll, weatherFromRoll } from '@landfall/core';
+import { ZONE_COUNT, drawZone, stormPowerFromRoll, weatherFromRoll } from '@landfall/core';
+import { DEFAULT_ECONOMY, type EconomyConfig } from './coordinator.js';
 import type { Db } from './db/index.js';
 import { rounds, surgeEvents } from './db/schema.js';
 
-export function createApp(db: Db, chainCommitment: string, surgeProb: number) {
+export function createApp(
+  db: Db,
+  chainCommitment: string,
+  surgeProb: number,
+  econ: EconomyConfig = DEFAULT_ECONOMY,
+) {
   const app = new Hono();
 
   app.get('/api/health', (c) => c.json({ ok: true, game: 'landfall' }));
@@ -51,13 +57,17 @@ export function createApp(db: Db, chainCommitment: string, surgeProb: number) {
       seedHex: row.seedHex,
       struckZone: row.struckZone,
       lockSnapshot: row.lockSnapshotJson ? JSON.parse(row.lockSnapshotJson) : [],
-      rake: RAKE,
+      // Economy config as settled (falls back to the live config for legacy rows).
+      rake: row.rakeBp !== null ? row.rakeBp / 10_000 : econ.rake,
+      maxPayoutMultiple: row.maxPayoutMultiple ?? econ.maxPayoutMultiple,
+      powerCapped: row.powerCapped ?? false,
       zoneCount: ZONE_COUNT,
       surgeProb,
       surge: surge
         ? {
             winnerStakeId: surge.winnerStakeId,
             amountMinor: surge.amountMinor,
+            flatOdds: surge.flatOdds,
           }
         : null,
       stormPower: { label: power.label, mNum: power.mNum, mDen: power.mDen },

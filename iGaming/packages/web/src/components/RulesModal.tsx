@@ -119,17 +119,21 @@ export function RulesModal() {
           keep your stake <b>plus a share of the wrecked harbor's money</b>, split among all
           survivors in proportion to stake size. The big wins come when a{' '}
           <b>crowded, heavy harbor takes the storm</b> — the fewer people you share with and the
-          bigger the wreck, the bigger your salvage. The house takes 6% of the wrecked pool only.
+          bigger the wreck, the bigger your salvage. <b>Survivors receive 88% of the wrecked
+          pool</b>; the rest funds the house take, the Storm Surge pot, and the Storm Reserve.
         </Section>
 
         <Section title="Storm Power — the multiplier">
           Every storm has a hidden <b>category</b>, revealed at landfall, that multiplies all
-          survivors' salvage: <b>Cat 1 ×0.5</b> (common) · <b>Cat 2 ×1</b> · <b>Cat 3 ×2</b> (~1 in
-          10) · <b>Cat 4 ×5</b> (~1 in 28) · <b>Cat 5 ×25</b> (~1 in 330) · <b>Cat 6 ×100</b> (~1 in
-          4,000) · <b className="text-[var(--lf-amber)]">PERFECT STORM ×500</b> (~1 in 50,000).
-          Surviving a Perfect Storm on a heavy wreck turns even a 1-credit anchor into hundreds —
-          and it's all in the same provably-fair digest. A surviving win never becomes a loss: the
-          multiplier only scales the salvage on top of your returned stake.
+          survivors' salvage — and it is <b>never less than ×1</b>: a weak storm leaves your
+          salvage untouched. <b>Cat 1 ×1</b> (common) · <b>Cat 2 ×1.25</b> (~1 in 13) ·{' '}
+          <b>Cat 3 ×2</b> (~1 in 131) · <b>Cat 4 ×5</b> (~1 in 950) · <b>Cat 5 ×25</b> (~1 in
+          19,000) · <b>Cat 6 ×100</b> (~1 in 210,000) ·{' '}
+          <b className="text-[var(--lf-amber)]">PERFECT STORM ×500</b> (~1 in 1,000,000). The bonus
+          above ×1 is paid from the <b>Storm Reserve</b>, funded by a share of every round's take,
+          and a single round's total salvage is capped at a published multiple of that round's
+          handle — if the cap ever applies, the result says so. It's all in the same provably-fair
+          digest, and the multiplier only scales the salvage on top of your returned stake.
         </Section>
 
         <Section title="Weather Patterns">
@@ -140,8 +144,8 @@ export function RulesModal() {
         </Section>
 
         <Section title="Storm Surge — the jackpot">
-          Half of the house's take feeds the <b>Storm Surge pot</b> (shown at the top, always
-          growing). Roughly one round in 25 is a <b>SURGE ROUND</b> — announced before anchoring.
+          A fixed share of every round's take feeds the <b>Storm Surge pot</b> (shown at the top,
+          always growing). Roughly one round in 25 is a <b>SURGE ROUND</b> — announced before anchoring.
           When the storm passes, the <b>Golden Anchor</b> picks <b>one surviving player</b> — odds
           proportional to stake — who wins the <b>entire pot</b>. A small stake can win hundreds of
           times its size; a big stake hunts the pot with better odds. This is where the 500x stories
@@ -171,8 +175,8 @@ export function RulesModal() {
         </Section>
 
         <div className="rounded-md bg-[var(--lf-bg)] px-3 py-2 text-xs text-[var(--lf-dim)]">
-          Educational build · virtual credits only · long-run expected return ≈ 99.5% (1% rake, half
-          returned via the Surge pot). Play the crowd, not the storm.
+          Educational build · virtual credits only · survivors receive 88% of the wrecked pool ·
+          long-run return to players ≈ 98%. Play the crowd, not the storm.
         </div>
       </div>
     </div>

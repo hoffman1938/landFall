@@ -3,31 +3,86 @@
  * All money values are integer minor units (1 credit = 100 minor units).
  */
 export const ZONE_COUNT = 6;
-export const RAKE = 0.06; // rake on the struck pool only -> gross take = RAKE / ZONE_COUNT = 1% of handle
+export const RAKE = 0.12; // rake on the struck pool only -> gross take = RAKE / ZONE_COUNT = 2% of handle
 export const HOUSE_SEED_MINOR = 50_00; // house anchors 50.00 credits on every harbor, every round
 export const MIN_STAKE_MINOR = 1_00;
-export const MAX_STAKE_MINOR = 5_000_00; // high-roller ceiling
+export const MAX_STAKE_MINOR = 5_000_00; // absolute protocol ceiling; effective ceilings come from room tiers
 export const STARTING_BALANCE_MINOR = 50_000_00;
 
 /**
- * Storm Surge — progressive jackpot (docs/03-math/mathematical-model.md §10).
- * Half the rake feeds a shared pot; on a surge round (provably-fair trigger from
- * the same round digest) the entire pot goes to ONE surviving player stake,
- * picked weighted-by-stake from the lock snapshot. Long-run effective house
- * edge drops from 1% to ~0.5% of handle since half the take returns to players.
+ * Rake split — where each round's rake goes (fractions of the rake, sum = 1):
+ *   house        -> operator revenue (net hold ≈ RAKE/ZONE_COUNT × house = 1% of handle)
+ *   surge        -> Storm Surge progressive pot (returns to players)
+ *   stormReserve -> Storm Reserve funding the Storm Power ladder's E[M−1] overpayment
+ * Player-facing long-run return ≈ 98% (survivors receive (1−RAKE) = 88% of the
+ * wrecked pool; surge + reserve flows return the rest of the non-house take).
  */
-export const SURGE_RAKE_SHARE = 0.5; // fraction of each round's rake feeding the pot
+export interface RakeSplit {
+  house: number;
+  surge: number;
+  stormReserve: number;
+}
+export const RAKE_SPLIT: RakeSplit = { house: 0.5, surge: 0.25, stormReserve: 0.25 };
+
+/** Operator-configurable rake bounds; splits must be non-negative and sum to 1. */
+export const RAKE_MIN = 0.06;
+export const RAKE_MAX = 0.2;
+
+/** Validate a (rake, split) room/env override. Throws with a precise reason. */
+export function validateRakeConfig(rake: number, split: RakeSplit): void {
+  if (!Number.isFinite(rake) || rake < RAKE_MIN || rake > RAKE_MAX) {
+    throw new Error(`rake ${rake} outside [${RAKE_MIN}, ${RAKE_MAX}]`);
+  }
+  const parts = [split.house, split.surge, split.stormReserve];
+  if (parts.some((p) => !Number.isFinite(p) || p < 0)) {
+    throw new Error(`rake split parts must be non-negative, got ${JSON.stringify(split)}`);
+  }
+  const sum = parts.reduce((a, b) => a + b, 0);
+  if (Math.abs(sum - 1) > 1e-9) {
+    throw new Error(`rake split must sum to 1, got ${sum}`);
+  }
+}
+
+/**
+ * Storm Power liability cap — max total salvage per round as a multiple of the
+ * round handle. A nominal ×500 Perfect Storm on a whale pool is clamped here;
+ * the clamp is published in the round result (powerCapped) and the unspent
+ * overpayment intent stays in the Storm Reserve. Operator-configurable.
+ */
+export const STORM_POWER_MAX_PAYOUT_MULTIPLE = 25;
+
+/**
+ * Storm Surge — progressive jackpot (docs/03-math/mathematical-model.md §10).
+ * RAKE_SPLIT.surge of the rake feeds a shared pot; on a surge round
+ * (provably-fair trigger from the same round digest) the entire pot goes to ONE
+ * surviving player stake, picked weighted-by-stake from the lock snapshot.
+ */
 export const SURGE_PROB = 1 / 25; // expected surge frequency (~every 25 rounds)
 export const SURGE_MIN_POT_MINOR = 500_00; // house re-seeds the pot floor after each payout
+/**
+ * Flat-odds Golden Anchor (A4, P2, feature flag): every Nth surge round pays the
+ * pot with EQUAL odds per surviving stake entry instead of stake-weighted odds —
+ * announced in the round header like surge itself. 0 disables (default; enable
+ * per deployment via LANDFALL_SURGE_FLAT_EVERY once RG/compliance review clears it).
+ */
+export const SURGE_FLAT_ODDS_EVERY_N = 0;
 
 /**
  * Storm Power — the per-round salvage multiplier ladder (hurricane categories).
  * Drawn provably-fair from digest span [35,40) (20 bits); survivors' salvage is
- * multiplied by M. Probabilities are exact integer counts in 2^20 space chosen
- * so that E[M] = 1 EXACTLY — the ladder redistributes payout variance (rare
- * huge storms, frequent halved ones) without changing the house edge at all.
- * A 1-credit stake surviving a Perfect Storm on a fat wreck pays hundreds —
- * Landfall's answer to Aviator's "even 1 credit can catch a 500x".
+ * multiplied by M. Probabilities are exact integer counts in 2^20 space.
+ *
+ * Ladder v2 invariants (remediation Workstream A2, replacing E[M]=1):
+ *   - floor is ×1: a survivor's salvage is NEVER reduced (Category 1 leaves it untouched);
+ *   - the expected overpayment E[M−1] is funded by the Storm Reserve:
+ *       E[M−1] × (1−RAKE) ≤ RAKE_SPLIT.stormReserve × RAKE
+ *     With RAKE 0.12 and reserve share 0.25 the exact budget is E[M−1] ≤ 3/88.
+ *     This ladder's Σ count·(M−1) = 35,685.5 of a 35,746.9 budget in 2^20 space
+ *     (99.8% utilization; the slack is deliberate reserve head-room).
+ *   - felt "storm bonus" (M>1) on ~1 round in 11.3; the marketable tail keeps a
+ *     nominal ×500 Perfect Storm (~1 in 2^20), clamped per round by
+ *     STORM_POWER_MAX_PAYOUT_MULTIPLE and drawn from the reserve.
+ * The exact-arithmetic funding test lives in core/test/storm-power.test.ts.
  * Math: docs/03-math/mathematical-model.md §10.
  */
 export interface StormPowerTier {
@@ -39,13 +94,13 @@ export interface StormPowerTier {
 }
 
 export const STORM_POWER_LADDER: StormPowerTier[] = [
-  { label: 'Category 1', mNum: 1, mDen: 2, cumBound: 733_570 }, // ×0.5  p≈0.6996
-  { label: 'Category 2', mNum: 1, mDen: 1, cumBound: 902_550 }, // ×1    p≈0.1612
-  { label: 'Category 3', mNum: 2, mDen: 1, cumBound: 1_007_408 }, // ×2   p≈0.1000
-  { label: 'Category 4', mNum: 5, mDen: 1, cumBound: 1_045_157 }, // ×5   p=0.036
-  { label: 'Category 5', mNum: 25, mDen: 1, cumBound: 1_048_303 }, // ×25 p=0.003
-  { label: 'Category 6', mNum: 100, mDen: 1, cumBound: 1_048_555 }, // ×100 p=0.00024
-  { label: 'PERFECT STORM', mNum: 500, mDen: 1, cumBound: 1_048_576 }, // ×500 p=0.00002
+  { label: 'Category 1', mNum: 1, mDen: 1, cumBound: 955_529 }, // ×1     p≈0.9113
+  { label: 'Category 2', mNum: 5, mDen: 4, cumBound: 1_039_415 }, // ×1.25 p=0.0800  (~1 in 12.5)
+  { label: 'Category 3', mNum: 2, mDen: 1, cumBound: 1_047_415 }, // ×2    p≈0.00763 (~1 in 131)
+  { label: 'Category 4', mNum: 5, mDen: 1, cumBound: 1_048_515 }, // ×5    p≈0.00105 (~1 in 953)
+  { label: 'Category 5', mNum: 25, mDen: 1, cumBound: 1_048_570 }, // ×25  p≈5.2e-5  (~1 in 19k)
+  { label: 'Category 6', mNum: 100, mDen: 1, cumBound: 1_048_575 }, // ×100 p≈4.8e-6 (~1 in 210k)
+  { label: 'PERFECT STORM', mNum: 500, mDen: 1, cumBound: 1_048_576 }, // ×500 p=2^-20 (~1 in 1.05M)
 ];
 
 export function stormPowerFromRoll(roll: number): StormPowerTier {
