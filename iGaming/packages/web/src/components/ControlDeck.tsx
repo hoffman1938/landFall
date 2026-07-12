@@ -20,12 +20,12 @@ import { useEffect, useRef, useState } from 'react';
 import {
   FLAG_MAX_PER_WINDOW,
   FLAG_WINDOW_ROUNDS,
-  HARBOR_NAMES,
   RAKE,
   SPLIT_PRIMARY_PERCENT,
   payoutExpectationGains,
 } from '@landfall/core';
 import { audio } from '../audio/engine';
+import { STR, zoneName } from '../strings';
 import {
   MODE_UNLOCK_ROUNDS,
   getDeckProgress,
@@ -50,13 +50,15 @@ import {
   XIcon,
 } from './icons';
 
-const PRESETS = [1_00, 2_00, 5_00, 10_00, 25_00, 50_00, 100_00, 500_00];
+// v3 P0-9: four presets on stage; power presets + ×2/½/MAX live behind the
+// stake tricks disclosure so the beginner deck stays uncluttered.
+const PRESETS = [1_00, 2_00, 5_00, 10_00];
 
 /** Hold duration for the fog-cancel confirm affordance. */
 const CANCEL_HOLD_MS = 650;
 
 function coveName(zone: number): string {
-  return HARBOR_NAMES[zone] ?? `Cove ${zone + 1}`;
+  return zoneName(zone);
 }
 
 function presetLabel(minor: number): string {
@@ -70,6 +72,8 @@ export function ControlDeck() {
   const stakeInputMinor = useStore((s) => s.stakeInputMinor);
   const setStakeInput = useStore((s) => s.setStakeInput);
   const myFleet = useStore((s) => s.myFleet);
+  const selectedZone = useStore((s) => s.selectedZone);
+  const commitBet = useStore((s) => s.commitBet);
   const fleetMode = useStore((s) => s.fleetMode);
   const setFleetMode = useStore((s) => s.setFleetMode);
   const finalOrderUsed = useStore((s) => s.finalOrderUsed);
@@ -128,6 +132,7 @@ export function ControlDeck() {
     orderPending,
     fogActive,
     hasLastFleet: lastFleet !== null,
+    hasSelection: myFleet === null && selectedZone !== null,
   });
 
   // ✕ hold-to-confirm state (fog only).
@@ -229,31 +234,35 @@ export function ControlDeck() {
   /* ---------- primary presentation (state resolved in deckState.ts) ---------- */
 
   const primaryContent: Record<PrimaryId, { label: string; sub?: string }> = {
-    reconnecting: { label: 'RECONNECTING…' },
-    connecting: { label: 'CONNECTING…' },
-    locked: { label: 'ANCHORS LOCKED', sub: 'Storm is choosing a cove' },
-    landfall: { label: 'LANDFALL', sub: 'Settling results' },
-    cooldown: { label: 'NEXT ROUND SOON' },
+    reconnecting: { label: STR.reconnecting },
+    connecting: { label: STR.connecting },
+    locked: { label: STR.locked, sub: STR.lockedSub },
+    landfall: { label: STR.result, sub: STR.resultSub },
+    cooldown: { label: STR.nextRoundSoon },
     'final-order-set': {
-      label: 'FINAL ORDER SET',
-      ...(myFleet ? { sub: `Committed at ${coveName(myFleet.primaryZone)}` } : {}),
+      label: STR.lastMoveSet,
+      ...(myFleet ? { sub: `${coveName(myFleet.primaryZone)} · ${fmt(myFleet.stakeMinor)}` } : {}),
     },
-    sending: { label: 'SENDING…' },
+    sending: { label: STR.sending },
     anchored: {
-      label: 'ANCHORED',
+      label: STR.betPlaced,
       ...(myFleet
         ? { sub: `${coveName(myFleet.primaryZone)} · ${fmt(myFleet.stakeMinor)}` }
         : {}),
     },
+    'place-bet': {
+      label: `${STR.placeBet} ${fmt(stakeInputMinor)}`,
+      ...(selectedZone !== null ? { sub: coveName(selectedZone) } : {}),
+    },
     rebet: {
-      label: `REBET ${lastFleet ? fmt(lastFleet.stakeMinor) : ''}`,
+      label: `${STR.betAgain} ${lastFleet ? fmt(lastFleet.stakeMinor) : ''}`.trim(),
       ...(lastFleet
         ? {
-            sub: `${lastFleet.mode === 'SPLIT' ? 'Split' : 'Focus'} · ${coveName(lastFleet.primaryZone)}`,
+            sub: `${coveName(lastFleet.primaryZone)}${lastFleet.mode === 'SPLIT' ? ` · ${STR.twoZones}` : ''}`,
           }
         : {}),
     },
-    'select-cove': { label: 'SELECT A COVE', sub: 'Tap the map to anchor' },
+    'select-cove': { label: STR.pickZone, sub: STR.pickZoneSub },
   };
   const primary = primaryContent[deck.primary.id];
   const primaryOnPress =
@@ -262,7 +271,12 @@ export function ControlDeck() {
           audio.click('send');
           rebet();
         }
-      : undefined;
+      : deck.primary.id === 'place-bet'
+        ? () => {
+            audio.click('send');
+            commitBet();
+          }
+        : undefined;
 
   const primaryClass =
     deck.primary.kind === 'action'
@@ -277,19 +291,22 @@ export function ControlDeck() {
       ? `${SPLIT_PRIMARY_PERCENT}% ${coveName(myFleet.primaryZone)} · ${100 - SPLIT_PRIMARY_PERCENT}% ${coveName(myFleet.secondaryZone)}`
       : `100% ${coveName(myFleet.primaryZone)}`
     : split
-      ? `Next pick splits ${SPLIT_PRIMARY_PERCENT}/${100 - SPLIT_PRIMARY_PERCENT} across two coves`
-      : 'Full stake in one cove';
+      ? `${SPLIT_PRIMARY_PERCENT}/${100 - SPLIT_PRIMARY_PERCENT} across two zones`
+      : STR.oneZoneHint;
 
   /* ---------- D4 payout expectation strip (public tide bands only) ---------- */
 
+  // v3 P0-6: base the "If safe ≈ $range" on the stake actually in play — the
+  // placed fleet's stake if committed, otherwise the stepper value.
   const strip =
     open && tideReport
       ? formatPayoutStrip(
           payoutExpectationGains(
             tideReport.entries.map((e) => e.band),
-            myFleet?.primaryZone ?? null,
+            myFleet?.primaryZone ?? selectedZone ?? null,
             RAKE,
           ),
+          myFleet?.stakeMinor ?? stakeInputMinor,
         )
       : null;
 
@@ -312,9 +329,9 @@ export function ControlDeck() {
           <div className="lf-sheet lf-surface flex gap-1.5 rounded-xl p-2 shadow-[0_12px_36px_rgba(0,0,0,0.5)]">
             {(
               [
-                ['RALLY', RallyFlagIcon, 'var(--lf-safe)', 'Rally here'],
-                ['FLEE', FleeFlagIcon, '#ff9948', 'Danger here'],
-                ['HOLD', HoldFlagIcon, 'var(--lf-focus)', 'I stay'],
+                ['RALLY', RallyFlagIcon, 'var(--lf-safe)', STR.signalJoin],
+                ['FLEE', FleeFlagIcon, '#ff9948', STR.signalAvoid],
+                ['HOLD', HoldFlagIcon, 'var(--lf-focus)', STR.signalStay],
               ] as const
             ).map(([kind, Icon, color, label]) => (
               <button
@@ -350,18 +367,17 @@ export function ControlDeck() {
               fogActive ? 'text-[var(--lf-dim)]/70' : 'text-[var(--lf-dim)]'
             }`}
             role="note"
-            aria-label="Payout expectation from the public tide report"
+            aria-label={`${STR.ifSafe}: about ${strip.ifSafeRange}. ${STR.estimateNote}`}
           >
-            <span aria-hidden="true" title="Storm Power can multiply salvage">
+            <span aria-hidden="true" title={STR.estimateNote}>
               <StormIcon size={13} />
             </span>
             <span className="truncate">
-              If another cove is hit: ≈ {strip.typicalRange} · heaviest cove: up to ≈{' '}
-              {strip.heaviest}
+              {STR.ifSafe}: ≈ {strip.ifSafeRange}
             </span>
             {fogActive && (
               <span className="ml-auto shrink-0 rounded border border-[var(--lf-line)] px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide">
-                Frozen in fog
+                {STR.paused}
               </span>
             )}
           </div>
@@ -376,17 +392,12 @@ export function ControlDeck() {
               <div
                 className="flex overflow-hidden rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)]"
                 role="radiogroup"
-                aria-label="Fleet mode"
+                aria-label="Bet mode"
               >
                 {(
                   [
-                    ['FOCUS', BoatIcon, 'Focus', 'Full stake in one cove'],
-                    [
-                      'SPLIT',
-                      SplitBoatsIcon,
-                      'Split',
-                      `${SPLIT_PRIMARY_PERCENT}/${100 - SPLIT_PRIMARY_PERCENT} across two coves`,
-                    ],
+                    ['FOCUS', BoatIcon, STR.oneZone, STR.oneZoneHint],
+                    ['SPLIT', SplitBoatsIcon, STR.twoZones, STR.twoZonesHint],
                   ] as const
                 ).map(([mode, Icon, label, hint]) => (
                   <button
@@ -425,11 +436,11 @@ export function ControlDeck() {
                   updateDeckProgress(withModesUnlockedByTap(getDeckProgress()));
                 }}
                 className="flex h-11 min-w-[10.5rem] items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--lf-line)] bg-[var(--lf-surface)]/60 px-3 text-sm font-bold text-[var(--lf-dim)] hover:border-[var(--lf-focus)]/60 hover:text-[var(--lf-text)]"
-                aria-label={`Focus and Split fleet modes unlock after ${MODE_UNLOCK_ROUNDS} rounds — activate to unlock now`}
+                aria-label={`1 Zone and 2 Zones bet modes unlock after ${MODE_UNLOCK_ROUNDS} rounds — activate to unlock now`}
                 title={`Unlocks after ${MODE_UNLOCK_ROUNDS} rounds — tap to unlock now`}
               >
                 <LockIcon size={14} />
-                Focus / Split
+                {STR.oneZone} / {STR.twoZones}
               </button>
             </div>
           ) : null}
@@ -571,11 +582,11 @@ export function ControlDeck() {
                 tabIndex={deck.showRestake ? 0 : -1}
                 title={
                   fogActive
-                    ? `Restake ${fmt(stakeInputMinor)} — uses your one fog order`
-                    : `Restake ${fmt(stakeInputMinor)} at ${coveName(myFleet.primaryZone)}`
+                    ? `${STR.updateBet} to ${fmt(stakeInputMinor)} — uses your one last move`
+                    : `${STR.updateBet} to ${fmt(stakeInputMinor)} at ${coveName(myFleet.primaryZone)}`
                 }
               >
-                <span className="text-sm font-extrabold leading-tight">RESTAKE</span>
+                <span className="text-sm font-extrabold leading-tight">Update</span>
                 <span className="text-xs font-semibold leading-tight tabular-nums">
                   {fmt(stakeInputMinor)}
                 </span>
@@ -598,13 +609,13 @@ export function ControlDeck() {
                 }`}
                 aria-label={
                   flagCoolingDown
-                    ? `Signal flag available again in ${flagRoundsLeft} round${flagRoundsLeft === 1 ? '' : 's'}`
-                    : 'Raise a signal flag'
+                    ? `Signal available again in ${flagRoundsLeft} round${flagRoundsLeft === 1 ? '' : 's'}`
+                    : 'Send a signal'
                 }
                 title={
                   flagCoolingDown
-                    ? `Flag returns in ${flagRoundsLeft} round${flagRoundsLeft === 1 ? '' : 's'}`
-                    : 'Raise a signal flag (or long-press your cove)'
+                    ? `Signal returns in ${flagRoundsLeft} round${flagRoundsLeft === 1 ? '' : 's'}`
+                    : 'Send a signal (or long-press your zone)'
                 }
               >
                 <RallyFlagIcon size={18} />
@@ -635,12 +646,12 @@ export function ControlDeck() {
                 className="relative flex w-11 shrink-0 flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg border border-[var(--lf-danger)]/60 bg-[var(--lf-danger)]/10 text-[var(--lf-danger)] hover:bg-[var(--lf-danger)]/20"
                 aria-label={
                   deck.cancelNeedsHold
-                    ? `Cancel bet — this uses your one fog order. Hold to confirm.`
+                    ? `Cancel bet — this uses your one last move. Hold to confirm.`
                     : `Cancel bet — refund ${fmt(myFleet.stakeMinor)}`
                 }
                 title={
                   deck.cancelNeedsHold
-                    ? 'This uses your one fog order — hold to confirm'
+                    ? 'This uses your one last move — hold to confirm'
                     : `Cancel bet — refund ${fmt(myFleet.stakeMinor)}`
                 }
               >
@@ -659,7 +670,7 @@ export function ControlDeck() {
               disabled={deck.primary.disabled}
               className={`flex min-h-14 w-full min-w-52 flex-col items-center justify-center rounded-xl px-4 transition-[background-color,transform] duration-150 disabled:cursor-default md:w-auto ${primaryClass} ${
                 toast ? 'lf-shake' : ''
-              } ${deck.primary.id === 'select-cove' ? 'lf-pulse' : ''}`}
+              } ${deck.primary.kind === 'action' ? 'lf-pulse' : ''}`}
               aria-live="polite"
             >
               <span className="text-base font-extrabold leading-tight tracking-wide">

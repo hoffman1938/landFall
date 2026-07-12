@@ -215,6 +215,8 @@ export class BayScene {
   private strikeHandledFor: number | null = null;
   private beamStart = 0;
   private flashUntil = 0;
+  /** Expanding red shockwave centered on the struck zone (the "which zone?" answer). */
+  private strikeImpact: { x: number; y: number; start: number } | null = null;
   private longPress: { timer: number; zone: number } | null = null;
   private suppressTap = false;
   private hoveredZone: number | null = null;

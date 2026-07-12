@@ -3,9 +3,9 @@
  * highlighted. The strip itself opens the Wreck Log sheet (E2): the same
  * history retold as replay cards with fog arrows, salvage and flag reveals.
  */
-import { HARBOR_NAMES } from '@landfall/core';
 import { audio } from '../audio/engine';
 import { useStore } from '../store';
+import { STR, zoneName } from '../strings';
 
 const MAX_VISIBLE_RESULTS = 14;
 
@@ -17,7 +17,7 @@ export function WreckLog() {
   return (
     <section
       className="lf-surface pointer-events-auto absolute left-2 top-2 z-10 flex h-7 max-w-[calc(100%-4.5rem)] items-center gap-1.5 rounded-lg px-2"
-      aria-label="Recent wreck history"
+      aria-label="Recent results"
     >
       <button
         type="button"
@@ -26,10 +26,10 @@ export function WreckLog() {
           setWreckLogOpen(true);
         }}
         className="-mx-2 flex h-11 shrink-0 items-center self-center rounded-lg px-2 text-[9px] font-extrabold tracking-[0.05em] text-[var(--lf-dim)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
-        aria-label="Open the Wreck Log replay cards"
-        title="Open the Wreck Log — replay cards for recent rounds"
+        aria-label="Open round history"
+        title="Open round history — recent results and replays"
       >
-        WRECKS
+        {STR.history}
       </button>
 
       {visibleResults.length === 0 ? (
@@ -40,8 +40,7 @@ export function WreckLog() {
         <ol className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {visibleResults.map((zone, index) => {
             const latest = index === visibleResults.length - 1;
-            const harborName = HARBOR_NAMES[zone] ?? `Cove ${zone + 1}`;
-            const label = `${latest ? 'Latest result. ' : ''}Cove ${zone + 1}, ${harborName}, was struck.`;
+            const label = `${latest ? 'Latest result. ' : ''}${zoneName(zone)} was hit.`;
 
             return (
               <li key={index} className="shrink-0">

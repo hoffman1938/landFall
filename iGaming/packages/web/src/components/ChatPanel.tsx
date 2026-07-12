@@ -78,7 +78,7 @@ export function ChatPanel({ showHeader = true, dense = false }: ChatPanelProps) 
       <div
         ref={scrollRef}
         role="log"
-        aria-label="Harbor chat messages"
+        aria-label="Chat messages"
         aria-live="polite"
         aria-relevant="additions text"
         className={`min-h-0 flex-1 overflow-y-auto px-3 ${dense ? 'py-1.5 text-xs' : 'py-2 text-sm'}`}
@@ -109,7 +109,7 @@ export function ChatPanel({ showHeader = true, dense = false }: ChatPanelProps) 
                       audio.click('nav');
                       openSkipper(message.name);
                     }}
-                    title={`View ${message.name}'s skipper record`}
+                    title={`View ${message.name}'s player stats`}
                     className={`inline min-h-0 cursor-pointer rounded-sm p-0 text-left underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] ${
                       mine
                         ? 'font-bold text-[var(--lf-focus)]'

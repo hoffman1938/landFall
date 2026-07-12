@@ -115,23 +115,35 @@ describe('deck state machine (D1)', () => {
     expect(s.primary).toEqual({ id: 'final-order-set', kind: 'confirmed', disabled: true });
     expect(s.showCancel).toBe(false);
   });
+
+  it('a pending selection (no fleet yet) makes Place Bet the actionable primary (v3 P0-1)', () => {
+    const s = resolveDeckState(input({ hasFleet: false, hasSelection: true, hasLastFleet: true }));
+    expect(s.primary).toEqual({ id: 'place-bet', kind: 'action', disabled: false });
+    expect(s.showCancel).toBe(false);
+  });
+
+  it('a placed fleet outranks any lingering selection', () => {
+    const s = resolveDeckState(
+      input({ hasFleet: true, fleetStakeMinor: 5_00, hasSelection: true }),
+    );
+    expect(s.primary.id).toBe('anchored');
+  });
 });
 
-describe('payout strip formatting (D4)', () => {
-  it('formats the typical range and the heaviest cove separately', () => {
-    // gains: 3.5%, 12%, 15%, 40% -> typical +4–15%, heaviest +40%
-    const strip = formatPayoutStrip([0.12, 0.035, 0.4, 0.15])!;
-    expect(strip.typicalRange).toBe('+4–15%');
-    expect(strip.heaviest).toBe('+40%');
+describe('payout strip formatting (v3 §9/P0-6 — money, not percentage)', () => {
+  it('formats the if-safe payout range in money from stake × (1 + gain)', () => {
+    // stake $5.00, gains 8%..44% -> payout $5.40..$7.20
+    const strip = formatPayoutStrip([0.08, 0.44, 0.2], 5_00)!;
+    expect(strip.ifSafeRange).toBe('$5.40–$7.20');
   });
 
-  it('collapses to a single figure with one other cove', () => {
-    const strip = formatPayoutStrip([0.18])!;
-    expect(strip.typicalRange).toBe('+18%');
-    expect(strip.heaviest).toBe('+18%');
+  it('collapses to a single figure with one other zone', () => {
+    const strip = formatPayoutStrip([0.2], 5_00)!;
+    expect(strip.ifSafeRange).toBe('$6.00');
   });
 
-  it('returns null with no other coves', () => {
-    expect(formatPayoutStrip([])).toBeNull();
+  it('returns null with no other zones or a non-positive stake', () => {
+    expect(formatPayoutStrip([], 5_00)).toBeNull();
+    expect(formatPayoutStrip([0.2], 0)).toBeNull();
   });
 });

@@ -12,6 +12,7 @@ import type { WeatherId } from '@landfall/core';
 import { fogSegmentFraction } from '../clockMath';
 import { AnchorIcon, FogIcon, LockIcon, StormIcon } from './icons';
 import { useStore } from '../store';
+import { STR, zoneName } from '../strings';
 
 type ClockMode = 'open' | 'fog' | 'storm' | 'landfall' | 'next';
 
@@ -46,11 +47,11 @@ function markSeenWeather(id: WeatherId): void {
 }
 
 const MODE_META: Record<ClockMode, { label: string; color: string }> = {
-  open: { label: 'OPEN TIDE', color: 'var(--lf-focus)' },
-  fog: { label: 'BLIND FOG', color: '#aebccf' },
-  storm: { label: 'STORM', color: 'var(--lf-danger)' },
-  landfall: { label: 'LANDFALL', color: 'var(--lf-danger)' },
-  next: { label: 'NEXT TIDE', color: 'var(--lf-dim)' },
+  open: { label: STR.phaseBetting, color: 'var(--lf-focus)' },
+  fog: { label: STR.phaseHidden, color: '#aebccf' },
+  storm: { label: STR.phaseStorm, color: 'var(--lf-danger)' },
+  landfall: { label: STR.phaseResult, color: 'var(--lf-danger)' },
+  next: { label: STR.phaseNext, color: 'var(--lf-dim)' },
 };
 
 function instruction(
@@ -62,17 +63,17 @@ function instruction(
 ): string {
   switch (mode) {
     case 'open':
-      if (!hasFleet) return splitMode ? 'Choose two coves' : 'Choose a cove';
-      return 'Move until fog';
+      if (!hasFleet) return splitMode ? STR.hintPickTwoZones : STR.hintPickZone;
+      return STR.hintCanMove;
     case 'fog':
-      if (!hasFleet) return 'One hidden order';
-      return finalOrderUsed ? 'Final order set' : 'One secret move';
+      if (!hasFleet) return STR.hintOneLastMove;
+      return finalOrderUsed ? STR.hintLastMoveSet : STR.hintOneLastMove;
     case 'storm':
-      return 'Anchors locked';
+      return STR.hintLocked;
     case 'landfall':
-      return struckZone === null ? 'Resolving wreck' : `Cove ${struckZone + 1} struck`;
+      return struckZone === null ? STR.hintResult : `${zoneName(struckZone)} was hit`;
     case 'next':
-      return 'Next round incoming';
+      return STR.hintNext;
   }
 }
 

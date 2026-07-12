@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
-  HARBOR_NAMES,
   SPLIT_PRIMARY_PERCENT,
   ZONE_COUNT,
   type FleetPlanPublic,
@@ -10,6 +9,7 @@ import {
 } from '@landfall/core';
 import { getCoveLayouts, type CoveLayout } from '../coveLayout';
 import { useStore, type LandfallInfo } from '../store';
+import { crowdLabel, zoneName } from '../strings';
 import { BoatIcon, LockIcon, StormIcon } from './icons';
 
 interface BayAccessibilityLayerProps {
@@ -27,6 +27,8 @@ interface CoveStatusCardProps {
   lockedTotalMinor: number | null;
   fleet: FleetPlanPublic | null;
   struck: boolean;
+  /** v3 P0-1 — tapped but not yet committed (Place Bet will commit it). */
+  selected: boolean;
   canPick: boolean;
   actionDescription: string;
   onPick(zone: number): void;
@@ -34,11 +36,11 @@ interface CoveStatusCardProps {
 }
 
 const BAND_LABELS: Record<TideBand, string> = {
-  seed: 'Seeded',
-  light: 'Light',
-  medium: 'Medium',
-  heavy: 'Heavy',
-  packed: 'Packed',
+  seed: crowdLabel('seed'),
+  light: crowdLabel('light'),
+  medium: crowdLabel('medium'),
+  heavy: crowdLabel('heavy'),
+  packed: crowdLabel('packed'),
 };
 
 const TREND = {
@@ -51,13 +53,13 @@ function ownership(fleet: FleetPlanPublic | null, zone: number) {
   if (!fleet) return null;
   if (fleet.primaryZone === zone) {
     return fleet.mode === 'SPLIT'
-      ? { label: `Split · ${SPLIT_PRIMARY_PERCENT}%`, description: 'your primary split cove' }
-      : { label: 'Focus · 100%', description: 'your selected Focus cove' };
+      ? { label: `Your bet · ${SPLIT_PRIMARY_PERCENT}%`, description: 'your main zone' }
+      : { label: 'Your bet', description: 'your bet is here' };
   }
   if (fleet.mode === 'SPLIT' && fleet.secondaryZone === zone) {
     return {
-      label: `Split · ${100 - SPLIT_PRIMARY_PERCENT}%`,
-      description: 'your secondary split cove',
+      label: `Your bet · ${100 - SPLIT_PRIMARY_PERCENT}%`,
+      description: 'your second zone',
     };
   }
   return null;
@@ -72,21 +74,20 @@ function formatCredits(minor: number): string {
 
 function resultAnnouncement(result: LandfallInfo | null): string {
   if (!result) return '';
-  const harbor = HARBOR_NAMES[result.struckZone] ?? `Harbor ${result.struckZone + 1}`;
-  const round = `Round ${result.roundId}. The storm struck Harbor ${result.struckZone + 1}, ${harbor}.`;
+  const round = `Round ${result.roundId}. The storm hit ${zoneName(result.struckZone)}.`;
   const net = Math.abs(result.yourResult.netMinor) / 100;
   const credits = `${net.toFixed(2)} credits`;
 
   switch (result.yourResult.outcome) {
     case 'SAFE':
-      return `${round} You are safe and gained ${credits}.`;
+      return `${round} You are safe and won ${credits}.`;
     case 'WRECKED':
-      return `${round} Your cove was wrecked and you lost ${credits}.`;
+      return `${round} Your zone was hit and you lost ${credits}.`;
     case 'SPLIT':
       return result.yourResult.netMinor === 0
-        ? `${round} Your split fleet broke even.`
-        : `${round} Your split fleet settled and you ${
-            result.yourResult.netMinor > 0 ? 'gained' : 'lost'
+        ? `${round} Your two-zone bet broke even.`
+        : `${round} Your two-zone bet settled and you ${
+            result.yourResult.netMinor > 0 ? 'won' : 'lost'
           } ${credits}.`;
     case 'SPECTATOR':
       return `${round} You sat out this round.`;
@@ -113,6 +114,7 @@ function CoveStatusCard({
   lockedTotalMinor,
   fleet,
   struck,
+  selected,
   canPick,
   actionDescription,
   onPick,
@@ -120,25 +122,24 @@ function CoveStatusCard({
 }: CoveStatusCardProps) {
   const longPressTimer = useRef<number | null>(null);
   const suppressClick = useRef(false);
-  const harborName = HARBOR_NAMES[zone] ?? `Harbor ${zone + 1}`;
   const mine = ownership(fleet, zone);
   const trend = tide ? TREND[tide.trend] : null;
   const locked = phase === 'LOCKED_STORM';
   const safe = !struck && (phase === 'RESOLVED' || phase === 'COOLDOWN');
   const band = tide ? BAND_LABELS[tide.band] : 'Waiting';
-  const status = struck ? 'Struck' : locked ? 'Locked' : safe ? 'Safe' : band;
-  const detail = lockedTotalMinor !== null ? `${formatCredits(lockedTotalMinor)} CR` : null;
+  const status = struck ? 'Hit' : locked ? 'Locked' : safe ? 'Safe' : band;
+  const detail = lockedTotalMinor !== null ? formatCredits(lockedTotalMinor) : null;
   const markerWidth =
     width >= 768
       ? Math.min(160, Math.max(132, width * 0.11))
       : Math.min(150, Math.max(124, width * 0.36));
   const cardDescription = [
-    `Cove ${zone + 1}, ${harborName}.`,
-    struck ? 'Struck.' : locked ? 'Anchors locked.' : safe ? 'Safe harbor.' : `${band} tide.`,
+    `${zoneName(zone)}.`,
+    struck ? 'Hit by the storm.' : locked ? 'Bets locked.' : safe ? 'Safe.' : `${band} crowd.`,
     trend ? `Trend ${trend.label}.` : '',
-    `${boatCount} ${boatCount === 1 ? 'boat' : 'boats'}.`,
-    detail ? `${detail}.` : '',
-    mine ? `${mine.description}, ${mine.label.replace('·', 'at')}.` : 'Not selected.',
+    `${boatCount} ${boatCount === 1 ? 'player' : 'players'}.`,
+    detail ? `${detail} credits.` : '',
+    mine ? `${mine.description}.` : selected ? 'Selected — press Place Bet to confirm.' : 'Not selected.',
     actionDescription,
     `Keyboard shortcut ${zone + 1}.`,
   ]
@@ -173,14 +174,16 @@ function CoveStatusCard({
           ? 'border-[var(--lf-danger)]'
           : mine
             ? 'border-[var(--lf-focus)] ring-1 ring-[var(--lf-focus)]/40'
-            : locked || safe
-              ? 'border-[var(--lf-line)]'
-              : 'border-[var(--lf-line)] hover:border-[var(--lf-focus)]/70'
+            : selected
+              ? 'border-2 border-dashed border-[var(--lf-focus)] ring-1 ring-[var(--lf-focus)]/30'
+              : locked || safe
+                ? 'border-[var(--lf-line)]'
+                : 'border-[var(--lf-line)] hover:border-[var(--lf-focus)]/70'
       } ${canPick ? 'cursor-pointer' : 'cursor-default'}`}
       style={{ left: layout.markerX, top: layout.markerY, width: markerWidth }}
       aria-label={cardDescription}
       aria-keyshortcuts={`${zone + 1}`}
-      aria-pressed={!!mine}
+      aria-pressed={!!mine || selected}
       aria-disabled={!canPick}
       onClick={() => {
         if (suppressClick.current) {
@@ -200,10 +203,17 @@ function CoveStatusCard({
       onPointerLeave={clearLongPress}
     >
       <span className="flex items-center gap-1.5 leading-none">
-        <span className="text-[11px] font-extrabold tabular-nums text-[var(--lf-focus)]">
-          {String(zone + 1).padStart(2, '0')}
+        <span className="truncate text-xs font-extrabold normal-case text-[var(--lf-text)]">
+          {zoneName(zone)}
         </span>
-        <span className="truncate text-xs font-bold normal-case">{harborName}</span>
+        {(mine || selected) && (
+          <span
+            aria-hidden="true"
+            className="ml-auto text-[11px] font-extrabold text-[var(--lf-focus)]"
+          >
+            ✓
+          </span>
+        )}
       </span>
 
       <span className="mt-1 flex min-w-0 items-center gap-1 text-[11px] leading-none text-[var(--lf-dim)]">
@@ -248,6 +258,7 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
   const tideReport = useStore((state) => state.tideReport);
   const pools = useStore((state) => state.pools);
   const myFleet = useStore((state) => state.myFleet);
+  const selectedZone = useStore((state) => state.selectedZone);
   const finalOrderUsed = useStore((state) => state.finalOrderUsed);
   const lastLandfall = useStore((state) => state.lastLandfall);
   const rulesOpen = useStore((state) => state.rulesOpen);
@@ -299,27 +310,27 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
     : dialogOpen
       ? 'Unavailable while another control is open.'
       : phase !== 'ANCHOR_OPEN'
-        ? 'Anchoring locked. No moves are accepted now.'
+        ? 'Bets are locked. No moves are accepted now.'
         : finalOrderUsed
-          ? 'Your Final Order is submitted. No more moves are available this round.'
+          ? 'Your last move is submitted. No more moves this round.'
           : fogActive
-            ? 'Blind Fog. Activate to submit your one hidden Final Order here.'
-            : 'Anchoring is open. Activate to move your fleet here.';
+            ? 'Bets hidden. Activate to make your one last move here.'
+            : 'Betting is open. Activate to select this zone.';
 
   const politeAnnouncement = !connected
     ? 'Connection lost. Reconnecting.'
     : phase === 'ANCHOR_OPEN'
       ? fogActive
         ? finalOrderUsed
-          ? 'Final Order accepted. Your fleet is committed.'
-          : 'Blind Fog. Tide reports are frozen. One final move remains.'
-        : 'Anchoring open. Choose a cove. Press 1 through 6 to anchor.'
+          ? 'Last move accepted. Your bet is committed.'
+          : 'Bets hidden. One last move remains.'
+        : 'Betting open. Pick a zone. Press 1 through 6 to select.'
       : phase === 'LOCKED_STORM'
-        ? 'Anchors locked. Storm approaching. No more moves.'
+        ? 'Bets locked. Storm approaching. No more moves.'
         : phase === 'RESOLVED'
-          ? 'Landfall. Results are settling.'
+          ? 'Result. The storm has hit.'
           : phase === 'COOLDOWN'
-            ? 'Round complete. Next tide soon.'
+            ? 'Round complete. Next round soon.'
             : 'Connecting to Landfall.';
 
   return (
@@ -328,7 +339,7 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
         ref={layerRef}
         className="pointer-events-none absolute inset-0 z-[2]"
         role="group"
-        aria-label="Harbor choices. Use Tab or press number keys 1 through 6."
+        aria-label="Zones. Use Tab or press number keys 1 through 6."
       >
         {layouts.map((layout, zone) => {
           const resolved = phase === 'RESOLVED' || phase === 'COOLDOWN';
@@ -348,6 +359,7 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
               lockedTotalMinor={pools?.totalsMinor[zone] ?? null}
               fleet={myFleet}
               struck={resolved && lastLandfall?.struckZone === zone}
+              selected={myFleet === null && selectedZone === zone}
               canPick={canPick}
               actionDescription={actionDescription}
               onPick={onPick}

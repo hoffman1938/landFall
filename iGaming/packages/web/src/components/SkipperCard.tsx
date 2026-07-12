@@ -35,13 +35,13 @@ export function SkipperCard() {
           icon: <BoatIcon size={16} />,
         },
         {
-          label: 'Rounds sailed',
+          label: 'Rounds played',
           value: `${record.roundsSailed}`,
           sub: null,
           icon: <AnchorIcon size={16} />,
         },
         {
-          label: 'Biggest salvage',
+          label: 'Biggest win',
           value: record.biggestSalvageMinor > 0 ? `+${fmt(record.biggestSalvageMinor)}` : '—',
           sub: null,
           icon: <CrateIcon size={16} />,
@@ -53,7 +53,7 @@ export function SkipperCard() {
           icon: <RallyFlagIcon size={16} />,
         },
         {
-          label: 'Golden Anchors',
+          label: 'Jackpots won',
           value: `${record.surgeWins}`,
           sub: null,
           icon: <SurgeIcon size={16} />,
@@ -71,7 +71,7 @@ export function SkipperCard() {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Skipper record for ${name}`}
+        aria-label={`Player stats for ${name}`}
         className="lf-rise lf-surface w-full max-w-sm rounded-2xl p-4"
       >
         <div className="flex items-center gap-2">
@@ -83,7 +83,7 @@ export function SkipperCard() {
               {name}
               {mine ? <span className="text-[var(--lf-dim)]"> (you)</span> : null}
             </h2>
-            <p className="text-xs font-semibold text-[var(--lf-dim)]">Skipper record</p>
+            <p className="text-xs font-semibold text-[var(--lf-dim)]">Player stats</p>
           </div>
           <button
             type="button"
@@ -92,7 +92,7 @@ export function SkipperCard() {
               closeSkipper();
             }}
             className="ml-auto flex h-11 w-11 items-center justify-center rounded-full text-[var(--lf-dim)] hover:bg-[var(--lf-panel)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
-            aria-label="Close skipper record"
+            aria-label="Close player stats"
           >
             <XIcon size={18} />
           </button>

@@ -5,6 +5,7 @@
  */
 import { CrateIcon, ShieldCheckIcon, StormIcon, SurgeIcon } from './icons';
 import { fmt, useStore } from '../store';
+import { zoneName } from '../strings';
 
 export function ResultBanner() {
   const phase = useStore((s) => s.phase);
@@ -22,7 +23,8 @@ export function ResultBanner() {
   const iWonSurge = surge?.winnerName != null && surge.winnerName === myName;
   const power = lastLandfall.stormPower;
   const powerMult = power ? power.mNum / power.mDen : 1;
-  const cove = lastLandfall.struckZone + 1;
+  const isPerfectStorm = power?.label === 'PERFECT STORM';
+  const struckZone = zoneName(lastLandfall.struckZone);
 
   return (
     <div
@@ -39,14 +41,14 @@ export function ResultBanner() {
           }`}
         >
           <StormIcon size={18} />
-          {power.label} — salvage ×{powerMult}
+          {isPerfectStorm ? `PERFECT STORM — payouts ×${powerMult}` : `×${powerMult} multiplier round`}
         </div>
       )}
 
       {/* Liability cap disclosure — never silent (A3) */}
       {lastLandfall.powerCapped && (
         <div className="lf-rise rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/95 px-4 py-1.5 text-sm font-semibold text-[var(--lf-text)]">
-          Storm Power payout reached the round cap — salvage was clamped
+          Maximum round payout reached — the multiplier was capped
         </div>
       )}
 
@@ -59,9 +61,9 @@ export function ResultBanner() {
         >
           <SurgeIcon size={22} />
           <div>
-            <div className="text-base leading-tight">GOLDEN ANCHOR</div>
+            <div className="text-base leading-tight">JACKPOT</div>
             <div className="text-sm leading-tight">
-              {iWonSurge ? 'You take the whole pot' : `${surge.winnerName} takes the pot`}: +
+              {iWonSurge ? 'You win the whole jackpot' : `${surge.winnerName} wins the jackpot`}: +
               {fmt(surge.potMinor)}
             </div>
           </div>
@@ -69,20 +71,20 @@ export function ResultBanner() {
       )}
       {surge && !surge.winnerName && (
         <div className="lf-rise rounded-xl border border-[var(--lf-amber)]/60 bg-[#1c1508]/90 px-4 py-1.5 text-sm font-semibold text-[var(--lf-amber)]">
-          Nobody survived to claim the pot — {fmt(surge.potMinor)} rolls over
+          No one was safe — the {fmt(surge.potMinor)} jackpot rolls over
         </div>
       )}
 
       {/* the personal verdict */}
       {r.outcome === 'SPECTATOR' ? (
         <div className="lf-rise lf-surface rounded-lg px-4 py-2 text-sm text-[var(--lf-dim)]">
-          The storm chose Cove {cove}
+          The storm hit {struckZone} — players there lost; everyone else shared its pool
         </div>
       ) : r.outcome === 'WRECKED' ? (
         <div className="lf-rise rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/95 px-6 py-2.5 text-center">
           <div className="text-2xl font-extrabold text-[var(--lf-text)]">−{fmt(-r.netMinor)}</div>
           <div className="mt-0.5 text-[13px] font-semibold text-[var(--lf-dim)]">
-            The storm chose your cove — 1 chance in 6
+            {struckZone} was hit — a 1-in-6 chance. Its pool went to the other players.
           </div>
         </div>
       ) : (
@@ -100,8 +102,10 @@ export function ResultBanner() {
           </div>
           <div className={`mt-0.5 text-[13px] font-semibold ${r.netMinor >= 0 ? 'text-black/70' : 'text-[var(--lf-dim)]'}`}>
             {r.outcome === 'SPLIT'
-              ? `Half your fleet was in Cove ${cove}`
-              : `Salvage from Cove ${cove}'s cargo`}
+              ? `Half your bet was in ${struckZone}`
+              : powerMult >= 2
+                ? `You're safe — ${struckZone}'s pool, ×${powerMult} this round`
+                : `You're safe — ${struckZone}'s pool was shared`}
           </div>
         </div>
       )}
@@ -110,7 +114,7 @@ export function ResultBanner() {
       <div className="lf-rise lf-surface pointer-events-auto flex max-w-[min(94vw,620px)] items-center gap-3 rounded-lg px-4 py-2 text-xs text-[var(--lf-dim)]">
         <span className="font-semibold text-[var(--lf-text)]">{replay.headline}</span>
         <span className="hidden sm:inline">
-          {replay.fogMoves} fog moves · wreck {fmt(replay.struckPoolMinor)}
+          {replay.fogMoves} last moves · hit pool {fmt(replay.struckPoolMinor)}
         </span>
         {/* E3 first-loss trust moment: the stamp glows once (focus cyan, never
             amber) on the first loss ≥ 10× min stake — fairness offered exactly

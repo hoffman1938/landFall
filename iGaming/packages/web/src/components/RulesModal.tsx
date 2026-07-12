@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef } from 'react';
 import { useStore } from '../store';
+import { ONE_LINER } from '../strings';
 import { AnchorIcon, CrateIcon, FogIcon, LockIcon, StormIcon, XIcon } from './icons';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -19,12 +20,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 /** The whole game in six pictures (ux-redesign-v2.md §6.2) — read this, skip the prose. */
 function PictogramStrip() {
   const frames: [React.ComponentType<{ size?: number }>, string, string][] = [
-    [AnchorIcon, 'var(--lf-focus)', 'Anchor in a cove'],
-    [FogIcon, '#aebccf', 'Fog: one hidden move'],
-    [LockIcon, '#51678a', 'Boats lock'],
-    [StormIcon, 'var(--lf-danger)', 'Storm picks one cove'],
-    [XIcon, 'var(--lf-danger)', 'That cove loses'],
-    [CrateIcon, 'var(--lf-amber)', 'Its cargo pays the rest'],
+    [AnchorIcon, 'var(--lf-focus)', 'Pick a zone'],
+    [FogIcon, '#aebccf', 'Bets hide: one last move'],
+    [LockIcon, '#51678a', 'Bets lock'],
+    [StormIcon, 'var(--lf-danger)', 'Storm hits one zone'],
+    [XIcon, 'var(--lf-danger)', 'That zone loses'],
+    [CrateIcon, 'var(--lf-amber)', 'Its money pays the rest'],
   ];
   return (
     <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
@@ -102,25 +103,24 @@ export function RulesModal() {
         <PictogramStrip />
 
         <p className="text-center text-base font-semibold leading-relaxed text-[var(--lf-text)]">
-          Choose a cove. One gets hit. Its cargo pays the rest.
+          {ONE_LINER}
         </p>
 
         <Section title="The Round (~20 seconds)">
-          Choose <b>Focus</b> to place your full stake in one harbor, or <b>Split</b> to divide one
-          stake across two harbors at <b>70% / 30%</b>. While the anchor window is open you can move
-          your fleet and resize your stake. The board shows shared <b>Tide Reports</b> — light,
-          medium, heavy, packed — instead of exact live pools. In the last seconds <b>Blind Fog</b>{' '}
-          freezes the public report; you get <b>one final order</b>. Then the storm rolls in and
-          wrecks <b>exactly one harbor</b>.
+          Pick <b>1 Zone</b> for your whole bet, or <b>2 Zones</b> to split one bet across two zones
+          at <b>70% / 30%</b>. While betting is open you can move and resize your bet freely. Each
+          zone shows a shared <b>crowd meter</b> — Low, Medium, High, Full — instead of exact live
+          totals. In the last seconds <b>bets are hidden</b>: you get <b>one last move</b>. Then the
+          storm rolls in and hits <b>exactly one zone</b>.
         </Section>
 
         <Section title="Winning">
-          If your harbor is wrecked, you lose your stake. If you survive (5 out of 6 chance), you
-          keep your stake <b>plus a share of the wrecked harbor's money</b>, split among all
-          survivors in proportion to stake size. The big wins come when a{' '}
-          <b>crowded, heavy harbor takes the storm</b> — the fewer people you share with and the
-          bigger the wreck, the bigger your salvage. <b>Survivors receive 88% of the wrecked
-          pool</b>; the rest funds the house take, the Storm Surge pot, and the Storm Reserve.
+          If your zone is hit, you lose your bet. If you're safe (a 5-in-6 chance), you keep your
+          bet <b>plus a share of the hit zone's money</b>, split among all safe players in
+          proportion to bet size. The big wins come when a <b>crowded, full zone is hit</b> — the
+          fewer people you share with and the bigger the pool, the bigger your payout.{' '}
+          <b>Safe players receive 88% of the hit zone's pool</b>; the rest funds the game fee, the
+          jackpot, and the multiplier reserve.
         </Section>
 
         <Section title="Storm Power — the multiplier">
@@ -143,22 +143,21 @@ export function RulesModal() {
           harbor is hit and never changes payout math.
         </Section>
 
-        <Section title="Storm Surge — the jackpot">
-          A fixed share of every round's take feeds the <b>Storm Surge pot</b> (shown at the top,
-          always growing). Roughly one round in 25 is a <b>SURGE ROUND</b> — announced before anchoring.
-          When the storm passes, the <b>Golden Anchor</b> picks <b>one surviving player</b> — odds
-          proportional to stake — who wins the <b>entire pot</b>. A small stake can win hundreds of
-          times its size; a big stake hunts the pot with better odds. This is where the 500x stories
-          come from.
+        <Section title="Jackpot — the bonus round">
+          A fixed share of every round's take feeds the <b>jackpot</b> (it grows every round).
+          Roughly one round in 25 is a <b>BONUS ROUND</b> — announced before betting. When the storm
+          passes, <b>one safe player</b> — odds proportional to bet size — wins the <b>entire
+          jackpot</b>. A small bet can win hundreds of times its size; a big bet has better odds.
+          This is where the 500x stories come from.
         </Section>
 
         <Section title="Strategy">
-          The storm never chases the money — every harbor has exactly a 1-in-6 chance, always. But
+          The storm never chases the money — every zone has exactly a 1-in-6 chance, always. But
           your <b>payout</b> depends on the crowd: standing where others aren't pays relatively
-          more. Read the Tide Reports, decide whether the crowd will flee or pile in during fog,
-          decide whether to Focus or Split, and use <b>Rally</b>, <b>Flee</b>, or <b>Hold</b>{' '}
-          signals to bait or coordinate. Signals are public talk, not binding orders. Use <b>×2</b>{' '}
-          to press your bet and <b>↻ Rebet</b> to repeat your last fleet order.
+          more. Read the crowd meters, decide whether the crowd will flee or pile in while bets are
+          hidden, choose <b>1 Zone</b> or <b>2 Zones</b>, and use <b>Join me</b>, <b>Avoid</b>, or{' '}
+          <b>Staying</b> signals to bait or coordinate. Signals are public talk, not binding orders.
+          Use <b>×2</b> to press your bet and <b>Bet Again</b> to repeat your last bet.
         </Section>
 
         <Section title="Wreck Wake Replay">

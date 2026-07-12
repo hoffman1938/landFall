@@ -44,7 +44,10 @@ information design, and spectator/replay systems while preserving six harbors, o
 harbor, pari-mutuel settlement, provably fair RNG, PvP competition, and fixed 20-second rounds.
 The follow-up presentation-layer redesign (UX/UI/art/motion/audio, mechanics untouched) is
 specified in [docs/07-ux/ux-redesign-v2.md](docs/07-ux/ux-redesign-v2.md) — "One Bay, One
-Storm".
+Storm". The UX-simplification and player-friendly-terminology pass (plain trilingual
+vocabulary, actionable Place Bet primary, beginner/casual/expert modes) is specified in
+[docs/07-ux/ux-simplification-v3.md](docs/07-ux/ux-simplification-v3.md) — "Plain Words, One
+Button".
 
 ## Workspace Layout
 

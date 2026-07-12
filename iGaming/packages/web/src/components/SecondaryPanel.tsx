@@ -358,7 +358,7 @@ export function SecondaryPanel() {
                 closePanel();
               }}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--lf-dim)] hover:bg-[var(--lf-panel)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
-              aria-label={mode === 'docked' ? 'Collapse Harbor panel' : 'Close Harbor panel'}
+              aria-label={mode === 'docked' ? 'Collapse chat panel' : 'Close chat panel'}
             >
               <XIcon size={18} />
             </button>
@@ -366,7 +366,7 @@ export function SecondaryPanel() {
 
           <div
             role="tablist"
-            aria-label="Harbor secondary information"
+            aria-label="Chat and activity"
             className="grid shrink-0 grid-cols-2 border-b border-[var(--lf-line)] bg-[var(--lf-bg)]/45 p-1"
           >
             {TABS.map((tab, index) => {

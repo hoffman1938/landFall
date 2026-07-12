@@ -7,7 +7,9 @@ import { BayAccessibilityLayer } from './BayAccessibilityLayer';
 
 function pickZone(zone: number): void {
   audio.click('tap');
-  useStore.getState().sendAnchor(zone);
+  // v3 P0-1: a tap SELECTS (Focus/beginner) — the Place Bet button commits.
+  // selectZone falls through to an immediate bet for Move/Split/Quick-bet.
+  useStore.getState().selectZone(zone);
 }
 
 function flagZone(zone: number, x: number, y: number): void {

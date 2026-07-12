@@ -84,6 +84,14 @@ interface State {
   myAnchor: { zone: number; stakeMinor: number } | null;
   myFleet: FleetPlanPublic | null;
   fleetMode: FleetMode;
+  /**
+   * v3 §8/P0-1 — the zone tapped but NOT yet committed (Focus/beginner path).
+   * A tap selects; the Place Bet button commits. Null once a bet is placed or
+   * the round turns over. Never sent to the server on its own.
+   */
+  selectedZone: number | null;
+  /** v3 §7 — expert opt-in: a zone tap bets instantly (skips the select step). */
+  quickBet: boolean;
   /** True until a submitted fleet order receives an authoritative ACK or error. */
   orderPending: boolean;
   finalOrderUsed: boolean;
@@ -127,6 +135,16 @@ interface State {
   verifyGlow: boolean;
 
   sendAnchor(zone: number): void;
+  /**
+   * v3 P0-1 — the tap handler. Selects a zone (Focus, no bet yet) OR bets
+   * immediately when a bet is already placed (Move), in Split mode, or when
+   * Quick bet is on.
+   */
+  selectZone(zone: number): void;
+  /** v3 P0-1 — commit the currently selected zone via sendAnchor. */
+  commitBet(): void;
+  /** v3 §7 — toggle expert quick-bet (persisted). */
+  setQuickBet(on: boolean): void;
   /** Withdraw the active fleet order before lock; the full stake is refunded. */
   cancelOrder(): void;
   /** Switch rooms (C1). */
@@ -257,6 +275,7 @@ export const useStore = create<State>((set, get) => {
             myFleet: null,
             orderPending: false,
             finalOrderUsed: false,
+            selectedZone: null, // new round — nothing selected yet (P0-1)
             storm: null,
             verifyGlow: false, // the E3 glow lives only on the loss card itself
             lastLandfall: get().lastLandfall, // keep last result visible until next landfall
@@ -278,6 +297,7 @@ export const useStore = create<State>((set, get) => {
             myFleet: fleet,
             fleetMode: fleet.mode,
             orderPending: false,
+            selectedZone: null, // committed — clear the pending selection (P0-1)
             balanceMinor: msg.balanceMinor,
             lastAnchor: anchorFromFleet(fleet),
             lastFleet: fleet,
@@ -464,6 +484,14 @@ export const useStore = create<State>((set, get) => {
     myAnchor: null,
     myFleet: null,
     fleetMode: 'FOCUS',
+    selectedZone: null,
+    quickBet: (() => {
+      try {
+        return window.localStorage.getItem('landfall.quickBet') === '1';
+      } catch {
+        return false;
+      }
+    })(),
     orderPending: false,
     finalOrderUsed: false,
     // D3: small default so a first-session player anchors a visible, low-risk stake.
@@ -519,7 +547,7 @@ export const useStore = create<State>((set, get) => {
         );
         if (s.stakeInputMinor > capEstimate) {
           set({
-            toast: `A single fleet is capped at ${Math.round(s.whaleCapFraction * 100)}% of the round — about ${fmt(capEstimate)} in this room right now.`,
+            toast: `Your bet can be at most ${Math.round(s.whaleCapFraction * 100)}% of the round's total — up to about ${fmt(capEstimate)} credits right now.`,
           });
           return;
         }
@@ -551,6 +579,37 @@ export const useStore = create<State>((set, get) => {
       if (send(fleetOrderMessage(focusFleet(zone, s.stakeInputMinor)))) {
         set({ orderPending: true });
       }
+    },
+    /**
+     * v3 P0-1 — the unified tap handler. A tap SELECTS a zone (the beginner
+     * Focus path) so the big Place Bet button is what actually commits money.
+     * It falls through to an immediate bet when there is nothing to gain from
+     * the two-step flow: moving an already-placed bet, Split mode (an advanced,
+     * later-unlocked feature that builds its pair server-side), or the expert
+     * Quick-bet opt-in.
+     */
+    selectZone(zone) {
+      const s = get();
+      if (!s.connected || s.phase?.phase !== 'ANCHOR_OPEN' || s.orderPending) return;
+      if (s.myFleet || s.quickBet || s.fleetMode === 'SPLIT') {
+        s.sendAnchor(zone);
+        return;
+      }
+      set({ selectedZone: zone });
+    },
+    /** v3 P0-1 — commit the pending selection. */
+    commitBet() {
+      const s = get();
+      if (s.selectedZone === null) return;
+      s.sendAnchor(s.selectedZone);
+    },
+    setQuickBet(on) {
+      try {
+        window.localStorage.setItem('landfall.quickBet', on ? '1' : '0');
+      } catch {
+        // storage disabled — the pref resets next session, harmless
+      }
+      set({ quickBet: on });
     },
     cancelOrder() {
       const s = get();

@@ -40,6 +40,8 @@ export interface DeckStateInput {
   /** Blind Fog active (tide report frozen during ANCHOR_OPEN). */
   fogActive: boolean;
   hasLastFleet: boolean;
+  /** v3 P0-1 — a zone is tapped but not yet committed (no fleet placed). */
+  hasSelection?: boolean;
 }
 
 export type PrimaryId =
@@ -51,6 +53,7 @@ export type PrimaryId =
   | 'final-order-set'
   | 'sending'
   | 'anchored'
+  | 'place-bet'
   | 'rebet'
   | 'select-cove';
 
@@ -104,6 +107,11 @@ export function resolveDeckState(input: DeckStateInput): DeckState {
       cancelNeedsHold: input.fogActive,
     };
   }
+  // v3 P0-1: a pending selection makes the primary an actionable Place Bet —
+  // the button, not the map tap, is what commits money.
+  if (input.hasSelection) {
+    return { primary: { id: 'place-bet', kind: 'action', disabled: false }, ...none };
+  }
   if (input.hasLastFleet) {
     return { primary: { id: 'rebet', kind: 'action', disabled: false }, ...none };
   }
@@ -111,27 +119,27 @@ export function resolveDeckState(input: DeckStateInput): DeckState {
 }
 
 /**
- * D4 — payout expectation strip formatting. Input: gains per other cove (from
- * core's payoutExpectationGains, public tide bands only). Output copy follows
- * the R7-reviewed template; ranges only, never a guarantee.
+ * v3 §9/P0-6 — payout expectation in MONEY, not a bare percentage. Input: the
+ * gain fractions per other zone (from core's payoutExpectationGains, public
+ * tide bands only) and the player's stake. A survivor gets stake × (1 + gain)
+ * back, so the range is money the player recognizes. Always an estimate, never
+ * a guarantee (the copy carries the "≈" and the note lives beside it).
  */
 export interface PayoutStrip {
-  /** e.g. "+8–15%" — range over the other coves excluding the heaviest. */
-  typicalRange: string;
-  /** e.g. "+40%" — the heaviest other cove. */
-  heaviest: string;
+  /** e.g. "$5.40–$7.20" — the payout-if-safe range across the other zones. */
+  ifSafeRange: string;
 }
 
-export function formatPayoutStrip(gains: readonly number[]): PayoutStrip | null {
-  if (gains.length === 0) return null;
-  const pct = (g: number) => Math.round(g * 100);
-  const sorted = [...gains].sort((a, b) => a - b);
-  const heaviest = sorted[sorted.length - 1]!;
-  const rest = sorted.slice(0, -1);
-  const lo = pct(rest.length > 0 ? rest[0]! : heaviest);
-  const hi = pct(rest.length > 0 ? rest[rest.length - 1]! : heaviest);
+export function formatPayoutStrip(
+  gains: readonly number[],
+  stakeMinor: number,
+): PayoutStrip | null {
+  if (gains.length === 0 || stakeMinor <= 0) return null;
+  const money = (minor: number) => `$${(minor / 100).toFixed(2)}`;
+  const payouts = gains.map((g) => stakeMinor * (1 + g));
+  const lo = Math.min(...payouts);
+  const hi = Math.max(...payouts);
   return {
-    typicalRange: lo === hi ? `+${lo}%` : `+${lo}–${hi}%`,
-    heaviest: `+${pct(heaviest)}%`,
+    ifSafeRange: lo === hi ? money(lo) : `${money(lo)}–${money(hi)}`,
   };
 }
