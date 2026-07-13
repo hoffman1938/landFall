@@ -119,7 +119,6 @@ export function ControlDeck() {
   const tideReport = useStore((s) => s.tideReport);
   const rebet = useStore((s) => s.rebet);
   const cancelOrder = useStore((s) => s.cancelOrder);
-  const doubleStake = useStore((s) => s.doubleStake);
   const sendSignal = useStore((s) => s.sendSignal);
   const flagPickerAt = useStore((s) => s.flagPickerAt);
   const openFlagPicker = useStore((s) => s.openFlagPicker);
@@ -225,33 +224,42 @@ export function ControlDeck() {
     return () => window.clearTimeout(t);
   }, [stakeError]);
 
-  const clamp = (v: number) => Math.min(maxStakeMinor, Math.max(minStakeMinor, v));
-
-  // Dynamic stake controls (v3) — presets and the ± step scale to THIS table,
-  // and MAX respects the live 25%-of-round cap so it never posts a bet you
-  // can't actually place.
-  const presets = useMemo(
-    () => niceStakePresets(minStakeMinor, maxStakeMinor),
-    [minStakeMinor, maxStakeMinor],
-  );
-  const stepMinor = stepFor(minStakeMinor);
-  const effectiveMaxMinor = () => {
+  // v3 — everything about the stake scales to what you can ACTUALLY bet right
+  // now: effectiveMax = min(your balance, the table max, 25% of the round). The
+  // whale cap is dynamic (it grows/shrinks each round with the pool), so presets,
+  // the ± step, MAX, and the input ceiling all follow it — no fixed 5k chip in a
+  // room where 500 is the live limit.
+  const effectiveMaxMinor = useMemo(() => {
     let cap = Math.min(balanceMinor, maxStakeMinor);
     if (lastKnownHandleMinor !== null && whaleCapFraction < 1) {
       const others = Math.max(0, lastKnownHandleMinor - (myFleet?.stakeMinor ?? 0));
       cap = Math.min(cap, Math.floor((whaleCapFraction / (1 - whaleCapFraction)) * others));
     }
     return Math.max(minStakeMinor, cap);
-  };
+  }, [
+    balanceMinor,
+    maxStakeMinor,
+    minStakeMinor,
+    lastKnownHandleMinor,
+    whaleCapFraction,
+    myFleet?.stakeMinor,
+  ]);
 
-  // Switching tables changes the valid range — pull the current stake back into
-  // it so a below-min (or above-max) amount never lingers after a switch.
+  const presets = useMemo(
+    () => niceStakePresets(minStakeMinor, effectiveMaxMinor),
+    [minStakeMinor, effectiveMaxMinor],
+  );
+  const stepMinor = stepFor(minStakeMinor);
+  const clamp = (v: number) => Math.min(effectiveMaxMinor, Math.max(minStakeMinor, v));
+
+  // Keep the shown stake inside the live limits: raise to the table minimum, and
+  // lower it whenever the cap drops below it (so 5000 can't sit there when the
+  // live max is 500). Never auto-raises, so it won't fight a deliberate low bet.
   useEffect(() => {
-    const c = Math.min(maxStakeMinor, Math.max(minStakeMinor, stakeInputMinor));
-    if (c !== stakeInputMinor) setStakeInput(c);
-    // Only react to range changes, not to every stake edit.
+    if (stakeInputMinor < minStakeMinor) setStakeInput(minStakeMinor);
+    else if (stakeInputMinor > effectiveMaxMinor) setStakeInput(effectiveMaxMinor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [minStakeMinor, maxStakeMinor]);
+  }, [minStakeMinor, effectiveMaxMinor]);
 
   const applyStake = (value: number, announceClamp = false) => {
     // Every stake edit is a user action — it unlocks the ×2/½/MAX row (D5).
@@ -260,8 +268,10 @@ export function ControlDeck() {
     if (announceClamp && next !== value) {
       setStakeError(
         value < minStakeMinor
-          ? `This room's minimum stake is ${fmt(minStakeMinor)}`
-          : `This room's maximum stake is ${fmt(maxStakeMinor)}`,
+          ? `Table minimum is ${fmt(minStakeMinor)}`
+          : value > maxStakeMinor
+            ? `Table maximum is ${fmt(maxStakeMinor)}`
+            : `Right now you can bet up to ${fmt(effectiveMaxMinor)} — 25% of the round`,
       );
     } else if (announceClamp) {
       setStakeError(null);
@@ -592,8 +602,7 @@ export function ControlDeck() {
                   <button
                     onClick={() => {
                       audio.click('up');
-                      updateDeckProgress(withStakeEdited(getDeckProgress()));
-                      doubleStake();
+                      applyStake(stakeInputMinor * 2, true);
                     }}
                     disabled={!canOrder}
                     className={chipBtn}
@@ -617,7 +626,7 @@ export function ControlDeck() {
                   <button
                     onClick={() => {
                       audio.click('up');
-                      applyStake(effectiveMaxMinor());
+                      applyStake(effectiveMaxMinor);
                     }}
                     disabled={!canOrder}
                     className={chipBtn}
