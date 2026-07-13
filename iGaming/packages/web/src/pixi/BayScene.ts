@@ -571,9 +571,17 @@ export class BayScene {
         st.struckZone !== z &&
         (st.phase === 'RESOLVED' || st.phase === 'COOLDOWN');
       if (struck) {
+        const rx = cove.w * 0.42;
+        const ry = cove.h * 0.4;
+        // strong, unmistakable "this zone was hit" mark — color + fill + double
+        // ring + X buoys + broken mast, so it reads even with motion disabled.
+        cove.wreckG.ellipse(cove.moorX, cove.moorY, rx, ry).fill({ color: 0x5c1220, alpha: 0.5 });
         cove.wreckG
-          .ellipse(cove.moorX, cove.moorY, cove.w * 0.36, cove.h * 0.34)
-          .fill({ color: 0x3a0d16, alpha: 0.4 });
+          .ellipse(cove.moorX, cove.moorY, rx, ry)
+          .stroke({ color: DANGER, width: 4, alpha: 0.95 });
+        cove.wreckG
+          .ellipse(cove.moorX, cove.moorY, rx * 0.72, ry * 0.72)
+          .stroke({ color: DANGER, width: 1.5, alpha: 0.5 });
         // X buoys
         for (const [bx, by] of [
           [cove.moorX - 26, cove.moorY + 10],
@@ -617,6 +625,8 @@ export class BayScene {
     // cargo transfer: crates stream from the wreck to every surviving manned cove
     const from = this.coves[struck];
     if (!from) return;
+    // the shockwave that answers "which zone got hit?" — fires as the bolt lands
+    this.strikeImpact = { x: from.moorX, y: from.moorY, start: Date.now() + (this.reduced ? 0 : 150) };
     const now = Date.now();
     let stagger = 620; // let the bolt land first
     this.coves.forEach((cove, z) => {
@@ -811,6 +821,12 @@ export class BayScene {
             oy + Math.sin(ang + 0.09) * len,
           ])
           .fill({ color: SAFE, alpha: 0.16 });
+      } else if (struck && !this.reduced) {
+        // pulsing danger ring keeps the eye on the struck zone until next round
+        const pulse = 0.5 + 0.5 * Math.sin(now / 240);
+        cove.beam
+          .ellipse(cove.moorX, cove.moorY, cove.w * 0.46, cove.h * 0.44)
+          .stroke({ color: DANGER, width: 2 + pulse * 2.5, alpha: 0.3 + pulse * 0.4 });
       }
     });
 
@@ -899,6 +915,23 @@ export class BayScene {
       this.ripples
         .circle(r.x, r.y, 6 + t * 16)
         .stroke({ color: r.amber ? AMBER : 0x9fd0ff, width: 1.6, alpha: (1 - t) * 0.8 });
+    }
+
+    // strike impact shockwave — a triple red ring bursting from the struck zone
+    // the instant the bolt lands, so the eye is pulled straight to the answer.
+    if (this.strikeImpact) {
+      const t = (now - this.strikeImpact.start) / 900;
+      if (t >= 1) {
+        this.strikeImpact = null;
+      } else if (t >= 0) {
+        for (let k = 0; k < 3; k++) {
+          const tt = t - k * 0.14;
+          if (tt < 0 || tt > 1) continue;
+          this.ripples
+            .circle(this.strikeImpact.x, this.strikeImpact.y, 8 + tt * 78)
+            .stroke({ color: DANGER, width: 3.5 - k, alpha: (1 - tt) * 0.75 });
+        }
+      }
     }
   }
 }

@@ -81,20 +81,30 @@ export function TopBar() {
         </span>
       </div>
 
-      {/* v3 P0-7: round #, phase, and weather now live in the Storm Clock; the
-          top bar shows the jackpot only while it is live (a bonus round). The
-          growing pot and room switcher moved into Settings. */}
-      {surge && round && (
+      {/* v3 P0-7: round #, phase, and weather live in the Storm Clock; the room
+          switcher moved into Settings. The jackpot pot stays visible EVERY round
+          (calm/dim while it grows), and lights up amber "LIVE" on a bonus round —
+          amber is otherwise reserved for payout moments. */}
+      {round && (
         <>
           <span className="h-4 w-px shrink-0 bg-[var(--lf-line)]" aria-hidden="true" />
           <span
-            className="flex shrink-0 items-center gap-1 rounded-md bg-[var(--lf-amber)]/15 px-1.5 py-0.5 text-[10px] font-extrabold text-[var(--lf-amber)]"
-            title="Bonus round — one safe player wins the whole jackpot"
+            className={`flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-extrabold ${
+              surge
+                ? 'bg-[var(--lf-amber)]/15 text-[var(--lf-amber)]'
+                : 'text-[var(--lf-dim)]'
+            }`}
+            title={
+              surge
+                ? 'Bonus round — one safe player wins the whole jackpot'
+                : 'Jackpot — grows every round until a bonus round pays it out'
+            }
+            aria-label={`Jackpot ${fmt(round.surgePotMinor)} credits${surge ? ', live this round' : ''}`}
           >
             <SurgeIcon size={12} />
-            <span>JACKPOT</span>
+            <span className="hidden sm:inline">JACKPOT</span>
             <span className="tabular-nums">{fmt(round.surgePotMinor)}</span>
-            <span className="text-[var(--lf-text)]">LIVE</span>
+            {surge && <span className="text-[var(--lf-text)]">LIVE</span>}
           </span>
         </>
       )}
@@ -180,34 +190,76 @@ export function TopBar() {
                 onMouseDown={() => setSettingsOpen(false)}
               />
               <div className="absolute right-0 top-full z-30 mt-1 w-64 rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] p-1.5 shadow-xl">
-                {/* v3 P0-7: Table switcher moved out of the top bar into Settings. */}
+                {/* v3 P0-7: Table switcher moved out of the top bar into Settings,
+                    styled as selectable cards (no raw native <select>). */}
                 {rooms.length > 0 && (
-                  <div className="px-2 py-1">
-                    <label
-                      className="block text-xs font-semibold text-[var(--lf-dim)]"
-                      htmlFor="lf-room-select"
+                  <div className="px-2 py-1.5">
+                    <div className="flex items-baseline justify-between px-0.5">
+                      <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--lf-dim)]">
+                        Table
+                      </span>
+                      {name && (
+                        <span className="max-w-32 truncate text-[11px] font-semibold text-[var(--lf-dim)]">
+                          as {name}
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      role="radiogroup"
+                      aria-label="Table"
+                      className="mt-1.5 flex flex-col gap-1"
                     >
-                      Table{name ? ` · ${name}` : ''}
-                    </label>
-                    <select
-                      id="lf-room-select"
-                      value={roomId ?? ''}
-                      onChange={(e) => {
-                        audio.click('nav');
-                        joinRoom(e.target.value);
-                      }}
-                      className="mt-1 h-11 w-full rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface-2)] px-1.5 text-sm font-bold text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
-                      title="Switch tables — your live bet is refunded first"
-                    >
-                      {rooms.map((r) => (
-                        <option key={r.roomId} value={r.roomId}>
-                          {r.name} · {(r.minStakeMinor / 100).toFixed(0)}–
-                          {(r.maxStakeMinor / 100).toFixed(0)} · {r.humanCount} players
-                        </option>
-                      ))}
-                    </select>
+                      {rooms.map((r) => {
+                        const active = r.roomId === roomId;
+                        return (
+                          <button
+                            key={r.roomId}
+                            type="button"
+                            role="radio"
+                            aria-checked={active}
+                            onClick={() => {
+                              if (active) return;
+                              audio.click('nav');
+                              joinRoom(r.roomId);
+                            }}
+                            title={
+                              active
+                                ? 'You are at this table'
+                                : 'Switch tables — your live bet is refunded first'
+                            }
+                            className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] ${
+                              active
+                                ? 'border-[var(--lf-focus)] bg-[var(--lf-focus)]/10'
+                                : 'border-[var(--lf-line)] bg-[var(--lf-surface-2)] hover:border-[var(--lf-focus)]/50 hover:bg-[var(--lf-surface-2)]/70'
+                            }`}
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-bold text-[var(--lf-text)]">
+                                {r.name}
+                              </span>
+                              <span className="mt-0.5 block text-[11px] font-semibold tabular-nums text-[var(--lf-dim)]">
+                                Bet {(r.minStakeMinor / 100).toFixed(0)}–
+                                {(r.maxStakeMinor / 100).toFixed(0)} · {r.humanCount}{' '}
+                                {r.humanCount === 1 ? 'player' : 'players'}
+                              </span>
+                            </span>
+                            <span
+                              aria-hidden="true"
+                              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[10px] font-black ${
+                                active
+                                  ? 'border-[var(--lf-focus)] bg-[var(--lf-focus)] text-[#03202f]'
+                                  : 'border-[var(--lf-line)] text-transparent'
+                              }`}
+                            >
+                              ✓
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
+                <div className="my-1 h-px bg-[var(--lf-line)]" aria-hidden="true" />
                 <label className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md px-2 py-1 text-sm font-semibold text-[var(--lf-text)] hover:bg-[var(--lf-surface-2)]">
                   <input
                     type="checkbox"

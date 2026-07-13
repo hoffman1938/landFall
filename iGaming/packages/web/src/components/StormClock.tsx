@@ -161,7 +161,7 @@ export function StormClock() {
         aria-label={`Round ${round?.roundId ?? 'unknown'}. ${meta.label}. ${seconds} seconds. ${text}.`}
       >
         <div className="flex items-center justify-between gap-1 text-[9px] font-bold tracking-[0.04em] text-[var(--lf-dim)]">
-          <span className="truncate">ROUND {round ? `#${round.roundId}` : '—'}</span>
+          <span className="shrink-0 tabular-nums">{round ? `#${round.roundId}` : '—'}</span>
           <span className="flex shrink-0 items-center gap-1" style={{ color }}>
             <Icon size={11} />
             {meta.label}

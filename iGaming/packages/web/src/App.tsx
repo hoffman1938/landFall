@@ -13,6 +13,7 @@ import { RulesModal } from './components/RulesModal';
 import { SecondaryPanel } from './components/SecondaryPanel';
 import { SkipperCard } from './components/SkipperCard';
 import { StormClock } from './components/StormClock';
+import { TableIntro } from './components/TableIntro';
 import { TopBar } from './components/TopBar';
 import { VerifyModal } from './components/VerifyModal';
 import { WreckLog } from './components/WreckLog';
@@ -55,6 +56,7 @@ export default function App() {
 
           <WreckLog />
           <StormClock />
+          <TableIntro />
           <ResultBanner />
           <ControlDeck />
 
