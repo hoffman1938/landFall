@@ -16,7 +16,7 @@
  *    stepper + presets + primary only; Focus/Split, flags and ×2/½/MAX unlock
  *    per the schedule there. Experts are never re-gated.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   FLAG_MAX_PER_WINDOW,
   FLAG_WINDOW_ROUNDS,
@@ -50,9 +50,41 @@ import {
   XIcon,
 } from './icons';
 
-// v3 P0-9: four presets on stage; power presets + ×2/½/MAX live behind the
-// stake tricks disclosure so the beginner deck stays uncluttered.
-const PRESETS = [1_00, 2_00, 5_00, 10_00];
+/**
+ * v3 — stake presets are DYNAMIC: derived from THIS table's min/max, not a fixed
+ * list. A fixed [1,2,5,10] is useless in a 5–500 or 50–5000 room (below the
+ * minimum). We span the table's range with up to four "nice" 1-2-5 values,
+ * always anchored by the table minimum and maximum, so every chip is a bet you
+ * can actually place.
+ */
+function niceStakePresets(minMinor: number, maxMinor: number): number[] {
+  if (!Number.isFinite(minMinor) || !Number.isFinite(maxMinor) || maxMinor <= minMinor) {
+    return [Math.max(1_00, minMinor)];
+  }
+  // 1-2-5 ladder strictly inside the range
+  const ladder: number[] = [];
+  for (let mag = 1_00; mag <= maxMinor; mag *= 10) {
+    for (const m of [1, 2, 5]) {
+      const v = m * mag;
+      if (v > minMinor && v < maxMinor) ladder.push(v);
+    }
+  }
+  const nearest = (target: number) =>
+    ladder.length
+      ? ladder.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a))
+      : target;
+  // two interior values at geometric thirds of [min, max]
+  const ratio = maxMinor / minMinor;
+  const mid1 = nearest(minMinor * ratio ** (1 / 3));
+  const mid2 = nearest(minMinor * ratio ** (2 / 3));
+  const set = new Set<number>([minMinor, mid1, mid2, maxMinor]);
+  return [...set].sort((a, b) => a - b);
+}
+
+/** A "nice" nudge step for ± scaled to the table (one table-minimum unit). */
+function stepFor(minMinor: number): number {
+  return Math.max(1_00, minMinor);
+}
 
 /** Hold duration for the fog-cancel confirm affordance. */
 const CANCEL_HOLD_MS = 650;
@@ -63,7 +95,11 @@ function coveName(zone: number): string {
 
 function presetLabel(minor: number): string {
   const units = minor / 100;
-  return units >= 1000 ? `${units / 1000}k` : String(units);
+  if (units >= 1000) {
+    const k = units / 1000;
+    return `${Number.isInteger(k) ? k : k.toFixed(1)}k`;
+  }
+  return String(units);
 }
 
 export function ControlDeck() {
@@ -92,6 +128,9 @@ export function ControlDeck() {
   // Room tier limits (C2) — the clamp speaks in this room's numbers.
   const minStakeMinor = useStore((s) => s.roomMinStakeMinor);
   const maxStakeMinor = useStore((s) => s.roomMaxStakeMinor);
+  // B5 whale-cap inputs — so MAX and presets reflect what you can ACTUALLY bet.
+  const whaleCapFraction = useStore((s) => s.whaleCapFraction);
+  const lastKnownHandleMinor = useStore((s) => s.lastKnownHandleMinor);
   // B4 flag cooldown mirror: dimmed flag + round counter, no prose.
   const myFlagRounds = useStore((s) => s.myFlagRounds);
   const roundId = useStore((s) => s.round?.roundId);
@@ -187,6 +226,32 @@ export function ControlDeck() {
   }, [stakeError]);
 
   const clamp = (v: number) => Math.min(maxStakeMinor, Math.max(minStakeMinor, v));
+
+  // Dynamic stake controls (v3) — presets and the ± step scale to THIS table,
+  // and MAX respects the live 25%-of-round cap so it never posts a bet you
+  // can't actually place.
+  const presets = useMemo(
+    () => niceStakePresets(minStakeMinor, maxStakeMinor),
+    [minStakeMinor, maxStakeMinor],
+  );
+  const stepMinor = stepFor(minStakeMinor);
+  const effectiveMaxMinor = () => {
+    let cap = Math.min(balanceMinor, maxStakeMinor);
+    if (lastKnownHandleMinor !== null && whaleCapFraction < 1) {
+      const others = Math.max(0, lastKnownHandleMinor - (myFleet?.stakeMinor ?? 0));
+      cap = Math.min(cap, Math.floor((whaleCapFraction / (1 - whaleCapFraction)) * others));
+    }
+    return Math.max(minStakeMinor, cap);
+  };
+
+  // Switching tables changes the valid range — pull the current stake back into
+  // it so a below-min (or above-max) amount never lingers after a switch.
+  useEffect(() => {
+    const c = Math.min(maxStakeMinor, Math.max(minStakeMinor, stakeInputMinor));
+    if (c !== stakeInputMinor) setStakeInput(c);
+    // Only react to range changes, not to every stake edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minStakeMinor, maxStakeMinor]);
 
   const applyStake = (value: number, announceClamp = false) => {
     // Every stake edit is a user action — it unlocks the ×2/½/MAX row (D5).
@@ -449,10 +514,10 @@ export function ControlDeck() {
           <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5">
             <div className="flex items-center gap-1.5">
               <button
-                onClick={() => bump(-1_00)}
+                onClick={() => bump(-stepMinor)}
                 disabled={!canOrder}
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] text-base font-bold hover:bg-[var(--lf-line)] disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="Lower stake by 1"
+                aria-label={`Lower stake by ${fmt(stepMinor)}`}
               >
                 −
               </button>
@@ -478,10 +543,10 @@ export function ControlDeck() {
                 className="h-11 w-28 min-w-0 rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] text-center text-base font-extrabold tabular-nums outline-none focus:border-[var(--lf-focus)] disabled:cursor-not-allowed disabled:opacity-50"
               />
               <button
-                onClick={() => bump(1_00)}
+                onClick={() => bump(stepMinor)}
                 disabled={!canOrder}
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] text-base font-bold hover:bg-[var(--lf-line)] disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="Raise stake by 1"
+                aria-label={`Raise stake by ${fmt(stepMinor)}`}
               >
                 +
               </button>
@@ -499,7 +564,7 @@ export function ControlDeck() {
               )}
             </div>
             <div className="flex items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {PRESETS.map((p) => (
+              {presets.map((p) => (
                 <button
                   key={p}
                   onClick={() => {
@@ -512,6 +577,7 @@ export function ControlDeck() {
                       ? '!bg-[var(--lf-focus)]/15 !text-[var(--lf-focus)] ring-1 ring-[var(--lf-focus)]/50'
                       : ''
                   }`}
+                  title={`Bet ${fmt(p)}`}
                 >
                   {presetLabel(p)}
                 </button>
@@ -551,11 +617,11 @@ export function ControlDeck() {
                   <button
                     onClick={() => {
                       audio.click('up');
-                      applyStake(Math.min(balanceMinor, maxStakeMinor));
+                      applyStake(effectiveMaxMinor());
                     }}
                     disabled={!canOrder}
                     className={chipBtn}
-                    title="Stake the maximum"
+                    title="Bet the most you can right now (within your balance, the table max, and 25% of the round)"
                   >
                     MAX
                   </button>
