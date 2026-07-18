@@ -1,1 +1,1 @@
-i mean this bets must not be fixed. now i was trying to bet 5000 and i had in options 50, 200, 1k,5k. Why i have those big options if i cant bet more then 500 credits? those options must dynamicly change by allowed bets options. max bet must change dynamicly with allowed max bet
+
