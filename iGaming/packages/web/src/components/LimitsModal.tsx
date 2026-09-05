@@ -157,7 +157,7 @@ export function LimitsModal() {
               className="rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/70 px-3 py-2.5 text-sm text-[var(--lf-text)]"
             >
               You're on a break until{' '}
-              <strong>{new Date(limits!.excludedUntil!).toLocaleString()}</strong>. Watching is
+              <strong>{new Date(limits.excludedUntil!).toLocaleString()}</strong>. Watching is
               fine; anchoring is off.
             </div>
           ) : null}

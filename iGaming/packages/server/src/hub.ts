@@ -21,6 +21,8 @@ import type { RoundCoordinator } from './coordinator.js';
 import type { Db } from './db/index.js';
 import type { LimitsService } from './limits.js';
 import type { RoomManager } from './rooms.js';
+import { log } from './log.js';
+import { metrics } from './metrics.js';
 import { chatMessages, players, skipperRecords } from './db/schema.js';
 import { randomName } from './names.js';
 
@@ -59,12 +61,26 @@ export class Hub {
         realityTimer: null,
       };
       this.sessions.add(session);
-      ws.on('message', (raw) => this.onMessage(session, raw.toString()));
+      metrics.counter('landfall_ws_connections_total', 'WebSocket connections accepted.');
+      ws.on('message', (raw) => {
+        metrics.counter('landfall_ws_messages_total', 'WebSocket messages received.');
+        // `RawData` is Buffer | ArrayBuffer | Buffer[]. A fragmented frame
+        // arrives as an ARRAY, and Array.prototype.toString would comma-join
+        // the fragments into unparseable JSON — concatenate instead.
+        const text = Array.isArray(raw)
+          ? Buffer.concat(raw).toString('utf8')
+          : Buffer.from(raw as ArrayBuffer).toString('utf8');
+        this.onMessage(session, text);
+      });
       ws.on('close', () => {
         this.dropSession(session);
         this.broadcastRoomList();
       });
-      ws.on('error', () => this.dropSession(session));
+      ws.on('error', (err) => {
+        log.warn('websocket error', { playerId: session.playerId, room: session.roomId, err });
+        metrics.counter('landfall_ws_errors_total', 'WebSocket transport errors.');
+        this.dropSession(session);
+      });
     });
   }
 
@@ -135,20 +151,30 @@ export class Hub {
     } satisfies ServerMessage);
   }
 
-  /** Lobby data (C1/C2): real human counts only — bots are never population. */
-  roomList(): RoomInfo[] {
+  /** Live human population per room — bots are never population (C2). */
+  private humansPerRoom(): Map<string, number> {
     const counts = new Map<string, number>();
     for (const s of this.sessions) {
       if (s.playerId && s.roomId) counts.set(s.roomId, (counts.get(s.roomId) ?? 0) + 1);
     }
-    return [...this.rooms.rooms.values()].map((room) => ({
-      roomId: room.cfg.roomId,
-      name: room.cfg.name,
-      minStakeMinor: room.cfg.minStakeMinor,
-      maxStakeMinor: room.cfg.maxStakeMinor,
-      humanCount: counts.get(room.cfg.roomId) ?? 0,
-      botsAllowed: room.cfg.botsAllowed,
-    }));
+    return counts;
+  }
+
+  /** Lobby data (C1/C2): real human counts only — bots are never population. */
+  roomList(): RoomInfo[] {
+    const counts = this.humansPerRoom();
+    return [...this.rooms.rooms.values()].map((room) => {
+      const humanCount = counts.get(room.cfg.roomId) ?? 0;
+      return {
+        roomId: room.cfg.roomId,
+        name: room.cfg.name,
+        minStakeMinor: room.cfg.minStakeMinor,
+        maxStakeMinor: room.cfg.maxStakeMinor,
+        humanCount,
+        botsAllowed: room.cfg.botsAllowed,
+        liquidity: this.rooms.liquidityFor(room.cfg.roomId, humanCount),
+      };
+    });
   }
 
   private broadcastRoomList(): void {
@@ -332,11 +358,15 @@ export class Hub {
     this.limits.beginSession(player.id);
     this.scheduleRealityCheck(session);
     // Reconnect restores the player to their room (C1); unknown/stale rooms
-    // fall back to the default (first configured) room.
+    // fall back to the BUSIEST room they can afford. Liquidity is the whole
+    // product: a table's strategy layer only exists when pools differ, and
+    // pools only differ when players share a room. Seating unrouted arrivals
+    // by configuration order splits a small population across every tier and
+    // guarantees three dead tables instead of one live one.
     const roomId =
       player.lastRoomId && this.rooms.get(player.lastRoomId)
         ? player.lastRoomId
-        : this.rooms.defaultRoomId;
+        : this.rooms.bestRoomFor(this.humansPerRoom(), player.balanceMinor);
     this.enterRoom(session, roomId);
   }
 
@@ -408,6 +438,25 @@ export class Hub {
   }
 
   private error(session: Session, code: string, message: string, receipt?: ActionReceipt): void {
+    // Rejections are normal traffic (a late order, a whale cap, an RG limit).
+    // The series exists so an unusual RATE of one code is visible, not so that
+    // every rejection reads as an incident. Player ids stay OUT of the labels:
+    // an unbounded label set is how a metrics backend falls over.
+    metrics.counter('landfall_action_rejected_total', 'Rejected client actions by code.', { code });
     this.send(session, { type: 'ERROR', code, message, ...(receipt ? { receipt } : {}) });
+  }
+
+  /** Live gauges, sampled on scrape rather than pushed on every change. */
+  sampleGauges(): void {
+    const counts = this.humansPerRoom();
+    metrics.gauge('landfall_ws_sessions', 'Open WebSocket sessions.', this.sessions.size);
+    for (const room of this.rooms.rooms.values()) {
+      metrics.gauge(
+        'landfall_room_humans',
+        "Connected humans per room — the product's liquidity metric (bots never counted).",
+        counts.get(room.cfg.roomId) ?? 0,
+        { room: room.cfg.roomId },
+      );
+    }
   }
 }

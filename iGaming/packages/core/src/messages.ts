@@ -4,6 +4,7 @@
  * (docs/05-security/security-review.md §1.18).
  */
 import { z } from 'zod';
+import type { LiquidityLevel } from './liquidity.js';
 import {
   CHAT_MAX_LEN,
   EXCLUSION_MAX_MINUTES,
@@ -252,6 +253,12 @@ export interface RoomInfo {
   humanCount: number;
   /** Demo practice bots allowed in this room (never true outside demo env). */
   botsAllowed: boolean;
+  /**
+   * Population hint for the lobby ('quiet' | 'filling' | 'busy'), derived from
+   * `humanCount` alone. Display and routing only — it never touches odds,
+   * stakes or settlement. Optional so older clients keep parsing (§3 law).
+   */
+  liquidity?: LiquidityLevel;
 }
 
 export type ServerMessage =

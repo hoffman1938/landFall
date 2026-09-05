@@ -17,6 +17,10 @@ import {
   FLAG_MAX_PER_WINDOW,
   FLAG_WINDOW_ROUNDS,
   HOUSE_SEED_MINOR,
+  LIQUIDITY_FLOOR_MINOR,
+  LIQUIDITY_MIN_SEED_MINOR,
+  houseSeedPerZone,
+  updateHandleEma,
   MAX_STAKE_MINOR,
   MIN_STAKE_MINOR,
   RAKE,
@@ -61,6 +65,8 @@ import type { ChainHandle } from './chain.js';
 import type { GameRepository, SkipperRecordRow } from './db/repository.js';
 import { LimitsService, utcDayKey } from './limits.js';
 import { ReceiptSigner, hashActionPayload } from './receipts.js';
+import { log } from './log.js';
+import { SETTLE_BUCKETS, metrics } from './metrics.js';
 
 /**
  * Flag honesty (E2/B4 replay ribbon + E1 bluff counter): RALLY/HOLD claim the
@@ -151,8 +157,19 @@ export interface RoomConfig {
   maxStakeMinor: number;
   /** B5: max fraction of the round handle one player may hold. */
   whaleCapFraction: number;
-  /** House seed per zone per round. */
+  /**
+   * CEILING for the house seed per zone — what a dead table gets. The seed
+   * itself is adaptive: see `liquidityFloorMinor` and core/liquidity.ts.
+   */
   seedMinor: number;
+  /**
+   * Total table handle the house guarantees while the room is thin. Below it
+   * the house tops the table up; at or above it the seed falls to
+   * `minSeedMinor` and the round is pure player-versus-player.
+   */
+  liquidityFloorMinor: number;
+  /** Token seed that always remains, so no zone is ever literally empty. */
+  minSeedMinor: number;
   /** C5: demo practice bots. Hard-false outside LANDFALL_ENV=demo (rooms.ts crashes otherwise). */
   botsAllowed: boolean;
   surgeProb: number;
@@ -169,6 +186,8 @@ export const DEFAULT_ROOM: RoomConfig = {
   maxStakeMinor: MAX_STAKE_MINOR,
   whaleCapFraction: WHALE_CAP_FRACTION,
   seedMinor: HOUSE_SEED_MINOR,
+  liquidityFloorMinor: LIQUIDITY_FLOOR_MINOR,
+  minSeedMinor: LIQUIDITY_MIN_SEED_MINOR,
   botsAllowed: false,
   surgeProb: 0,
   signalMinStakeMinor: SIGNAL_MIN_STAKE_MINOR,
@@ -195,6 +214,16 @@ export class RoundCoordinator {
   private finalOrders = new Set<string>(); // one hidden order per player during Blind Fog
   private fogMoveCount = 0;
   private lockSnapshot: StakeEntry[] | null = null;
+  /**
+   * Adaptive house liquidity. `seedMinor` is THIS round's house seed per zone,
+   * fixed before anchoring opens and published in the round header, so it can
+   * leak nothing about the live pools. It is derived from `handleEmaMinor`, an
+   * EMA of settled rounds' real (non-house) handle: the house tops a thin table
+   * up to `liquidityFloorMinor` and gets out of the way once players arrive.
+   * See core/liquidity.ts for why a flat seed flattens the whole game.
+   */
+  private seedMinor: number;
+  private handleEmaMinor: number | null = null;
   private timer: NodeJS.Timeout | null = null;
   private tideTimer: NodeJS.Timeout | null = null;
   private fogTimer: NodeJS.Timeout | null = null;
@@ -264,6 +293,76 @@ export class RoundCoordinator {
       const house = repo.getHousePlayer();
       if (house) repo.creditPlayer(house.id, -this.surgePotMinor);
     }
+
+    // A fresh room has no handle history, so it opens fully seeded (the old
+    // fixed-seed behaviour) and thins out from there as players show up.
+    this.seedMinor = houseSeedPerZone(this.liquidityPolicy(), 0, ZONE_COUNT);
+  }
+
+  /**
+   * One structured line and one metrics update per settled round — the whole
+   * observable surface of the game loop. Money stays in minor units, and
+   * nothing here can affect settlement: it runs after the transaction has
+   * committed and only reads what the transaction produced.
+   */
+  private recordRoundTelemetry(
+    struckZone: number,
+    settlement: { rakeMinor: number; houseDeltaMinor: number; salvageTotalMinor?: number; powerCapped: boolean },
+    handleMinor: number,
+    powerLabel: string,
+    startedAt: bigint,
+  ): void {
+    const seconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
+    const room = { room: this.cfg.roomId };
+
+    metrics.counter('landfall_rounds_settled_total', 'Rounds settled.', room);
+    metrics.counter('landfall_handle_minor_total', 'Total handle staked, minor units.', room, handleMinor);
+    metrics.counter('landfall_rake_minor_total', 'Rake taken from struck pools, minor units.', room, settlement.rakeMinor);
+    metrics.counter(
+      'landfall_house_delta_minor_total',
+      'Cumulative house delta, minor units. Reconciles against the DB; drift means a leak.',
+      room,
+      settlement.houseDeltaMinor,
+    );
+    if (settlement.powerCapped) {
+      metrics.counter('landfall_power_capped_total', 'Rounds whose salvage hit the liability cap.', room);
+    }
+    metrics.observe(
+      'landfall_round_settle_seconds',
+      'Wall time to settle a round. The loop is a fixed ~20s heartbeat; a climbing p95 means settlement is falling behind it.',
+      SETTLE_BUCKETS,
+      seconds,
+      room,
+    );
+    metrics.gauge('landfall_storm_reserve_minor', 'Storm Reserve balance, minor units.', this.reserveBalanceMinor, room);
+    metrics.gauge('landfall_surge_pot_minor', 'Storm Surge jackpot, minor units.', this.surgePotMinor, room);
+    metrics.gauge('landfall_house_seed_minor', 'Adaptive house seed per zone for the NEXT round, minor units.', this.seedMinor, room);
+    metrics.gauge('landfall_handle_ema_minor', 'EMA of real (non-house) handle, minor units — drives the adaptive seed.', this.handleEmaMinor ?? 0, room);
+
+    log.info('round settled', {
+      room: this.cfg.roomId,
+      roundId: this.roundId,
+      struckZone,
+      handleMinor,
+      rakeMinor: settlement.rakeMinor,
+      houseDeltaMinor: settlement.houseDeltaMinor,
+      reserveMinor: this.reserveBalanceMinor,
+      surgePotMinor: this.surgePotMinor,
+      seedMinor: this.seedMinor,
+      power: powerLabel,
+      powerCapped: settlement.powerCapped,
+      settleMs: Math.round(seconds * 1000),
+    });
+  }
+
+  /** The room's liquidity policy, clamped so the floor can never invert. */
+  private liquidityPolicy() {
+    const maxSeedMinor = this.cfg.seedMinor;
+    return {
+      floorMinor: this.cfg.liquidityFloorMinor,
+      minSeedMinor: Math.min(this.cfg.minSeedMinor, maxSeedMinor),
+      maxSeedMinor,
+    };
   }
 
   start(): void {
@@ -286,7 +385,7 @@ export class RoundCoordinator {
     return {
       roundId: this.roundId,
       chainIndex: this.chainIndex,
-      houseSeedMinor: this.cfg.seedMinor,
+      houseSeedMinor: this.seedMinor,
       fogStartsAt: this.fogStartsAt,
       weather: this.weather,
       surgeRound: this.surgeRound,
@@ -296,7 +395,7 @@ export class RoundCoordinator {
   }
 
   poolsState(): PoolsState {
-    const totalsMinor = new Array<number>(ZONE_COUNT).fill(this.cfg.seedMinor);
+    const totalsMinor = new Array<number>(ZONE_COUNT).fill(this.seedMinor);
     const boatCounts = new Array<number>(ZONE_COUNT).fill(0);
     for (const entry of this.liveStakeEntries(false)) {
       totalsMinor[entry.zone]! += entry.amountMinor;
@@ -467,11 +566,18 @@ export class RoundCoordinator {
     // Whale guardrail (B5): a single player may not exceed whaleCapFraction of
     // the round handle (house seeds included), evaluated at accept time against
     // the handle INCLUDING this order.
-    const othersMinor =
-      ZONE_COUNT * this.cfg.seedMinor +
-      [...this.fleets.values()]
-        .filter((f) => f.playerId !== playerId)
-        .reduce((a, f) => a + f.stakeMinor, 0);
+    // Measured against the round's EXPECTED handle, floored at the room's
+    // guaranteed liquidity. Without that floor the adaptive seed would turn B5
+    // against the very first bettor: on a busy table the seed is a token 1.00,
+    // so the earliest anchor would be capped at a quarter of six credits —
+    // a guardrail meant for whales clamping a casual at 2.00.
+    const othersMinor = Math.max(
+      this.cfg.liquidityFloorMinor,
+      ZONE_COUNT * this.seedMinor +
+        [...this.fleets.values()]
+          .filter((f) => f.playerId !== playerId)
+          .reduce((a, f) => a + f.stakeMinor, 0),
+    );
     if (stakeMinor > this.cfg.whaleCapFraction * (othersMinor + stakeMinor)) {
       const capMinor = Math.floor(
         (this.cfg.whaleCapFraction / (1 - this.cfg.whaleCapFraction)) * othersMinor,
@@ -686,6 +792,15 @@ export class RoundCoordinator {
 
     this.roundId = this.repo.insertRound(this.cfg.roomId, chainIndex, prevChainValue);
 
+    // Fix this round's house seed BEFORE anchoring opens, from settled history
+    // only. It goes out in the round header with everything else, so no player
+    // can learn anything from it that the whole table does not already know.
+    this.seedMinor = houseSeedPerZone(
+      this.liquidityPolicy(),
+      this.handleEmaMinor ?? 0,
+      ZONE_COUNT,
+    );
+
     // Draw once, up front. Announcing the surge bit pre-anchor is deliberate and
     // safe: it comes from a digest span disjoint from the struck-zone bits, and
     // the reveal lets anyone verify the announcement was honest
@@ -742,7 +857,7 @@ export class RoundCoordinator {
       snapshot.push({
         id: `house-${this.roundId}-${z}`,
         zone: z,
-        amountMinor: this.cfg.seedMinor,
+        amountMinor: this.seedMinor,
         isHouseSeed: true,
       });
     }
@@ -777,11 +892,11 @@ export class RoundCoordinator {
             roundId: this.roundId,
             playerId: housePlayer.id,
             zone: z,
-            amountMinor: this.cfg.seedMinor,
+            amountMinor: this.seedMinor,
             isHouseSeed: true,
           });
         }
-        this.repo.creditPlayer(housePlayer.id, -ZONE_COUNT * this.cfg.seedMinor);
+        this.repo.creditPlayer(housePlayer.id, -ZONE_COUNT * this.seedMinor);
       }
       this.repo.setRoundLockSnapshot(this.roundId, JSON.stringify(snapshot));
     });
@@ -800,6 +915,7 @@ export class RoundCoordinator {
   }
 
   private resolve(struckZone: number): void {
+    const settleStartedAt = process.hrtime.bigint();
     this.setPhase('RESOLVED', this.timings.resolvedMs);
     const snapshot = this.lockSnapshot!;
     // Storm Power: the same digest decides how hard the storm hits (salvage ×M),
@@ -813,6 +929,15 @@ export class RoundCoordinator {
       { mNum: power.mNum, mDen: power.mDen },
       this.econ.maxPayoutMultiple * handleMinor,
     ); // conservation (incl. reserve delta) asserted inside
+
+    // Adaptive liquidity: fold this round's REAL (non-house) handle into the
+    // room's estimate, which sizes the next round's seed. Bot stakes count —
+    // they are traffic that genuinely disperses the pools, and demo is meant
+    // to behave like a populated table.
+    this.handleEmaMinor = updateHandleEma(
+      this.handleEmaMinor,
+      snapshot.reduce((a, entry) => a + (entry.isHouseSeed ? 0 : entry.amountMinor), 0),
+    );
 
     const stakeOwner = new Map<string, string>(); // stakeId -> playerId
     for (const entry of this.liveStakeEntries(true)) stakeOwner.set(entry.id, entry.playerId);
@@ -950,6 +1075,8 @@ export class RoundCoordinator {
       }
     }
 
+    this.recordRoundTelemetry(struckZone, settlement, handleMinor, power.label, settleStartedAt);
+
     this.wreckLog.push(struckZone);
     if (this.wreckLog.length > 20) this.wreckLog.shift();
 
@@ -1073,7 +1200,7 @@ export class RoundCoordinator {
     // Bands with hysteresis (B2): a band flips only after the pool clears the
     // threshold by a margin, so min-stake probing cannot binary-search exact
     // totals below band resolution (see core tide.ts + probing test).
-    const bands = computeTideBands(pools.totalsMinor, this.lastReportBands, this.cfg.seedMinor);
+    const bands = computeTideBands(pools.totalsMinor, this.lastReportBands, this.seedMinor);
     const entries = pools.totalsMinor.map((amount, zone) => {
       const delta = prev ? amount - (prev[zone] ?? amount) : 0;
       const trend: TideTrend =

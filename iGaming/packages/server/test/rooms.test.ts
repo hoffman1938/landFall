@@ -92,7 +92,7 @@ describe('multi-room coordinator (C1)', () => {
 
     // Run both rooms to settlement.
     vi.advanceTimersByTime(TIMINGS.anchorMs + TIMINGS.stormMs + 50);
-    const rowA = db.select().from(rounds).where(undefined!).all();
+    const rowA = db.select().from(rounds).where(undefined).all();
     const settled = rowA.filter((r) => r.settledAt !== null);
     expect(settled).toHaveLength(2);
     expect(new Set(settled.map((r) => r.roomId))).toEqual(new Set(['a', 'b']));

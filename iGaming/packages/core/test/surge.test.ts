@@ -63,7 +63,7 @@ describe('golden anchor pick', () => {
 
   it('weights winners by stake size', () => {
     // survivors: a=100, b=300, c=600 (struck zone 5, none struck) — total 1000.
-    let counts = { a: 0, b: 0, c: 0 };
+    const counts = { a: 0, b: 0, c: 0 };
     const N = 20_000;
     for (let i = 0; i < N; i++) {
       const u = drawZone(SEED, i, ZONE_COUNT).uWinner; // reuse uniform stream
@@ -96,7 +96,7 @@ describe('flat-odds golden anchor (A4)', () => {
   ];
 
   it('gives every surviving stake EQUAL odds regardless of size', () => {
-    let counts = { a: 0, b: 0, c: 0 };
+    const counts = { a: 0, b: 0, c: 0 };
     const N = 20_000;
     for (let i = 0; i < N; i++) {
       const u = drawZone(SEED, i, ZONE_COUNT).uWinner;

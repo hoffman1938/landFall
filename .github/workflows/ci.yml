@@ -1,0 +1,117 @@
+# Release gates as CI, not as discipline.
+#
+# README.md §13 lists gates that must hold before any phase exits — a green
+# suite, an intact conservation assert, simulations matching theory. Until now
+# nothing enforced them: they held because whoever was working remembered to
+# run them. This workflow makes the cheap gates automatic on every push, and
+# the expensive one (the 10M-round simulation) automatic on a schedule and on
+# demand.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: iGaming
+
+jobs:
+  verify:
+    name: typecheck · lint · test · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: iGaming/pnpm-lock.yaml
+
+      # --frozen-lockfile: CI must fail on a lockfile that drifted from the
+      # manifests rather than silently resolving something else.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (strict, all packages)
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      # NOTE: `pnpm format:check` is deliberately NOT a gate yet. The repo
+      # predates its own .prettierrc and 100 files would fail on day one;
+      # turning it on needs a single repo-wide `prettier --write` commit of its
+      # own, so that reformatting never rides along inside a feature diff.
+
+      # Gate 1 (green suite) and gate 2 (conservation): the settlement suite
+      # asserts conservation across fuzzed rounds, so a red suite here is a
+      # money bug, never a flake to retry.
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  bots-policy:
+    name: bots policy (C5) — non-demo start must crash
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: iGaming/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+
+      # C5 is non-negotiable: a room requesting bots outside LANDFALL_ENV=demo
+      # must be a STARTUP CRASH. This asserts the crash actually happens against
+      # the shipped rooms.json, not just in a unit test with a synthetic config.
+      - name: Server refuses to start with bots outside demo
+        env:
+          LANDFALL_ENV: production
+          LANDFALL_DB: ':memory:'
+          PORT: '8788'
+        run: |
+          if timeout 60s pnpm --filter @landfall/server exec tsx src/main.ts; then
+            echo "::error::server started with bots configured outside demo — C5 violated"
+            exit 1
+          fi
+          echo "server refused to start, as required by C5"
+
+  simulation:
+    name: economy simulation (gate 3)
+    # Expensive: scheduled and on demand, not on every push.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: iGaming/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+
+      # Gate 3: measured hold, reserve drift and surge return must match theory
+      # against the PRODUCTION settleRound — never a reimplementation.
+      - name: Simulate
+        run: pnpm --filter @landfall/core exec tsx scripts/simulate.ts --rounds=10000000

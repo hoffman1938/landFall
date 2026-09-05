@@ -259,8 +259,24 @@ export function TopBar() {
                             }`}
                           >
                             <span className="min-w-0 flex-1">
-                              <span className="block truncate text-sm font-bold text-[var(--lf-text)]">
-                                {r.name}
+                              <span className="flex items-center gap-1.5">
+                                <span className="min-w-0 truncate text-sm font-bold text-[var(--lf-text)]">
+                                  {r.name}
+                                </span>
+                                {/* Population honesty (C2): a busy table pays a
+                                    wider range of salvage because its pools
+                                    differ. Real humans only — never bots. */}
+                                <span
+                                  className={`shrink-0 rounded px-1 py-px text-[9px] font-black uppercase tracking-[0.08em] ${
+                                    r.liquidity === 'busy'
+                                      ? 'bg-[var(--lf-action)]/20 text-[var(--lf-safe)]'
+                                      : r.liquidity === 'filling'
+                                        ? 'bg-[var(--lf-focus)]/15 text-[var(--lf-focus)]'
+                                        : 'bg-[var(--lf-line)]/60 text-[var(--lf-dim)]'
+                                  }`}
+                                >
+                                  {r.liquidity ?? 'quiet'}
+                                </span>
                               </span>
                               <span className="mt-0.5 block text-[11px] font-semibold tabular-nums text-[var(--lf-dim)]">
                                 Bet {(r.minStakeMinor / 100).toFixed(0)}–

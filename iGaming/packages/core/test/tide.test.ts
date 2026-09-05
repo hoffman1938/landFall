@@ -95,8 +95,8 @@ describe('tide band hysteresis (anti-probing)', () => {
     const totalsAtFlip = [hidden + qFlip, ...others];
     const T = totalsAtFlip.reduce((a, b) => a + b, 0);
     const avg = T / ZONE_COUNT;
-    const t = TIDE_BAND_THRESHOLDS[0]!;
-    const margin = TIDE_BAND_HYSTERESIS * (TIDE_BAND_THRESHOLDS[1]! - TIDE_BAND_THRESHOLDS[0]!);
+    const t = TIDE_BAND_THRESHOLDS[0];
+    const margin = TIDE_BAND_HYSTERESIS * (TIDE_BAND_THRESHOLDS[1] - TIDE_BAND_THRESHOLDS[0]);
 
     // The margin hides a pool interval of margin×avg — assert it is band-scale
     // (> 4% of the average pool), not stake-scale.

@@ -126,7 +126,6 @@ export function renderReplayCard(card: ReplayCard): HTMLCanvasElement {
     if (reveals.length > 4) {
       ctx.fillStyle = '#8da0ba';
       ctx.fillText(`…and ${reveals.length - 4} more`, 28, y);
-      y += 24;
     }
   }
 

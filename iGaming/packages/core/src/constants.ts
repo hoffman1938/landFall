@@ -4,7 +4,19 @@
  */
 export const ZONE_COUNT = 6;
 export const RAKE = 0.12; // rake on the struck pool only -> gross take = RAKE / ZONE_COUNT = 2% of handle
-export const HOUSE_SEED_MINOR = 50_00; // house anchors 50.00 credits on every harbor, every round
+/**
+ * Ceiling for the house seed per harbor — what a COMPLETELY DEAD table gets.
+ * The seed is no longer a constant: `houseSeedPerZone()` in liquidity.ts tops
+ * the table up to LIQUIDITY_FLOOR_MINOR and then falls away to
+ * LIQUIDITY_MIN_SEED_MINOR as real players arrive. A large flat seed averages
+ * the pools together and flattens payouts to the same number every round —
+ * see the measured table in liquidity.ts.
+ */
+export const HOUSE_SEED_MINOR = 50_00;
+/** Total table handle the house guarantees while the room is thin. */
+export const LIQUIDITY_FLOOR_MINOR = ZONE_COUNT * HOUSE_SEED_MINOR;
+/** Token seed that always remains, so no harbor is ever literally empty. */
+export const LIQUIDITY_MIN_SEED_MINOR = 1_00;
 export const MIN_STAKE_MINOR = 1_00;
 export const MAX_STAKE_MINOR = 5_000_00; // absolute protocol ceiling; effective ceilings come from room tiers
 export const STARTING_BALANCE_MINOR = 50_000_00;

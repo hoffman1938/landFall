@@ -11,12 +11,12 @@
  * the Blind Fog mind game without giving practice bots exact hidden pools.
  * Disable with LANDFALL_BOTS=0.
  */
-import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { STARTING_BALANCE_MINOR, ZONE_COUNT, type TideBand } from '@landfall/core';
 import type { RoundCoordinator } from './coordinator.js';
 import type { Db } from './db/index.js';
 import { players } from './db/schema.js';
+import { log } from './log.js';
 import { randomName } from './names.js';
 
 interface Bot {
@@ -54,9 +54,11 @@ export class BotManager {
   start(): void {
     for (let i = 0; i < this.count; i++) this.bots.push(this.ensureBot(i));
     this.poll = setInterval(() => this.tick(), 200);
-    console.log(
-      `[bots] room ${this.coordinator.cfg.roomId}: ${this.bots.length} practice bots active: ${this.bots.map((b) => b.name).join(', ')}`,
-    );
+    log.info('practice bots active', {
+      room: this.coordinator.cfg.roomId,
+      count: this.bots.length,
+      names: this.bots.map((b) => b.name),
+    });
   }
 
   stop(): void {

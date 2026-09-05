@@ -30,8 +30,10 @@ shown live; the final ~3s are **Blind Fog**, where public movement freezes and e
 one hidden Final Order), 5s **storm approach** (locked; the lock snapshot publishes exact
 pools and the storm feints across the map), **landfall** (one harbor is struck — its stakes
 are lost; survivors keep their stake plus a pro-rata share of the struck pool, scaled by the
-round's Storm Power, minus a 6% rake), 3s replay card, repeat. The house anchors a fixed 50.00-credit seed
-on every harbor for liquidity. Strike odds are exactly 1/6 per harbor — *crowding never changes
+round's Storm Power; survivors receive 88% of the wrecked pool), 3s replay card, repeat. The house seeds every harbor for liquidity, but ADAPTIVELY: it tops a quiet table up to the
+room's liquidity floor and withdraws to a token seed once real players carry the room, so the
+pools stay genuinely uneven instead of being averaged flat by house money
+(`packages/core/src/liquidity.ts`, math-model §6). Strike odds are exactly 1/6 per harbor — *crowding never changes
 where the storm hits, only what surviving pays* — and every round is verifiable in one click
 (🛡 button in the Wreck Log).
 
@@ -66,6 +68,7 @@ packages/
 | `pnpm dev` | Run server + web together (the normal way to play) |
 | `pnpm test` | All test suites (core: chain/draw uniformity/settlement conservation) |
 | `pnpm typecheck` | Strict TypeScript across all packages |
+| `pnpm lint` | ESLint (flat config, type-aware) across all packages |
 | `LANDFALL_FAST=1 pnpm --filter @landfall/server dev` | Fast rounds (~6s) for testing |
 | `pnpm --filter @landfall/server exec tsx scripts/smoke.ts` | Two-client integration test against a running fast server |
 

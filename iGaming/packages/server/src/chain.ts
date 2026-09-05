@@ -9,6 +9,7 @@ import { eq } from 'drizzle-orm';
 import { chainCommitment, roundSeed, SEED_CHAIN_LENGTH } from '@landfall/core';
 import type { Db } from './db/index.js';
 import { chainState } from './db/schema.js';
+import { log } from './log.js';
 
 export interface ChainHandle {
   commitment: string;
@@ -28,7 +29,7 @@ export function ensureChain(db: Db): ChainHandle {
       .onConflictDoUpdate({ target: chainState.id, set: fresh })
       .run();
     row = fresh;
-    console.log(`[chain] new season chain committed: ${commitment}`);
+    log.info('new season chain committed', { commitment });
   }
 
   const state = { ...row };

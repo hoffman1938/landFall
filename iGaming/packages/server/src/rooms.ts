@@ -11,7 +11,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { validateRakeConfig } from '@landfall/core';
+import { ZONE_COUNT, liquidityLevel, validateRakeConfig } from '@landfall/core';
 import type { ChainHandle } from './chain.js';
 import {
   DEFAULT_ECONOMY,
@@ -32,6 +32,9 @@ export interface RoomConfigJson {
   maxStakeMinor?: number;
   whaleCapFraction?: number;
   seedMinor?: number;
+  /** Adaptive liquidity (core/liquidity.ts): floor and token seed. */
+  liquidityFloorMinor?: number;
+  minSeedMinor?: number;
   botsAllowed?: boolean;
   surgeProb?: number;
   signalMinStakeMinor?: number;
@@ -65,6 +68,9 @@ export function resolveRoomConfig(
     maxStakeMinor: json.maxStakeMinor ?? base.maxStakeMinor,
     whaleCapFraction: json.whaleCapFraction ?? base.whaleCapFraction,
     seedMinor: json.seedMinor ?? base.seedMinor,
+    liquidityFloorMinor:
+      json.liquidityFloorMinor ?? (json.seedMinor ?? base.seedMinor) * ZONE_COUNT,
+    minSeedMinor: json.minSeedMinor ?? json.minStakeMinor ?? base.minSeedMinor,
     botsAllowed,
     surgeProb: json.surgeProb ?? base.surgeProb,
     signalMinStakeMinor: json.signalMinStakeMinor ?? base.signalMinStakeMinor,
@@ -78,6 +84,14 @@ export function resolveRoomConfig(
   validateRakeConfig(cfg.econ.rake, cfg.econ.rakeSplit);
   if (cfg.minStakeMinor > cfg.maxStakeMinor) {
     throw new Error(`room "${cfg.roomId}": minStake > maxStake`);
+  }
+  if (cfg.minSeedMinor > cfg.seedMinor) {
+    throw new Error(
+      `room "${cfg.roomId}": minSeedMinor (${cfg.minSeedMinor}) exceeds the seed ceiling (${cfg.seedMinor})`,
+    );
+  }
+  if (cfg.liquidityFloorMinor < 0) {
+    throw new Error(`room "${cfg.roomId}": liquidityFloorMinor must not be negative`);
   }
   return cfg;
 }
@@ -140,6 +154,40 @@ export class RoomManager {
 
   get defaultRoomId(): string {
     return this.rooms.keys().next().value as string;
+  }
+
+  /**
+   * Where to seat a player who has no room preference.
+   *
+   * Liquidity is the product's existential risk: the strategy layer only exists
+   * when pools differ, and pools only differ when people are in the same room.
+   * Splitting a small population evenly across three tiers is the worst thing
+   * this server can do to itself, so an unrouted player goes to the BUSIEST
+   * room they are eligible for, and only falls back to configuration order when
+   * every room is equally empty. Stake eligibility still wins — nobody is
+   * seated at a table they cannot afford.
+   */
+  bestRoomFor(humansPerRoom: ReadonlyMap<string, number>, balanceMinor?: number): string {
+    const order = [...this.rooms.keys()];
+    let bestId = this.defaultRoomId;
+    let bestScore = -1;
+    for (const [index, roomId] of order.entries()) {
+      const room = this.rooms.get(roomId);
+      if (!room) continue;
+      if (balanceMinor !== undefined && balanceMinor < room.cfg.minStakeMinor) continue;
+      // Population first; configuration order breaks ties (earlier = cheaper).
+      const score = (humansPerRoom.get(roomId) ?? 0) * 1000 + (order.length - index);
+      if (score > bestScore) {
+        bestScore = score;
+        bestId = roomId;
+      }
+    }
+    return bestId;
+  }
+
+  /** Lobby hint per room — display and routing only, never odds (C2). */
+  liquidityFor(roomId: string, humanCount: number) {
+    return this.rooms.has(roomId) ? liquidityLevel(humanCount) : 'quiet';
   }
 
   start(): void {

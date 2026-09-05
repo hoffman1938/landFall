@@ -18,7 +18,7 @@ Notation is theme-agnostic (`zones`, `struck`, `stakes`); the maritime flavor is
 | `K` | 6 | Number of zones (harbors) |
 | `r` | 0.12 | Rake taken from the struck pool only ("harbormaster's cut") |
 | `split` | house 0.50 / surge 0.25 / reserve 0.25 | Where the rake goes (fractions of rake) |
-| `h` | 50 credits | House seed stake per zone per round (liquidity — §6) |
+| `h` | adaptive, ≤ 50 credits | House seed per zone per round (liquidity — §6). No longer a constant: the house tops the table up to a per-room liquidity floor and withdraws to a token seed as real handle arrives. |
 | `P_j` | — | Total stakes in zone `j` (players + house seed) |
 | `T` | `Σ P_j` | Total handle for the round |
 | `z*` | — | Struck zone, drawn uniformly: `P(z* = j) = 1/K` for all `j` |
@@ -145,11 +145,46 @@ handle), and even with the ladder's multiplier the round's total salvage is clam
 Players cannot dial personal volatility (no target multiplier exists to choose). Room tiers
 varying `K` and `r` are the future coarse volatility control.
 
-## 6. House Seeding — Liquidity Analysis
+## 6. House Seeding — Adaptive Liquidity
 
-The house stakes a fixed `h` on every zone each round, settled under the same rules as any
-player. Purposes: (a) `P_{z*} > 0` always, so survivors are always paid something; (b) solo and
+The house stakes `h` on every zone each round, settled under the same rules as any player.
+Purposes: (a) `P_{z*} > 0` always, so survivors are always paid something; (b) solo and
 low-population rounds remain meaningful.
+
+**`h` is adaptive** (`packages/core/src/liquidity.ts`). It used to be a fixed 50 credits, and
+that is worth stating plainly as a mistake: a large flat seed does not add liquidity, it
+AVERAGES THE POOLS TOGETHER. The survivor gain
+
+```
+gain/stake = (1 − r) · P_{z*} / (T − P_{z*})
+```
+
+collapses to `(1 − r)/(K − 1) ≈ +17.6%` whenever the pools are equal, and a dominant uniform
+seed makes them equal. The MEAN is fixed by the pari-mutuel identity and no seeding policy can
+move it; what a seeding policy can move is the DISPERSION around it — which is the entire
+strategic content of reading the crowd. Measured against the production `settleRound` with five
+fleets on a six-cove table, the same five players spread payouts over 6.0pp at `h = 50` and
+133pp at `h = 1`.
+
+The policy: with `F` the room's liquidity floor and `Ĥ` an estimate of recent real handle,
+
+```
+h = clamp( ceil( max(0, F − Ĥ) / K ),  h_min,  h_max )
+```
+
+so the house makes up the shortfall on a thin table and withdraws to `h_min` once players carry
+the room themselves. `Ĥ` is an asymmetric EMA over SETTLED rounds only — never the live round's
+pools — so `h` is fixed and published in the round header before anchoring opens and can leak
+nothing about where money is going now. The asymmetry (α = 0.25 rising, 0.6 falling) exists for
+the honesty note below: a room that empties out must restore its protective seed within a round
+or two, so the estimate reacts fast to a falling handle and slowly to a rising one.
+
+Operator note: the house pays the rake on its own seed, so seeding is a real cost. Under this
+policy that cost decays towards zero exactly as the room becomes self-sustaining — the operator
+funds liquidity only while liquidity is genuinely scarce.
+
+Room defaults (`packages/server/config/rooms.json`): Skiff `F = 90`, `h_min = 1`, `h_max = 25`;
+Schooner `F = 180`, `h_min = 5`, `h_max = 50`; Flagship `F = 900`, `h_min = 50`, `h_max = 250`.
 
 Properties (validated by simulation, §7):
 
@@ -157,16 +192,18 @@ Properties (validated by simulation, §7):
   house's total expected take remains rake-driven and bounded.
 - **Low-population honesty note:** a solo player staking `S` alongside seeds `h` on every zone
   faces slightly worse than the nominal `r/K` gross edge, because their own stake makes their
-  zone the largest pool (they are the "whale" of their own round). At production parameters a
-  10-credit solo stake against 50-credit seeds has analytic EV ≈ **−2.56%** of stake
+  zone the largest pool (they are the "whale" of their own round). At the pre-adaptive
+  parameters a 10-credit solo stake against 50-credit seeds had analytic EV ≈ **−2.56%** of stake
   (vs. −2% gross in balanced crowds), with the difference accruing to the house's seed stakes,
   not to the rake — re-measured by the A6 sim harness on every constants change. This must
   appear in the fairness documentation rather than being discovered by a player with a
   calculator: the honest statement is *"the nominal edge is exact for balanced crowds; tiny
   rounds tilt slightly further in the house's favor because your own stake concentrates your
   zone."* Raising `h` relative to typical stakes shrinks this deviation (the player's stake
-  perturbs the pools less); `h = 50` vs. min stake 1 keeps the deviation small for
-  minimum-stake players.
+  perturbs the pools less). The adaptive policy therefore keeps `h` at its ceiling precisely
+  when the deviation would be worst — an empty room — and only withdraws it once other players
+  are diluting the effect anyway. The fast-falling EMA closes the transitional window where a
+  busy room empties and someone is briefly alone against a token seed.
 
 ## 7. Simulation Spot-Check (informal; formal methodology in simulation-methodology.md)
 
@@ -317,8 +354,9 @@ unchanged).
 - Min/max stake come from room tier config (Skiff/Schooner/Flagship — Workstream C2). A single
   player's round stake is additionally capped at `WHALE_CAP_FRACTION` (default 25%) of the
   current public handle at accept time (B5) — the pari-mutuel-native anti-domination lever.
-- `h` (house seed) sizing policy as typical room population grows — could shrink as real
-  liquidity arrives; requires re-checking §6's deviation bound whenever changed.
+- ~~`h` (house seed) sizing policy as typical room population grows~~ — RESOLVED: `h` now
+  shrinks as real liquidity arrives (§6). `F`, `h_min` and `h_max` per room remain open
+  parameters; changing any of them requires re-checking §6's deviation bound.
 - Future room tiers: `(K, r)` variants for coarse volatility selection (rake validated to
   `[0.06, 0.20]` per room).
 

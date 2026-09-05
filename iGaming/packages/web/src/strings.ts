@@ -87,7 +87,42 @@ export const STR = {
   signalJoin: 'Join me',
   signalAvoid: 'Avoid',
   signalStay: 'Staying',
+
+  // Entry gate (welcome + table choice)
+  welcomeTitle: 'How Landfall works',
+  welcomeRulesToggle: 'How it works',
+  welcomeChooseTable: 'Choose your table',
+  welcomePlayAt: 'Play at',
+  welcomeTableHint: 'You can switch tables any time from Settings.',
+  welcomeDisclaimer: 'Virtual credits — no real money. Every round is verifiable.',
 } as const;
+
+/**
+ * The entry pitch: four lines, in the order a newcomer needs them. Written to
+ * be MOTIVATING BY BEING TRUE — "5 of 6 survive" is the genuinely attractive
+ * fact about this game and it is exact, and the loss is named in the same
+ * breath rather than buried. No new economy figures appear here: A5 fixes the
+ * player-facing set at "survivors receive 88% of the wrecked pool" and
+ * "long-run return ≈ 98%", and both live in the Rules sheet.
+ */
+export const WELCOME_POINTS: readonly { title: string; body: string }[] = [
+  {
+    title: 'Pick 1 of 6 zones',
+    body: 'Put your bet on the zone you think the storm will miss.',
+  },
+  {
+    title: '5 of the 6 survive',
+    body: 'The storm hits exactly one zone. Every other zone is safe.',
+  },
+  {
+    title: 'Safe players split the wreck',
+    body: "You keep your bet and take a share of the hit zone's pot. The more crowded that zone was, the bigger the share.",
+  },
+  {
+    title: 'One click proves it was fair',
+    body: 'The result is drawn from a seed committed before the round — recheck any round yourself.',
+  },
+];
 
 /** Crowd level from a tide band (v3 §4). */
 export function crowdLabel(

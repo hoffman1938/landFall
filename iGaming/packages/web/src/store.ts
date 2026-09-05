@@ -106,6 +106,13 @@ interface State {
   toast: string | null;
   verifyRoundId: number | null; // open verify modal for this round
   rulesOpen: boolean;
+  /**
+   * Entry gate: the welcome + table-choice screen shown before the first bet of
+   * a session. Lives in the store (not local component state) because the bay's
+   * 1–6 keyboard shortcuts and the table intro must both stand down while it
+   * is up — otherwise a number key would place a bet behind the modal.
+   */
+  welcomeOpen: boolean;
   /** Signal-flag picker anchor point (opened via long-press/right-click on a cove or the dock). */
   flagPickerAt: { zone: number; x: number; y: number } | null;
   /** Last placed anchor (zone+stake) — for one-click Rebet in the next round. */
@@ -147,6 +154,8 @@ interface State {
   setQuickBet(on: boolean): void;
   /** Withdraw the active fleet order before lock; the full stake is refunded. */
   cancelOrder(): void;
+  /** Confirm the table chosen on the entry gate and start playing. */
+  dismissWelcome(roomId: string): void;
   /** Switch rooms (C1). */
   joinRoom(roomId: string): void;
   sendSignal(kind: SignalKind, zone?: number): void;
@@ -504,6 +513,7 @@ export const useStore = create<State>((set, get) => {
     toast: null,
     verifyRoundId: null,
     rulesOpen: false,
+    welcomeOpen: false,
     flagPickerAt: null,
     lastAnchor: null,
     lastFleet: null,

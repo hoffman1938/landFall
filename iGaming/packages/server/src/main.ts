@@ -14,6 +14,8 @@ import { DrizzleSqliteRepository } from './db/repository.js';
 import { players } from './db/schema.js';
 import { Hub } from './hub.js';
 import { LimitsService } from './limits.js';
+import { INSTANCE_ID, log } from './log.js';
+import { metrics } from './metrics.js';
 import { RoomManager, isDemoEnv, loadRoomConfigs } from './rooms.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
@@ -84,20 +86,44 @@ const makeEvents = (roomId: string): CoordinatorEvents => ({
 const rooms = new RoomManager(repo, chain, roomConfigs, makeEvents, limits);
 hub.rooms = rooms;
 
-const app = createApp(db, chain.commitment, surgeProb, econ);
+// Rooms are "ready" once the loop is actually running; an instance whose game
+// loop stopped must fail readiness even though the process is still alive.
+let roomsRunning = false;
+let shuttingDown = false;
+
+const app = createApp(db, chain.commitment, surgeProb, econ, {
+  ready: () =>
+    shuttingDown
+      ? { ready: false, reason: 'draining' }
+      : roomsRunning
+        ? { ready: true }
+        : { ready: false, reason: 'rooms not started' },
+  sampleGauges: () => hub.sampleGauges(),
+});
+
 const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
-  console.log(`[landfall] REST on http://localhost:${info.port}  (db: ${DB_FILE})`);
-  console.log(`[landfall] chain commitment: ${chain.commitment}`);
-  console.log(`[landfall] timings: ${JSON.stringify(timings)}`);
-  console.log(
-    `[landfall] rooms: ${roomConfigs.map((r) => `${r.roomId} (${r.minStakeMinor / 100}–${r.maxStakeMinor / 100}${r.botsAllowed ? ', bots' : ''})`).join(' · ')} — env ${demo ? 'DEMO' : 'production-like'}`,
-  );
+  log.info('rest listening', { port: info.port, db: DB_FILE, instance: INSTANCE_ID });
+  log.info('chain committed', { commitment: chain.commitment });
+  log.info('timings configured', { ...timings });
+  log.info('rooms configured', {
+    env: demo ? 'demo' : 'production-like',
+    rooms: roomConfigs.map((r) => ({
+      roomId: r.roomId,
+      minStakeMinor: r.minStakeMinor,
+      maxStakeMinor: r.maxStakeMinor,
+      seedCeilingMinor: r.seedMinor,
+      liquidityFloorMinor: r.liquidityFloorMinor,
+      botsAllowed: r.botsAllowed,
+    })),
+  });
+  metrics.gauge('landfall_rooms_configured', 'Rooms configured on this instance.', roomConfigs.length);
 });
 
 const wss = new WebSocketServer({ server: server as never, path: '/ws' });
 hub.attach(wss);
 rooms.start();
-console.log(`[landfall] WS on ws://localhost:${PORT}/ws — rounds running`);
+roomsRunning = true;
+log.info('ws listening', { path: '/ws', port: PORT });
 
 // Practice bots so solo players can see the crowd dynamics (LANDFALL_BOTS=0
 // disables). Bots exist ONLY in rooms whose config allows them, which the
@@ -113,10 +139,47 @@ if (botCount > 0) {
   }
 }
 
-process.on('SIGINT', () => {
+if (botManagers.length > 0) {
+  log.info('practice bots started', { rooms: botManagers.length, perRoom: botCount });
+}
+
+/**
+ * Graceful shutdown. An orchestrator sends SIGTERM and then waits: we fail
+ * readiness FIRST so the load balancer stops sending new players, then stop the
+ * bots and the round loop, close sockets, and only then close the database —
+ * so no settlement transaction is ever interrupted mid-write.
+ */
+let shutdownStarted = false;
+function shutdown(signal: string): void {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  shuttingDown = true;
+  log.info('shutting down', { signal });
   for (const manager of botManagers) manager.stop();
   rooms.stop();
+  roomsRunning = false;
   wss.close();
-  sqlite.close();
-  process.exit(0);
+  server.close(() => {
+    sqlite.close();
+    log.info('shutdown complete', { signal });
+    process.exit(0);
+  });
+  // Never hang a deploy on a socket that refuses to close.
+  setTimeout(() => {
+    log.warn('shutdown forced after timeout', { signal });
+    process.exit(0);
+  }, 10_000).unref();
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+// A crash that reaches here would otherwise vanish into an unformatted stack.
+process.on('uncaughtException', (err) => {
+  metrics.counter('landfall_uncaught_errors_total', 'Uncaught exceptions.');
+  log.error('uncaught exception', { err });
+});
+process.on('unhandledRejection', (reason) => {
+  metrics.counter('landfall_uncaught_errors_total', 'Uncaught exceptions.');
+  log.error('unhandled rejection', { err: reason instanceof Error ? reason : String(reason) });
 });

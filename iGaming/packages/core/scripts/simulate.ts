@@ -12,7 +12,7 @@
  *   pnpm --filter @landfall/core sim -- --rounds=10000000
  */
 import { sha256 } from '@noble/hashes/sha256';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { bytesToHex } from '@noble/hashes/utils';
 import {
   HOUSE_SEED_MINOR,
   RAKE,

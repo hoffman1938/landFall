@@ -1,5 +1,5 @@
 {
-  "$comment": "Default stake-tier rooms (remediation C2). Tier configs live here — server config, not code. Casuals never share a room with 100× their stake: Skiff 1–50, Schooner 5–500, Flagship 50–5000 credits. botsAllowed only takes effect under LANDFALL_ENV=demo; any other environment refuses to start if a room requests bots (C5).",
+  "$comment": "Default stake-tier rooms (remediation C2). Tier configs live here — server config, not code. Casuals never share a room with 100× their stake: Skiff 1–50, Schooner 5–500, Flagship 50–5000 credits. botsAllowed only takes effect under LANDFALL_ENV=demo; any other environment refuses to start if a room requests bots (C5). LIQUIDITY: seedMinor is the CEILING (a dead table); the house tops the table up to liquidityFloorMinor and then falls away to minSeedMinor as real players arrive — a large flat seed averages the pools together and flattens every payout to the same number (see packages/core/src/liquidity.ts).",
   "rooms": [
     {
       "roomId": "skiff",
@@ -8,6 +8,8 @@
       "maxStakeMinor": 5000,
       "whaleCapFraction": 0.25,
       "seedMinor": 2500,
+      "liquidityFloorMinor": 9000,
+      "minSeedMinor": 100,
       "signalMinStakeMinor": 200,
       "botsAllowed": true
     },
@@ -18,6 +20,8 @@
       "maxStakeMinor": 50000,
       "whaleCapFraction": 0.25,
       "seedMinor": 5000,
+      "liquidityFloorMinor": 18000,
+      "minSeedMinor": 500,
       "signalMinStakeMinor": 500,
       "botsAllowed": true
     },
@@ -28,6 +32,8 @@
       "maxStakeMinor": 500000,
       "whaleCapFraction": 0.25,
       "seedMinor": 25000,
+      "liquidityFloorMinor": 90000,
+      "minSeedMinor": 5000,
       "signalMinStakeMinor": 5000,
       "botsAllowed": false
     }

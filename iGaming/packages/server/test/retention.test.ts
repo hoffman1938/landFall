@@ -225,7 +225,7 @@ describe('wreck wake replay v2 (E2)', () => {
     vi.advanceTimersByTime(1_000 + TIMINGS.stormMs + 50);
 
     expect(replay).not.toBeNull();
-    const r = replay! as WreckWakeReplay;
+    const r = replay!;
     expect(r.fogNetBoats).toBeDefined();
     expect(r.fogNetBoats![1]).toBe(-1); // left cove 1 in the fog
     expect(r.fogNetBoats![2]).toBe(1); // arrived at cove 2
