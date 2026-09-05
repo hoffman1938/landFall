@@ -93,7 +93,8 @@ export const STR = {
   welcomeRulesToggle: 'How it works',
   welcomeChooseTable: 'Choose your table',
   welcomePlayAt: 'Play at',
-  welcomeTableHint: 'You can switch tables any time from Settings.',
+  welcomeTableHint:
+    'Your bet range is per round, and no player may hold more than 25% of a round — so your live max can be lower when a table is quiet. You can switch tables any time from Settings.',
   welcomeDisclaimer: 'Virtual credits — no real money. Every round is verifiable.',
 } as const;
 

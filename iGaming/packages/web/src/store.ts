@@ -24,6 +24,7 @@ import type {
   WreckWakeReplay,
 } from '@landfall/core';
 import { audio } from './audio/engine';
+import { nextWelcomeOpen } from './welcomeGate';
 
 export interface LandfallInfo {
   roundId: number;
@@ -113,6 +114,12 @@ interface State {
    * is up — otherwise a number key would place a bet behind the modal.
    */
   welcomeOpen: boolean;
+  /**
+   * The table the entry gate confirmed. The gate already names that table and
+   * its rules on the way in, so TableIntro must not introduce it a second time
+   * the moment the modal closes.
+   */
+  welcomeChoseRoomId: string | null;
   /** Signal-flag picker anchor point (opened via long-press/right-click on a cove or the dock). */
   flagPickerAt: { zone: number; x: number; y: number } | null;
   /** Last placed anchor (zone+stake) — for one-click Rebet in the next round. */
@@ -188,6 +195,7 @@ interface State {
 }
 
 let ws: WebSocket | null = null;
+let welcomeSettled = false; // see welcomeGate.ts for why this latch exists
 
 function oppositeZone(zone: number): number {
   return (zone + Math.floor(ZONE_COUNT / 2)) % ZONE_COUNT;
@@ -242,6 +250,11 @@ export const useStore = create<State>((set, get) => {
             (msg.yourAnchor ? focusFleet(msg.yourAnchor.zone, msg.yourAnchor.stakeMinor) : null);
           localStorage.setItem('landfall.playerId', msg.playerId);
           set({
+            welcomeOpen: nextWelcomeOpen({
+              settled: welcomeSettled,
+              hasLiveFleet: fleet !== null,
+              currentlyOpen: get().welcomeOpen,
+            }),
             connected: true,
             playerId: msg.playerId,
             name: msg.name,
@@ -270,6 +283,7 @@ export const useStore = create<State>((set, get) => {
             limits: msg.limits ?? null,
             sessionStartAt: msg.sessionStartAt ?? Date.now(),
           });
+          welcomeSettled = true;
           break;
         }
         case 'ROUND_HEADER':
@@ -514,6 +528,7 @@ export const useStore = create<State>((set, get) => {
     verifyRoundId: null,
     rulesOpen: false,
     welcomeOpen: false,
+    welcomeChoseRoomId: null,
     flagPickerAt: null,
     lastAnchor: null,
     lastFleet: null,
@@ -645,6 +660,16 @@ export const useStore = create<State>((set, get) => {
           set({ myFlagRounds: [...s.myFlagRounds.slice(-9), roundId] });
         }
       }
+    },
+    /**
+     * Confirm the entry gate. The server has already seated the player (in the
+     * busiest room they can afford), so this only sends JOIN_ROOM when they
+     * actually picked a different table.
+     */
+    dismissWelcome(roomId) {
+      const s = get();
+      if (s.connected && roomId !== s.roomId) send({ type: 'JOIN_ROOM', roomId });
+      set({ welcomeOpen: false, welcomeChoseRoomId: roomId });
     },
     /** Switch rooms (C1); any live order is refunded server-side first. */
     joinRoom(roomId) {

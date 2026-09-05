@@ -21,10 +21,20 @@ const AUTO_DISMISS_MS = 11_000;
 
 export function TableIntro() {
   const roomId = useStore((s) => s.roomId);
+  const welcomeOpen = useStore((s) => s.welcomeOpen);
+  const welcomeChoseRoomId = useStore((s) => s.welcomeChoseRoomId);
   const [intro, setIntro] = useState<Intro | null>(null);
   const shownRoom = useRef<string | null>(null);
 
   useEffect(() => {
+    // The entry gate names the table, its bet range and the round-share cap on
+    // the way in, so that table needs no second introduction — including when
+    // the player used the gate to switch away from the default. Marking it as
+    // shown (rather than merely skipping) keeps it from firing a beat later.
+    if (welcomeOpen || (roomId !== null && roomId === welcomeChoseRoomId)) {
+      shownRoom.current = roomId;
+      return;
+    }
     if (!roomId || shownRoom.current === roomId) return;
     shownRoom.current = roomId;
     // Read the freshest room facts; WELCOME/JOIN_ROOM set them together.
@@ -33,7 +43,7 @@ export function TableIntro() {
     setIntro({ name, minMinor: s.roomMinStakeMinor, maxMinor: s.roomMaxStakeMinor });
     const t = window.setTimeout(() => setIntro(null), AUTO_DISMISS_MS);
     return () => window.clearTimeout(t);
-  }, [roomId]);
+  }, [roomId, welcomeOpen, welcomeChoseRoomId]);
 
   if (!intro) return null;
 

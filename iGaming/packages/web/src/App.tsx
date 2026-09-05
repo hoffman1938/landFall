@@ -16,6 +16,7 @@ import { StormClock } from './components/StormClock';
 import { TableIntro } from './components/TableIntro';
 import { TopBar } from './components/TopBar';
 import { VerifyModal } from './components/VerifyModal';
+import { WelcomeGate } from './components/WelcomeGate';
 import { WreckLog } from './components/WreckLog';
 import { WreckLogSheet } from './components/WreckLogSheet';
 import { useStore } from './store';
@@ -84,6 +85,8 @@ export default function App() {
       {/* F1/F2: play limits, session clock, self-exclusion, reality checks. */}
       <LimitsModal />
       <RealityCheck />
+      {/* Entry gate — rules, then a table choice, before the first bet. */}
+      <WelcomeGate />
     </div>
   );
 }

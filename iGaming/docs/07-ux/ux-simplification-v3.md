@@ -410,6 +410,22 @@ rendered); long-press = signals (Expert only); haptics per v2 §5.6 kept.
 
 ## 11. Deliverable 11 — First-Session Onboarding Flow (Flow A)
 
+> **STATUS (post-R5 revision).** The contextual flow below was specified here and never built —
+> no captions, no practice mode, no demo animation shipped, so a first-time player got no
+> onboarding at all beyond an auto-dismissing table banner. What ships now is an **entry gate**
+> (`WelcomeGate.tsx`): a single screen before the first bet carrying four plain-language points
+> and a table choice.
+>
+> This deviates from the "no modal tour" rule immediately below, on product instruction, and the
+> deviation is recorded in the remediation decisions log. Two things keep it from being the
+> failure mode that rule was written against. It is **not a tour** — no step sequence, no "next",
+> one screen the player leaves by choosing a table. And it is **not repeated at a regular** —
+> once completed on a device the explanation collapses behind a toggle and the screen becomes a
+> table picker with the last table preselected.
+>
+> The contextual captions below remain the right complement, not a competitor: they teach the
+> controls in place, which the gate deliberately does not attempt. They stay unbuilt and open.
+
 Exactly three interactions, contextual, skippable at every step ("Skip ✕" on each caption).
 No modal tour. Captions ≤ 8 words, localized.
 

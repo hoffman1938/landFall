@@ -364,8 +364,9 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
   const rulesOpen = useStore((state) => state.rulesOpen);
   const verifyRoundId = useStore((state) => state.verifyRoundId);
   const flagPickerAt = useStore((state) => state.flagPickerAt);
+  const welcomeOpen = useStore((state) => state.welcomeOpen);
   const fogActive = phase === 'ANCHOR_OPEN' && (tideReport?.frozen ?? false);
-  const dialogOpen = rulesOpen || verifyRoundId !== null || flagPickerAt !== null;
+  const dialogOpen = rulesOpen || welcomeOpen || verifyRoundId !== null || flagPickerAt !== null;
   const canPick = connected && phase === 'ANCHOR_OPEN' && !finalOrderUsed && !dialogOpen;
   const layouts = getCoveLayouts(size.width, size.height);
 
