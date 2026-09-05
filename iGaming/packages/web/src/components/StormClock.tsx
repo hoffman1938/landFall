@@ -154,37 +154,45 @@ export function StormClock() {
   return (
     <div className="pointer-events-none absolute left-1/2 top-11 z-10 -translate-x-1/2">
       <section
-        className={`lf-surface relative w-40 overflow-hidden rounded-xl px-3 pb-2 pt-1.5 shadow-[0_10px_30px_rgba(0,0,0,0.45)] ${
-          round?.surgeRound && mode !== 'next' ? 'ring-1 ring-[var(--lf-amber)]/70' : ''
+        className={`lf-glass lf-rim relative w-44 overflow-hidden rounded-2xl px-3.5 pb-2.5 pt-2 ${
+          round?.surgeRound && mode !== 'next'
+            ? '!border-[var(--lf-amber)]/70 !shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_30px_rgba(255,194,71,0.25),0_12px_34px_rgba(0,0,0,0.5)]'
+            : ''
         }`}
         role="timer"
         aria-label={`Round ${round?.roundId ?? 'unknown'}. ${meta.label}. ${seconds} seconds. ${text}.`}
       >
-        <div className="flex items-center justify-between gap-1 text-[9px] font-bold tracking-[0.04em] text-[var(--lf-dim)]">
-          <span className="shrink-0 tabular-nums">{round ? `#${round.roundId}` : '—'}</span>
+        <div className="flex items-center justify-between gap-1 text-[10px] font-extrabold uppercase tracking-[0.1em]">
+          <span className="shrink-0 tabular-nums text-[var(--lf-brass)]">
+            {round ? `#${round.roundId}` : '—'}
+          </span>
           <span className="flex shrink-0 items-center gap-1" style={{ color }}>
-            <Icon size={11} />
+            <Icon size={12} />
             {meta.label}
           </span>
         </div>
 
-        <div className="mt-0.5 flex items-center gap-2.5">
+        <div className="mt-1 flex items-center gap-2.5">
           <span
-            className="text-[34px] font-extrabold leading-none tabular-nums tracking-[-0.04em]"
-            style={{ color }}
+            className="text-[40px] font-black leading-none tabular-nums tracking-[-0.05em]"
+            style={{ color, textShadow: `0 0 22px ${color}55` }}
             aria-hidden="true"
           >
             {String(seconds).padStart(2, '0')}
           </span>
-          <span className="line-clamp-2 min-w-0 text-[11px] font-semibold leading-[1.25] text-[var(--lf-text)]">
+          <span className="line-clamp-2 min-w-0 text-xs font-semibold leading-[1.25] text-[var(--lf-text)]">
             {text}
           </span>
         </div>
 
-        <div className="absolute inset-x-0 bottom-0 h-1 bg-[var(--lf-line)]/60" aria-hidden="true">
+        <div className="absolute inset-x-0 bottom-0 h-1.5 bg-black/50" aria-hidden="true">
           <span
             className="block h-full origin-left transition-[width,background-color] duration-100 ease-linear"
-            style={{ width: `${progress * 100}%`, backgroundColor: color }}
+            style={{
+              width: `${progress * 100}%`,
+              backgroundColor: color,
+              boxShadow: `0 0 12px ${color}`,
+            }}
           />
           {/* fog segment overlay — sized per this round's weather (D6) */}
           {fogFraction > 0 && (

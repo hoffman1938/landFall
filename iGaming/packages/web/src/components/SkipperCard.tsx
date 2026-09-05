@@ -63,7 +63,7 @@ export function SkipperCard() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#02070a]/72 backdrop-blur-[2px] p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) closeSkipper();
       }}
@@ -72,7 +72,7 @@ export function SkipperCard() {
         role="dialog"
         aria-modal="true"
         aria-label={`Player stats for ${name}`}
-        className="lf-rise lf-surface w-full max-w-sm rounded-2xl p-4"
+        className="lf-rise lf-surface lf-rim w-full max-w-sm rounded-2xl p-4"
       >
         <div className="flex items-center gap-2">
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--lf-surface-2)] text-[var(--lf-focus)]">

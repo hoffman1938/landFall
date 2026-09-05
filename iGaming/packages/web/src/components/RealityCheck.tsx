@@ -19,7 +19,7 @@ export function RealityCheck() {
   const elapsedLabel = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#02070a]/68 backdrop-blur-[2px] p-4">
       <div
         role="dialog"
         aria-modal="true"
@@ -28,7 +28,7 @@ export function RealityCheck() {
       >
         <div className="flex items-center gap-2 text-[var(--lf-dim)]">
           <TimerIcon size={18} />
-          <h2 className="text-sm font-extrabold tracking-wide text-[var(--lf-text)]">
+          <h2 className="text-sm font-black uppercase tracking-[0.1em] text-[var(--lf-dim)]">
             REALITY CHECK
           </h2>
         </div>

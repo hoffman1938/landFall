@@ -138,7 +138,7 @@ export function WreckLogSheet() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#02070a]/72 backdrop-blur-[2px] p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) setWreckLogOpen(false);
       }}
@@ -147,11 +147,11 @@ export function WreckLogSheet() {
         role="dialog"
         aria-modal="true"
         aria-label="Wreck Log replay cards"
-        className="lf-sheet lf-surface flex max-h-[86dvh] w-full max-w-md flex-col rounded-2xl"
+        className="lf-sheet lf-surface lf-rim flex max-h-[86dvh] w-full max-w-md flex-col rounded-2xl"
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-[var(--lf-line)] px-4 py-3">
           <StormIcon size={18} />
-          <h2 className="text-sm font-extrabold tracking-wide text-[var(--lf-text)]">
+          <h2 className="text-sm font-black uppercase tracking-[0.1em] text-[var(--lf-brass)]">
             WRECK LOG
           </h2>
           <span className="text-xs font-semibold text-[var(--lf-dim)]">

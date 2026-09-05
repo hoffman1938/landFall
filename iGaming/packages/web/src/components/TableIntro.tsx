@@ -43,7 +43,7 @@ export function TableIntro() {
       role="status"
       aria-live="polite"
     >
-      <div className="lf-rise lf-surface pointer-events-auto relative w-full max-w-md rounded-xl border border-[var(--lf-line)] px-4 py-3 shadow-[0_12px_36px_rgba(0,0,0,0.5)]">
+      <div className="lf-rise lf-glass lf-rim pointer-events-auto relative w-full max-w-md rounded-2xl px-4 py-3">
         <button
           type="button"
           onClick={() => setIntro(null)}
@@ -53,7 +53,7 @@ export function TableIntro() {
           <XIcon size={15} />
         </button>
 
-        <p className="pr-6 text-sm font-extrabold text-[var(--lf-text)]">
+        <p className="pr-6 text-base font-black uppercase tracking-[0.06em] text-[var(--lf-brass)]">
           Welcome to {intro.name}
         </p>
 

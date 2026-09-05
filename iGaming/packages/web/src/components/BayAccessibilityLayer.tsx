@@ -49,16 +49,67 @@ const TREND = {
   rising: { glyph: '↗', label: 'rising' },
 } as const;
 
+/**
+ * How full the crowd meter reads per band. Mirrors BAND_FRAC in BayScene so
+ * the card and the pier gauge tell the same story. The meter is the casino
+ * read of the tide report: "Medium" is a word, a half-full pot is a picture —
+ * and it stays banded, so it still leaks nothing beyond the public report.
+ */
+const BAND_FILL: Record<TideBand, number> = {
+  seed: 0.12,
+  light: 0.34,
+  medium: 0.56,
+  heavy: 0.79,
+  packed: 1,
+};
+
+const CROWD_SEGMENTS = 6;
+
+/**
+ * Banded chip-stack meter — informational cyan, never amber (payout-only).
+ * Renders nothing once the band is gone (lock onward): that is exactly when
+ * the status word is at its longest and the exact pot takes over the story,
+ * so the meter's width is better spent on the label at narrow widths.
+ */
+function CrowdMeter({ band }: { band: TideBand | null }) {
+  if (!band) return null;
+  const lit = Math.round(BAND_FILL[band] * CROWD_SEGMENTS);
+  return (
+    <span aria-hidden="true" className="flex shrink-0 items-center gap-[2px]">
+      {Array.from({ length: CROWD_SEGMENTS }, (_, i) => (
+        <span
+          key={i}
+          className={`h-2.5 w-[3px] rounded-[1px] ${
+            i < lit ? 'bg-[var(--lf-focus)]' : 'bg-[var(--lf-line)]'
+          }`}
+          style={i < lit ? { opacity: 0.5 + (i / CROWD_SEGMENTS) * 0.5 } : undefined}
+        />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * What the player has riding on this zone. `stakeMinor` is the fleet total, so
+ * a Split is apportioned here — the card shows the money actually at risk on
+ * THIS zone, never the whole fleet (which read as "your bet: 110" next to a
+ * 50-credit bet before).
+ */
 function ownership(fleet: FleetPlanPublic | null, zone: number) {
   if (!fleet) return null;
+  const split = fleet.mode === 'SPLIT' && fleet.secondaryZone !== null;
   if (fleet.primaryZone === zone) {
-    return fleet.mode === 'SPLIT'
-      ? { label: `Your bet · ${SPLIT_PRIMARY_PERCENT}%`, description: 'your main zone' }
-      : { label: 'Your bet', description: 'your bet is here' };
+    const mineMinor = split
+      ? Math.round((fleet.stakeMinor * SPLIT_PRIMARY_PERCENT) / 100)
+      : fleet.stakeMinor;
+    return split
+      ? { label: `Yours · ${SPLIT_PRIMARY_PERCENT}%`, mineMinor, description: 'your main zone' }
+      : { label: 'Your bet', mineMinor, description: 'your bet is here' };
   }
-  if (fleet.mode === 'SPLIT' && fleet.secondaryZone === zone) {
+  if (split && fleet.secondaryZone === zone) {
     return {
-      label: `Your bet · ${100 - SPLIT_PRIMARY_PERCENT}%`,
+      label: `Yours · ${100 - SPLIT_PRIMARY_PERCENT}%`,
+      mineMinor: fleet.stakeMinor - Math.round((fleet.stakeMinor * SPLIT_PRIMARY_PERCENT) / 100),
       description: 'your second zone',
     };
   }
@@ -129,17 +180,23 @@ function CoveStatusCard({
   const band = tide ? BAND_LABELS[tide.band] : 'Waiting';
   const status = struck ? 'Hit' : locked ? 'Locked' : safe ? 'Safe' : band;
   const detail = lockedTotalMinor !== null ? formatCredits(lockedTotalMinor) : null;
+  // Bigger seats: the markers are the product's primary betting surface, so on
+  // a wide table they get real presence instead of hugging a 132px minimum.
   const markerWidth =
     width >= 768
-      ? Math.min(160, Math.max(132, width * 0.11))
-      : Math.min(150, Math.max(124, width * 0.36));
+      ? Math.min(206, Math.max(168, width * 0.135))
+      : Math.min(158, Math.max(126, width * 0.38));
   const cardDescription = [
     `${zoneName(zone)}.`,
     struck ? 'Hit by the storm.' : locked ? 'Bets locked.' : safe ? 'Safe.' : `${band} crowd.`,
     trend ? `Trend ${trend.label}.` : '',
     `${boatCount} ${boatCount === 1 ? 'player' : 'players'}.`,
-    detail ? `${detail} credits.` : '',
-    mine ? `${mine.description}.` : selected ? 'Selected — press Place Bet to confirm.' : 'Not selected.',
+    detail ? `Pot ${detail} credits.` : 'Exact pot hidden until bets lock.',
+    mine
+      ? `${formatCredits(mine.mineMinor)} credits of yours are here — ${mine.description}.`
+      : selected
+        ? 'Selected — press Place Bet to confirm.'
+        : 'Not selected.',
     actionDescription,
     `Keyboard shortcut ${zone + 1}.`,
   ]
@@ -169,16 +226,16 @@ function CoveStatusCard({
     <button
       type="button"
       data-cove={zone + 1}
-      className={`pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-[var(--lf-glass)] px-2.5 py-1.5 text-left text-[var(--lf-text)] shadow-[0_6px_20px_rgba(0,0,0,0.45)] transition-[border-color,background-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--lf-focus)]/40 ${
+      className={`lf-glass pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border px-3 py-2 text-left text-[var(--lf-text)] transition-[border-color,background-color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--lf-focus)]/40 ${
         struck
-          ? 'border-[var(--lf-danger)]'
+          ? 'border-[var(--lf-danger)] !shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_28px_rgba(240,54,74,0.3),0_12px_34px_rgba(0,0,0,0.55)]'
           : mine
-            ? 'border-[var(--lf-focus)] ring-1 ring-[var(--lf-focus)]/40'
+            ? 'border-[var(--lf-focus)] !shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_24px_rgba(60,184,234,0.24),0_12px_34px_rgba(0,0,0,0.5)]'
             : selected
-              ? 'border-2 border-dashed border-[var(--lf-focus)] ring-1 ring-[var(--lf-focus)]/30'
+              ? 'border-2 border-dashed border-[var(--lf-focus)]'
               : locked || safe
-                ? 'border-[var(--lf-line)]'
-                : 'border-[var(--lf-line)] hover:border-[var(--lf-focus)]/70'
+                ? 'border-[var(--lf-brass-soft)]'
+                : 'border-[var(--lf-brass-soft)] hover:-translate-y-[calc(50%+2px)] hover:border-[var(--lf-focus)]/70'
       } ${canPick ? 'cursor-pointer' : 'cursor-default'}`}
       style={{ left: layout.markerX, top: layout.markerY, width: markerWidth }}
       aria-label={cardDescription}
@@ -202,50 +259,93 @@ function CoveStatusCard({
       onPointerCancel={clearLongPress}
       onPointerLeave={clearLongPress}
     >
-      <span className="flex items-center gap-1.5 leading-none">
-        <span className="truncate text-xs font-extrabold normal-case text-[var(--lf-text)]">
+      {/* struck / mine wash — the state is felt before it is read */}
+      {(struck || mine) && (
+        <span
+          aria-hidden="true"
+          className={`absolute inset-0 ${
+            struck
+              ? 'bg-[var(--lf-danger)]/12'
+              : 'bg-[var(--lf-focus)]/[0.07]'
+          }`}
+        />
+      )}
+
+      <span className="relative flex items-center gap-1.5 leading-none">
+        <span className="truncate text-sm font-extrabold tracking-[0.01em] text-[var(--lf-text)]">
           {zoneName(zone)}
         </span>
         {(mine || selected) && (
           <span
             aria-hidden="true"
-            className="ml-auto text-[11px] font-extrabold text-[var(--lf-focus)]"
+            className="ml-auto flex h-4 w-4 items-center justify-center rounded-full bg-[var(--lf-focus)] text-[10px] font-black text-[#03202f]"
           >
             ✓
           </span>
         )}
       </span>
 
-      <span className="mt-1 flex min-w-0 items-center gap-1 text-[11px] leading-none text-[var(--lf-dim)]">
-        {struck ? (
-          <StormIcon size={12} aria-hidden="true" />
-        ) : locked ? (
-          <LockIcon size={12} aria-hidden="true" />
-        ) : (
-          <BoatIcon size={12} aria-hidden="true" />
-        )}
-        <span className={struck ? 'font-bold text-[var(--lf-danger)]' : 'font-semibold'}>
+      {/* the pot: a banded chip meter, the crowd word, and the fleet count */}
+      <span className="relative mt-1.5 flex min-w-0 items-center gap-1.5 leading-none">
+        <CrowdMeter band={tide && !struck && !locked && !safe ? tide.band : null} />
+        <span
+          className={`truncate text-xs font-bold ${
+            struck ? 'text-[var(--lf-danger)]' : 'text-[var(--lf-dim)]'
+          }`}
+        >
           {status}
         </span>
         {trend && !struck && !locked && (
-          <span aria-label={`${trend.label} trend`} className="font-extrabold text-[var(--lf-focus)]">
+          <span
+            aria-label={`${trend.label} trend`}
+            className="shrink-0 text-xs font-extrabold text-[var(--lf-focus)]"
+          >
             {trend.glyph}
           </span>
         )}
-        <span className="ml-auto flex shrink-0 items-center gap-0.5 tabular-nums">
+        <span className="ml-auto flex shrink-0 items-center gap-1 text-xs font-bold tabular-nums text-[var(--lf-dim)]">
+          {struck ? (
+            <StormIcon size={13} aria-hidden="true" />
+          ) : locked ? (
+            <LockIcon size={13} aria-hidden="true" />
+          ) : null}
           {boatCount}
-          <BoatIcon size={11} aria-hidden="true" />
+          <BoatIcon size={12} aria-hidden="true" />
         </span>
       </span>
 
-      {(detail || mine) && (
-        <span className="mt-1 flex items-center gap-1 border-t border-[var(--lf-line)]/70 pt-1 text-[10px] font-bold leading-none">
-          <span className={mine ? 'text-[var(--lf-focus)]' : 'text-[var(--lf-dim)]'}>
-            {mine?.label ?? detail}
+      {/* Money row. Always rendered so the marker never changes height between
+          phases — the exact pot only exists after the lock snapshot, and a
+          card that grows at lock reads as the table twitching. Your own stake
+          on this zone sits left of the pot, so the two are never confused. */}
+      <span className="relative mt-1.5 flex items-baseline gap-2 border-t border-[var(--lf-brass-faint)] pt-1.5 leading-none">
+        {mine ? (
+          <span className="flex min-w-0 shrink items-baseline gap-1 text-[var(--lf-focus)]">
+            <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-[0.06em]">
+              {mine.label}
+            </span>
+            <span className="truncate text-[13px] font-extrabold tabular-nums">
+              {formatCredits(mine.mineMinor)}
+            </span>
           </span>
-          {mine && detail && <span className="ml-auto tabular-nums text-[var(--lf-dim)]">{detail}</span>}
+        ) : (
+          <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-[0.06em] text-[var(--lf-dim)]/80">
+            Pot
+          </span>
+        )}
+        <span
+          className={`ml-auto flex shrink-0 items-baseline gap-1 tabular-nums ${
+            detail ? 'text-[var(--lf-text)]' : 'text-[var(--lf-dim)]/45'
+          }`}
+        >
+          {mine && (
+            <span className="text-[10px] font-extrabold uppercase tracking-[0.06em] text-[var(--lf-dim)]/80">
+              Pot
+            </span>
+          )}
+          <span className="text-[13px] font-extrabold">{detail ?? '—'}</span>
         </span>
-      )}
+      </span>
     </button>
   );
 }

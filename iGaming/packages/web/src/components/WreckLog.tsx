@@ -16,7 +16,7 @@ export function WreckLog() {
 
   return (
     <section
-      className="lf-surface pointer-events-auto absolute left-2 top-2 z-10 flex h-7 max-w-[calc(100%-4.5rem)] items-center gap-1.5 rounded-lg px-2"
+      className="lf-glass lf-rim pointer-events-auto absolute left-2 top-2 z-10 flex h-9 max-w-[calc(100%-4.5rem)] items-center gap-2 rounded-xl px-2.5"
       aria-label="Recent results"
     >
       <button
@@ -25,15 +25,17 @@ export function WreckLog() {
           audio.click('nav');
           setWreckLogOpen(true);
         }}
-        className="-mx-2 flex h-11 shrink-0 items-center self-center rounded-lg px-2 text-[9px] font-extrabold tracking-[0.05em] text-[var(--lf-dim)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+        className="-mx-2.5 flex h-11 shrink-0 items-center self-center rounded-xl px-2.5 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--lf-brass)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
         aria-label="Open round history"
         title="Open round history — recent results and replays"
       >
         {STR.history}
       </button>
 
+      <span className="h-4 w-px shrink-0 bg-[var(--lf-brass-soft)]" aria-hidden="true" />
+
       {visibleResults.length === 0 ? (
-        <span className="truncate text-[10px] font-medium text-[var(--lf-dim)]">
+        <span className="truncate text-xs font-semibold text-[var(--lf-dim)]">
           No results yet
         </span>
       ) : (
@@ -41,15 +43,20 @@ export function WreckLog() {
           {visibleResults.map((zone, index) => {
             const latest = index === visibleResults.length - 1;
             const label = `${latest ? 'Latest result. ' : ''}${zoneName(zone)} was hit.`;
+            // Recency as opacity: the strip reads as a decaying trail rather
+            // than a wall of equal chips. (History is history — it never
+            // implies a pattern; strike odds stay 1/6, see the Rules sheet.)
+            const age = visibleResults.length - 1 - index;
 
             return (
               <li key={index} className="shrink-0">
                 <span
-                  className={`flex h-[18px] w-[18px] items-center justify-center rounded-full text-[10px] font-extrabold tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] ${
+                  className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-black tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] ${
                     latest
-                      ? 'bg-[var(--lf-danger)]/20 text-[var(--lf-danger)] ring-1 ring-[var(--lf-danger)]/60'
-                      : 'bg-[var(--lf-surface-2)] text-[var(--lf-dim)]'
+                      ? 'bg-[var(--lf-danger)] text-white shadow-[0_0_14px_rgba(240,54,74,0.55)] ring-1 ring-[#ff8b96]'
+                      : 'bg-[var(--lf-surface-2)] text-[var(--lf-dim)] ring-1 ring-[var(--lf-line)]'
                   }`}
+                  style={latest ? undefined : { opacity: Math.max(0.42, 1 - age * 0.055) }}
                   title={label}
                   aria-label={label}
                   aria-current={latest ? 'true' : undefined}

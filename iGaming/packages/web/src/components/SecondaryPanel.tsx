@@ -285,10 +285,10 @@ export function SecondaryPanel() {
 
   const panelClass =
     mode === 'docked'
-      ? 'relative z-20 flex h-full w-72 shrink-0 flex-col overflow-hidden border-l border-[var(--lf-line)] bg-[var(--lf-surface)]'
+      ? 'relative z-20 flex h-full w-72 shrink-0 flex-col overflow-hidden border-l border-[var(--lf-brass-soft)] bg-[var(--lf-surface)]'
       : mode === 'drawer'
-        ? 'lf-sheet fixed bottom-0 right-0 top-10 z-50 flex w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-l-xl border border-r-0 border-[var(--lf-line)] bg-[var(--lf-surface)] shadow-[-18px_0_60px_rgba(0,0,0,0.42)]'
-        : 'lf-sheet fixed inset-x-0 bottom-0 z-50 flex h-[72dvh] max-h-[44rem] flex-col overflow-hidden rounded-t-2xl border border-b-0 border-[var(--lf-line)] bg-[var(--lf-surface)] pb-[env(safe-area-inset-bottom)] shadow-[0_-18px_60px_rgba(0,0,0,0.45)]';
+        ? 'lf-sheet fixed bottom-0 right-0 top-10 z-50 flex w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-l-2xl border border-r-0 border-[var(--lf-brass-soft)] bg-[var(--lf-surface)] shadow-[-18px_0_60px_rgba(0,0,0,0.42)]'
+        : 'lf-sheet fixed inset-x-0 bottom-0 z-50 flex h-[72dvh] max-h-[44rem] flex-col overflow-hidden rounded-t-2xl border border-b-0 border-[var(--lf-brass-soft)] bg-[var(--lf-surface)] pb-[env(safe-area-inset-bottom)] shadow-[0_-18px_60px_rgba(0,0,0,0.45)]';
 
   return (
     <>

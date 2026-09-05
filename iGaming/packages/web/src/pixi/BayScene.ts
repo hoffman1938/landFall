@@ -18,6 +18,7 @@ import {
   type TideReport,
   type WeatherId,
 } from '@landfall/core';
+import { getCoveLayouts } from '../coveLayout';
 
 export interface BayState {
   phase: 'ANCHOR_OPEN' | 'LOCKED_STORM' | 'RESOLVED' | 'COOLDOWN' | null;
@@ -42,24 +43,25 @@ export interface BayHandlers {
 
 /* ---------- palette (mirrors index.css tokens; Pixi wants numbers) ---------- */
 
-const CHART = 0x15233c; // chart rings / static anchorage marks
-const LINE = 0x1c2a40;
-const DIM = 0x8da0ba;
-const DANGER = 0xff5a5a;
-const SAFE = 0x3ddc97;
-const FOCUS = 0x41b7f5;
-const AMBER = 0xffb02e; // payout moments ONLY (cargo to my boat)
-const CRATE = 0xc8a06a;
-const CLOUD = 0x232d40;
+const CHART = 0x1c4a43; // chart rings / anchorage marks — brass-lit felt seams
+const LINE = 0x24343f;
+const DIM = 0x92a7b4;
+const DANGER = 0xf0364a;
+const SAFE = 0x35d99a;
+const FOCUS = 0x3cb8ea;
+const AMBER = 0xffc247; // payout moments ONLY (cargo to my boat)
+const BRASS = 0xb98d3e; // structure only: rims and static fittings, never a figure
+const CRATE = 0xd0a95f;
+const CLOUD = 0x1d2a33;
 const ROPE = 0x8a6f4d;
 
-/** Sky moods per phase — a single low-alpha tint; the chart stays dark. */
+/** Sky moods per phase — a single low-alpha tint; the table stays dark. */
 const MOOD = {
-  dawn: 0x16324a,
-  fog: 0x2a3644,
-  storm: 0x0d1522,
-  golden: 0x3a3020,
-  night: 0x0b1526,
+  dawn: 0x11463c,
+  fog: 0x27363c,
+  storm: 0x0a1218,
+  golden: 0x3d3018,
+  night: 0x081f1c,
 };
 type MoodName = keyof typeof MOOD;
 
@@ -222,6 +224,7 @@ export class BayScene {
   private hoveredZone: number | null = null;
   private reduced = false;
   private destroyed = false;
+  private hostObserver: ResizeObserver | null = null;
 
   async init(host: HTMLElement, handlers: BayHandlers): Promise<void> {
     this.handlers = handlers;
@@ -353,6 +356,21 @@ export class BayScene {
 
     this.layout();
     this.app.renderer.on('resize', () => this.layout());
+
+    // `resizeTo` only reacts to WINDOW resizes, so the bay kept its old size
+    // whenever the host box changed on its own — opening or closing the docked
+    // chat column, for instance. The canvas then drew every anchorage, boat and
+    // pier at the previous width while the DOM cove cards had already moved:
+    // the two halves of the same map, visibly out of register. Observe the host.
+    this.hostObserver = new ResizeObserver(() => {
+      if (this.destroyed || !this.app.renderer) return;
+      const { clientWidth, clientHeight } = host;
+      if (clientWidth <= 0 || clientHeight <= 0) return;
+      if (clientWidth === this.app.screen.width && clientHeight === this.app.screen.height) return;
+      this.app.resize();
+    });
+    this.hostObserver.observe(host);
+
     this.app.ticker.add(() => this.tick());
   }
 
@@ -373,6 +391,8 @@ export class BayScene {
   destroy(): void {
     this.destroyed = true;
     this.clearLongPress();
+    this.hostObserver?.disconnect();
+    this.hostObserver = null;
     if (this.app.renderer) this.app.destroy(true, { children: true });
   }
 
@@ -388,46 +408,31 @@ export class BayScene {
   private layout(): void {
     const W = this.app.screen.width;
     const H = this.app.screen.height;
-    const landscape = W >= H;
-    const desktopCenters: readonly [number, number][] = [
-      [0.17, 0.29],
-      [0.16, 0.51],
-      [0.36, 0.7],
-      [0.59, 0.72],
-      [0.78, 0.53],
-      [0.81, 0.31],
-    ];
-    const mobileCenters: readonly [number, number][] = [
-      [0.23, 0.26],
-      [0.77, 0.26],
-      [0.23, 0.44],
-      [0.77, 0.44],
-      [0.23, 0.62],
-      [0.77, 0.62],
-    ];
-    const centers = landscape ? desktopCenters : mobileCenters;
-    const cw = W * (landscape ? 0.24 : 0.44);
-    const ch = H * (landscape ? 0.22 : 0.17);
+
+    // Geometry comes from coveLayout.ts — the ONE source the DOM cove cards
+    // also read. This used to be a second hardcoded copy of the centers, which
+    // silently drifted: the cards sat in one arrangement and the boats, piers
+    // and anchorages in another.
+    const layouts = getCoveLayouts(W, H);
 
     this.coves.forEach((cove, z) => {
-      const [cx, cy] = centers[z]!;
-      const x = cx * W - cw / 2;
-      const y = cy * H - ch / 2;
-      cove.x = x;
-      cove.y = y;
-      cove.w = cw;
-      cove.h = ch;
-      cove.side = cy < 0.48 ? 'top' : 'bottom';
-      cove.shoreH = Math.min(54, ch * 0.3);
-      cove.moorX = cx * W;
-      cove.moorY = cy * H + ch * (cove.side === 'top' ? 0.12 : 0.04);
+      const l = layouts[z];
+      if (!l) return;
+      cove.x = l.hit.x;
+      cove.y = l.hit.y;
+      cove.w = l.hit.width;
+      cove.h = l.hit.height;
+      cove.side = l.side;
+      cove.shoreH = l.shoreHeight;
+      cove.moorX = l.moorX;
+      cove.moorY = l.moorY;
       cove.hit.clear();
-      cove.hit.rect(0, 0, cw, ch).fill({ color: 0xffffff, alpha: 0.0001 });
-      cove.hit.position.set(x, y);
-      cove.hit.hitArea = new Rectangle(0, 0, cw, ch);
+      cove.hit.rect(0, 0, cove.w, cove.h).fill({ color: 0xffffff, alpha: 0.0001 });
+      cove.hit.position.set(cove.x, cove.y);
+      cove.hit.hitArea = new Rectangle(0, 0, cove.w, cove.h);
       cove.beamOrigin = {
-        x: x + cw * (cove.side === 'top' ? 0.72 : 0.28),
-        y: cove.side === 'top' ? y + ch * 0.3 : y + ch * 0.7,
+        x: cove.x + cove.w * (cove.side === 'top' ? 0.72 : 0.28),
+        y: cove.side === 'top' ? cove.y + cove.h * 0.3 : cove.y + cove.h * 0.7,
       };
       this.drawAnchorage(cove);
     });
@@ -458,23 +463,67 @@ export class BayScene {
     land.circle(moorX, moorY, 2).fill({ color: CHART, alpha: 0.9 });
   }
 
-  /** Static sonar rings — the whole environment, drawn once per resize. */
+  /**
+   * Static table furniture — drawn once per resize. Sonar rings read as the
+   * felt's inlaid seams; the outermost ring is a BRASS rail (structure only,
+   * never a figure) so the bay reads as a betting table with an edge rather
+   * than an unbounded void.
+   */
   private drawChart(W: number, H: number): void {
     this.chartG.clear();
     const cx = W / 2;
     const cy = H * 0.5;
     const maxR = Math.min(W, H) * 0.55;
-    for (const f of [0.35, 0.65, 1]) {
-      this.chartG.circle(cx, cy, maxR * f).stroke({ color: CHART, width: 1, alpha: 0.5 });
+
+    // felt seams
+    for (const f of [0.35, 0.65]) {
+      this.chartG.circle(cx, cy, maxR * f).stroke({ color: CHART, width: 1, alpha: 0.45 });
     }
-    // bearing ticks on the outer ring
+
+    // the brass rail: a doubled hairline with a dark gap, the way a real rail
+    // catches the overhead light on its inner and outer edge only
+    this.chartG.circle(cx, cy, maxR).stroke({ color: BRASS, width: 1.4, alpha: 0.34 });
+    this.chartG.circle(cx, cy, maxR * 1.035).stroke({ color: BRASS, width: 1, alpha: 0.16 });
+
+    // bearing ticks sit ON the rail
     for (let i = 0; i < 12; i++) {
       const a = (i / 12) * Math.PI * 2;
+      const long = i % 3 === 0;
       this.chartG
-        .moveTo(cx + Math.cos(a) * maxR * 0.98, cy + Math.sin(a) * maxR * 0.98)
-        .lineTo(cx + Math.cos(a) * maxR * 1.02, cy + Math.sin(a) * maxR * 1.02)
-        .stroke({ color: CHART, width: 1, alpha: 0.6 });
+        .moveTo(cx + Math.cos(a) * maxR * (long ? 0.955 : 0.98), cy + Math.sin(a) * maxR * (long ? 0.955 : 0.98))
+        .lineTo(cx + Math.cos(a) * maxR * 1.035, cy + Math.sin(a) * maxR * 1.035)
+        .stroke({ color: BRASS, width: long ? 1.6 : 1, alpha: long ? 0.4 : 0.22 });
     }
+
+    // The table crest: a compass rose inlaid in the felt. The middle of a wide
+    // screen was dead space between six markers; a house crest is what a real
+    // table puts there, and a compass rose is the chart-room version of one.
+    // Faint enough that the storm always outranks it.
+    const roseR = Math.min(W, H) * 0.19;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 - Math.PI / 2;
+      const cardinal = i % 2 === 0;
+      const len = roseR * (cardinal ? 1 : 0.52);
+      const wide = roseR * (cardinal ? 0.075 : 0.05);
+      const px = Math.cos(a) * len;
+      const py = Math.sin(a) * len;
+      const nx = Math.cos(a + Math.PI / 2) * wide;
+      const ny = Math.sin(a + Math.PI / 2) * wide;
+      // each point is a two-tone kite so the rose catches light on one flank
+      this.chartG
+        .poly([cx, cy, cx + nx, cy + ny, cx + px, cy + py])
+        .fill({ color: BRASS, alpha: cardinal ? 0.085 : 0.05 });
+      this.chartG
+        .poly([cx, cy, cx - nx, cy - ny, cx + px, cy + py])
+        .fill({ color: BRASS, alpha: cardinal ? 0.028 : 0.018 });
+      // a hairline down each spine keeps the rose crisp instead of smoky
+      this.chartG
+        .moveTo(cx, cy)
+        .lineTo(cx + px, cy + py)
+        .stroke({ color: BRASS, width: 1, alpha: cardinal ? 0.22 : 0.12 });
+    }
+    this.chartG.circle(cx, cy, roseR * 0.2).stroke({ color: BRASS, width: 1.2, alpha: 0.24 });
+    this.chartG.circle(cx, cy, roseR * 0.28).stroke({ color: BRASS, width: 1, alpha: 0.12 });
   }
 
   /* ---------- state-driven redraw (cheap, on every store change) ---------- */

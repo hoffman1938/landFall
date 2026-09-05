@@ -71,12 +71,12 @@ export function TopBar() {
   const surge = round?.surgeRound && phase?.phase !== 'COOLDOWN';
 
   return (
-    <header className="relative z-20 flex h-12 shrink-0 items-center gap-1.5 overflow-visible border-b border-[var(--lf-line)] bg-[var(--lf-bg)] px-2 sm:gap-2 sm:px-3">
+    <header className="relative z-20 flex h-12 shrink-0 items-center gap-1.5 overflow-visible border-b border-[var(--lf-brass-soft)] bg-gradient-to-b from-[#0d1a1e] to-[var(--lf-bg)] px-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:gap-2 sm:px-3">
       <div className="flex shrink-0 items-center gap-1.5" aria-label="Landfall">
-        <span className="text-[var(--lf-focus)]">
+        <span className="text-[var(--lf-brass)]">
           <LighthouseIcon size={18} />
         </span>
-        <span className="hidden text-xs font-extrabold tracking-[0.12em] min-[480px]:inline">
+        <span className="hidden bg-gradient-to-b from-[#f6e3b6] to-[var(--lf-brass)] bg-clip-text text-xs font-extrabold tracking-[0.16em] text-transparent min-[480px]:inline">
           LANDFALL
         </span>
       </div>
@@ -87,12 +87,16 @@ export function TopBar() {
           amber is otherwise reserved for payout moments. */}
       {round && (
         <>
-          <span className="h-4 w-px shrink-0 bg-[var(--lf-line)]" aria-hidden="true" />
+          <span className="h-5 w-px shrink-0 bg-[var(--lf-brass-soft)]" aria-hidden="true" />
+          {/* The jackpot meter — the loudest number a casino floor owns, so it
+              is legible every round (brass frame while it grows) and turns to
+              a solid gold fill only on a bonus round, when it is actually
+              about to pay out. Amber stays payout-only. */}
           <span
-            className={`flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-extrabold ${
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1 leading-none ${
               surge
-                ? 'bg-[var(--lf-amber)]/15 text-[var(--lf-amber)]'
-                : 'text-[var(--lf-dim)]'
+                ? 'lf-gold border-[var(--lf-amber)]'
+                : 'border-[var(--lf-brass-soft)] bg-[#12100a]'
             }`}
             title={
               surge
@@ -101,10 +105,30 @@ export function TopBar() {
             }
             aria-label={`Jackpot ${fmt(round.surgePotMinor)} credits${surge ? ', live this round' : ''}`}
           >
-            <SurgeIcon size={12} />
-            <span className="hidden sm:inline">JACKPOT</span>
-            <span className="tabular-nums">{fmt(round.surgePotMinor)}</span>
-            {surge && <span className="text-[var(--lf-text)]">LIVE</span>}
+            <span className={surge ? 'lf-pulse' : 'text-[var(--lf-brass)]'} aria-hidden="true">
+              <SurgeIcon size={14} />
+            </span>
+            <span className="flex flex-col gap-[3px]">
+              <span
+                className={`hidden text-[8px] font-extrabold uppercase leading-none tracking-[0.14em] sm:block ${
+                  surge ? 'text-black/60' : 'text-[var(--lf-brass)]'
+                }`}
+              >
+                Jackpot
+              </span>
+              <span
+                className={`text-[13px] font-extrabold leading-none tabular-nums ${
+                  surge ? 'text-black' : 'text-[var(--lf-text)]'
+                }`}
+              >
+                {fmt(round.surgePotMinor)}
+              </span>
+            </span>
+            {surge && (
+              <span className="rounded bg-black/25 px-1 py-0.5 text-[9px] font-black uppercase leading-none tracking-[0.1em] text-black">
+                Live
+              </span>
+            )}
           </span>
         </>
       )}
@@ -123,15 +147,16 @@ export function TopBar() {
           </span>
         )}
 
+        {/* The player's own bankroll: the second-loudest number on the floor. */}
         <span
-          className="flex shrink-0 items-baseline gap-1 border-l border-[var(--lf-line)] pl-2 text-xs font-extrabold tabular-nums text-[var(--lf-text)]"
+          className="flex shrink-0 items-baseline gap-1 rounded-lg border border-[var(--lf-brass-soft)] bg-[#0c1418] px-2.5 py-1 text-sm font-extrabold leading-none tabular-nums text-[var(--lf-text)]"
           aria-label={`Balance ${fmt(balanceMinor)} credits`}
         >
-          <span className="hidden text-[9px] font-semibold text-[var(--lf-dim)] xl:inline">
-            BAL
+          <span className="hidden text-[8px] font-extrabold uppercase tracking-[0.14em] text-[var(--lf-brass)] xl:inline">
+            Bal
           </span>
           {fmt(balanceMinor)}
-          <span className="hidden text-[9px] font-semibold text-[var(--lf-dim)] min-[420px]:inline">
+          <span className="hidden text-[9px] font-bold text-[var(--lf-dim)] min-[420px]:inline">
             CR
           </span>
         </span>

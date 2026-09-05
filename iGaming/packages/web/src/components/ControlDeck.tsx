@@ -353,12 +353,14 @@ export function ControlDeck() {
           }
         : undefined;
 
+  // The primary is the table's felt-green plaque: raised and lit when it wants
+  // a bet, seated and quiet once the bet is in, flat when nothing is on offer.
   const primaryClass =
     deck.primary.kind === 'action'
-      ? 'bg-[var(--lf-action)] text-[#04240f] hover:bg-[var(--lf-action-strong)] active:scale-[0.99]'
+      ? 'bg-gradient-to-b from-[#2ad47c] to-[var(--lf-action-strong)] text-[#04240f] shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_8px_22px_rgba(0,0,0,0.45)] hover:from-[#33e087] hover:to-[var(--lf-action)] active:scale-[0.99]'
       : deck.primary.kind === 'confirmed'
-        ? 'border border-[var(--lf-action)]/60 bg-[var(--lf-action)]/10 text-[var(--lf-safe)]'
-        : 'bg-[var(--lf-surface-2)] text-[var(--lf-dim)]';
+        ? 'border border-[var(--lf-action)]/60 bg-[var(--lf-action)]/10 text-[var(--lf-safe)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+        : 'border border-[var(--lf-line)] bg-[var(--lf-surface-2)] text-[var(--lf-dim)]';
 
   const split = fleetMode === 'SPLIT';
   const summary = myFleet
@@ -385,8 +387,9 @@ export function ControlDeck() {
         )
       : null;
 
+  // Stake presets are literal chips: round, seated, with a brass edge.
   const chipBtn =
-    'flex h-11 min-w-11 items-center justify-center rounded-md bg-[var(--lf-surface-2)] px-3 text-sm font-bold text-[var(--lf-dim)] hover:bg-[var(--lf-line)] hover:text-[var(--lf-text)] disabled:cursor-not-allowed disabled:opacity-40';
+    'flex h-11 min-w-11 items-center justify-center rounded-full border border-[var(--lf-brass-faint)] bg-[var(--lf-surface-2)] px-3.5 text-sm font-extrabold text-[var(--lf-dim)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:border-[var(--lf-brass-soft)] hover:bg-[var(--lf-line)] hover:text-[var(--lf-text)] disabled:cursor-not-allowed disabled:opacity-40';
 
   return (
     <>
@@ -433,7 +436,7 @@ export function ControlDeck() {
       {/* the deck */}
       <div
         ref={deckRef}
-        className="absolute inset-x-0 bottom-0 z-10 border-t border-[var(--lf-line)] bg-[var(--lf-glass)] pb-[env(safe-area-inset-bottom)] backdrop-blur-md"
+        className="absolute inset-x-0 bottom-0 z-10 border-t border-[var(--lf-brass-soft)] bg-gradient-to-b from-[#0e181d] to-[#070e12] pb-[env(safe-area-inset-bottom)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_-18px_40px_rgba(0,0,0,0.5)] backdrop-blur-md"
       >
         {/* D4 — "if you survive" expectation band; freezes with the tide report */}
         {strip && (
@@ -550,7 +553,7 @@ export function ControlDeck() {
                 disabled={!canOrder}
                 aria-invalid={stakeError !== null}
                 aria-describedby={stakeError ? 'lf-stake-error' : undefined}
-                className="h-11 w-28 min-w-0 rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] text-center text-base font-extrabold tabular-nums outline-none focus:border-[var(--lf-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-11 w-28 min-w-0 rounded-lg border border-[var(--lf-brass-soft)] bg-[#0a1115] text-center text-lg font-black tabular-nums text-[var(--lf-text)] shadow-[inset_0_2px_6px_rgba(0,0,0,0.5)] outline-none focus:border-[var(--lf-focus)] disabled:cursor-not-allowed disabled:opacity-50"
               />
               <button
                 onClick={() => bump(stepMinor)}
@@ -584,7 +587,7 @@ export function ControlDeck() {
                   disabled={!canOrder}
                   className={`${chipBtn} ${
                     stakeInputMinor === p
-                      ? '!bg-[var(--lf-focus)]/15 !text-[var(--lf-focus)] ring-1 ring-[var(--lf-focus)]/50'
+                      ? '!border-[var(--lf-focus)] !bg-[var(--lf-focus)]/15 !text-[var(--lf-focus)] !shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_0_14px_rgba(60,184,234,0.3)]'
                       : ''
                   }`}
                   title={`Bet ${fmt(p)}`}
@@ -743,12 +746,12 @@ export function ControlDeck() {
             <button
               onClick={primaryOnPress}
               disabled={deck.primary.disabled}
-              className={`flex min-h-14 w-full min-w-52 flex-col items-center justify-center rounded-xl px-4 transition-[background-color,transform] duration-150 disabled:cursor-default md:w-auto ${primaryClass} ${
+              className={`flex min-h-14 w-full min-w-52 flex-col items-center justify-center rounded-xl px-4 transition-[background-color,transform,box-shadow] duration-150 disabled:cursor-default md:w-auto ${primaryClass} ${
                 toast ? 'lf-shake' : ''
-              } ${deck.primary.kind === 'action' ? 'lf-pulse' : ''}`}
+              } ${deck.primary.kind === 'action' ? 'lf-breathe' : ''}`}
               aria-live="polite"
             >
-              <span className="text-base font-extrabold leading-tight tracking-wide">
+              <span className="text-lg font-black uppercase leading-tight tracking-[0.06em]">
                 {primary.label}
               </span>
               {primary.sub && (

@@ -5,10 +5,10 @@ import { AnchorIcon, CrateIcon, FogIcon, LockIcon, StormIcon, XIcon } from './ic
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <details className="group rounded-xl border border-[var(--lf-line)] bg-[var(--lf-bg)]/55 px-3">
+    <details className="group rounded-xl border border-[var(--lf-brass-faint)] bg-[var(--lf-bg)]/55 px-3 transition-colors open:border-[var(--lf-brass-soft)] hover:border-[var(--lf-brass-soft)]">
       <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 font-bold text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]">
         <span>{title}</span>
-        <span className="ml-auto text-lg text-[var(--lf-dim)] transition-transform group-open:rotate-45" aria-hidden="true">
+        <span className="ml-auto text-lg text-[var(--lf-brass)] transition-transform group-open:rotate-45" aria-hidden="true">
           +
         </span>
       </summary>
@@ -74,7 +74,7 @@ export function RulesModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#02070a]/72 backdrop-blur-[2px] p-3 sm:p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) setRulesOpen(false);
       }}
@@ -83,10 +83,13 @@ export function RulesModal() {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-[calc(100dvh-1.5rem)] w-full max-w-xl space-y-4 overflow-y-auto rounded-xl border border-[var(--lf-line)] bg-[var(--lf-panel)] p-4 text-sm sm:max-h-[85vh] sm:p-6"
+        className="lf-rim max-h-[calc(100dvh-1.5rem)] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl border bg-[var(--lf-panel)] p-4 text-sm sm:max-h-[85vh] sm:p-6"
       >
         <div className="flex items-center justify-between">
-          <h2 id={titleId} className="text-lg font-bold">
+          <h2
+            id={titleId}
+            className="text-lg font-black uppercase tracking-[0.08em] text-[var(--lf-brass)]"
+          >
             How Landfall Works
           </h2>
           <button

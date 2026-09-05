@@ -34,14 +34,14 @@ export function ResultBanner() {
       {/* Storm Power seal — Cat 3+ announces itself */}
       {power && powerMult >= 2 && (
         <div
-          className={`lf-rise flex items-center gap-2 rounded-xl border px-4 py-1.5 font-extrabold ${
+          className={`lf-rise flex items-center gap-2 rounded-xl border px-5 py-2 text-lg font-black uppercase tracking-[0.04em] ${
             powerMult >= 25
-              ? 'lf-pulse border-[var(--lf-amber)] bg-[var(--lf-amber)] text-black'
+              ? 'lf-gold lf-pulse border-[var(--lf-amber)]'
               : 'border-[var(--lf-amber)]/70 bg-[#1c1508]/90 text-[var(--lf-amber)]'
           }`}
         >
-          <StormIcon size={18} />
-          {isPerfectStorm ? `PERFECT STORM — payouts ×${powerMult}` : `×${powerMult} multiplier round`}
+          <StormIcon size={20} />
+          {isPerfectStorm ? `Perfect Storm — payouts ×${powerMult}` : `×${powerMult} multiplier round`}
         </div>
       )}
 
@@ -55,13 +55,15 @@ export function ResultBanner() {
       {/* Golden Anchor — the rarest moment in the game */}
       {surge && surge.winnerName && (
         <div
-          className={`lf-rise flex items-center gap-2 rounded-2xl border-2 border-[var(--lf-amber)] px-5 py-2.5 text-center font-extrabold ${
-            iWonSurge ? 'bg-[var(--lf-amber)] text-black' : 'bg-[#1c1508]/95 text-[var(--lf-amber)]'
+          className={`lf-rise flex items-center gap-3 rounded-2xl border-2 border-[var(--lf-amber)] px-6 py-3 text-center font-extrabold ${
+            iWonSurge ? 'lf-gold lf-payout' : 'bg-[#1c1508]/95 text-[var(--lf-amber)]'
           }`}
         >
-          <SurgeIcon size={22} />
+          <SurgeIcon size={26} />
           <div>
-            <div className="text-base leading-tight">JACKPOT</div>
+            <div className="text-xl font-black uppercase leading-tight tracking-[0.14em]">
+              Jackpot
+            </div>
             <div className="text-sm leading-tight">
               {iWonSurge ? 'You win the whole jackpot' : `${surge.winnerName} wins the jackpot`}: +
               {fmt(surge.potMinor)}
@@ -81,26 +83,34 @@ export function ResultBanner() {
           The storm hit {struckZone} — players there lost; everyone else shared its pool
         </div>
       ) : r.outcome === 'WRECKED' ? (
-        <div className="lf-rise rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/95 px-6 py-2.5 text-center">
-          <div className="text-2xl font-extrabold text-[var(--lf-text)]">−{fmt(-r.netMinor)}</div>
-          <div className="mt-0.5 text-[13px] font-semibold text-[var(--lf-dim)]">
+        /* §2.8 — a loss stays short, honest and calm: slate, never punished,
+           never styled like a win. It gets weight, not heat. */
+        <div className="lf-rise lf-surface rounded-2xl border-[var(--lf-line)] px-7 py-3 text-center">
+          <div className="text-[2rem] font-black leading-none text-[var(--lf-text)]">
+            −{fmt(-r.netMinor)}
+          </div>
+          <div className="mt-1 text-[13px] font-semibold text-[var(--lf-dim)]">
             {struckZone} was hit — a 1-in-6 chance. Its pool went to the other players.
           </div>
         </div>
       ) : (
         <div
-          className={`lf-rise rounded-xl px-6 py-2.5 text-center ${
+          className={`lf-rise rounded-2xl px-7 py-3 text-center ${
             r.netMinor >= 0
-              ? 'bg-[var(--lf-amber)] text-black'
-              : 'border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/95 text-[var(--lf-text)]'
+              ? 'lf-gold'
+              : 'lf-surface border-[var(--lf-line)] text-[var(--lf-text)]'
           }`}
         >
-          <div className="flex items-center justify-center gap-2 text-2xl font-extrabold">
-            <CrateIcon size={22} />
+          <div
+            className={`flex items-center justify-center gap-2.5 text-[2rem] font-black leading-none ${
+              r.netMinor >= 0 ? 'lf-payout' : ''
+            }`}
+          >
+            <CrateIcon size={26} />
             {r.netMinor >= 0 ? '+' : '−'}
             {fmt(Math.abs(r.netMinor))}
           </div>
-          <div className={`mt-0.5 text-[13px] font-semibold ${r.netMinor >= 0 ? 'text-black/70' : 'text-[var(--lf-dim)]'}`}>
+          <div className={`mt-1 text-[13px] font-semibold ${r.netMinor >= 0 ? 'text-black/75' : 'text-[var(--lf-dim)]'}`}>
             {r.outcome === 'SPLIT'
               ? `Half your bet was in ${struckZone}`
               : powerMult >= 2

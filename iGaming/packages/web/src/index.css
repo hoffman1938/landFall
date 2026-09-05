@@ -2,23 +2,55 @@
 @import '@fontsource-variable/manrope';
 
 :root {
-  /* Minimal dark chart tokens. Amber stays reserved for payout moments ONLY —
-     hard brand rule. Green is the confirmed-action color; cyan is selection /
-     informational; red is danger. */
-  --lf-bg: #060a12;
-  --lf-surface: #0c1322;
-  --lf-surface-2: #121b2e;
-  --lf-panel: #0c1322;
-  --lf-glass: rgba(8, 13, 23, 0.92);
-  --lf-line: #1c2a40;
-  --lf-text: #edf2f9;
-  --lf-dim: #8da0ba;
-  --lf-action: #29c469;
-  --lf-action-strong: #1fae59;
-  --lf-amber: #ffb02e;
-  --lf-danger: #ff5a5a;
-  --lf-safe: #3ddc97;
-  --lf-focus: #41b7f5;
+  /*
+   * "Midnight Table" — the casino-floor palette (ux-redesign-v2 art direction,
+   * repainted for a gambling audience). The fusion the theme allows: a deep
+   * SEA-GREEN FELT table lit from above, dressed in BRASS instrument fittings.
+   * Green felt + brass is simultaneously authentic casino and authentic
+   * maritime, so the game reads as a betting product without abandoning the
+   * chart-room identity.
+   *
+   * COLOR LAW (unchanged, and the reason brass exists):
+   *   --lf-amber  = PAYOUT ONLY. Bright, saturated, high-value. Never chrome.
+   *   --lf-brass  = structure only: hairline rims, micro-labels, dividers.
+   *                 Dark and desaturated (it is metal, not light), never a
+   *                 fill behind a number, never animated. Keeping it off the
+   *                 bay and off every figure preserves "gold = money moved".
+   *   --lf-action = jade, the confirmed-action / place-bet color.
+   *   --lf-focus  = selection / informational.
+   *   --lf-danger = the struck zone, cancels, danger.
+   */
+
+  /* ground */
+  --lf-bg: #050a0c;
+  --lf-felt: #0d3029; /* table felt, only ever a low-alpha wash in the bay */
+  --lf-felt-lip: #071a17;
+
+  /* raised surfaces — warm charcoal with a top bevel (see .lf-surface) */
+  --lf-surface: #101a20;
+  --lf-surface-2: #182530;
+  --lf-panel: #101a20;
+  --lf-glass: rgba(8, 15, 19, 0.93);
+  --lf-line: #24343f;
+
+  /* metal */
+  --lf-brass: #b98d3e;
+  --lf-brass-soft: rgba(185, 141, 62, 0.34);
+  --lf-brass-faint: rgba(185, 141, 62, 0.14);
+
+  /* ink */
+  --lf-text: #f1f6f8;
+  --lf-dim: #92a7b4;
+
+  /* semantics */
+  --lf-action: #1cbb6c;
+  --lf-action-strong: #12a05b;
+  --lf-amber: #ffc247;
+  --lf-amber-deep: #e08a12;
+  --lf-danger: #f0364a;
+  --lf-safe: #35d99a;
+  --lf-focus: #3cb8ea;
+
   --lf-control-deck-height: 7.5rem;
 }
 
@@ -61,29 +93,114 @@ button {
   outline-offset: 2px;
 }
 
-/* Minimal chart bay: near-black navy vignette; Pixi draws the chart marks,
-   boats, weather and FX on top. No photographic environment. */
+/*
+ * The table. A felt-green pool of light in the middle of a near-black room,
+ * ringed by a darker lip and closed by a vignette — the bay is now a surface
+ * you place bets ON, not a void. Pixi draws the chart marks, boats, weather
+ * and FX on top.
+ */
 .lf-bay {
   isolation: isolate;
   background:
-    radial-gradient(120% 90% at 50% 32%, #0c1526 0%, #070d19 55%, #04070e 100%);
+    radial-gradient(
+      118% 88% at 50% 42%,
+      rgba(13, 48, 41, 0.62) 0%,
+      rgba(9, 32, 29, 0.4) 38%,
+      rgba(6, 17, 18, 0.12) 62%,
+      transparent 78%
+    ),
+    radial-gradient(125% 95% at 50% 30%, #0b1720 0%, #071016 52%, #03080b 100%);
+}
+
+/* Felt weave + a warm overhead key light, so the table has a physical grain. */
+.lf-bay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.014) 0 1px,
+      transparent 1px 3px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      rgba(0, 0, 0, 0.05) 0 1px,
+      transparent 1px 3px
+    );
+}
+
+/* Vignette: closes the room and pushes every card forward. */
+.lf-bay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: radial-gradient(
+    100% 78% at 50% 46%,
+    transparent 42%,
+    rgba(0, 0, 0, 0.42) 82%,
+    rgba(0, 0, 0, 0.72) 100%
+  );
 }
 
 .lf-bay canvas {
   display: block;
+  position: relative;
+  z-index: 1;
 }
 
-/* Solid HUD surfaces — one controlled dark layer, thin border, no heavy blur. */
+/*
+ * HUD surfaces. Both get a top bevel highlight and a seated shadow so panels
+ * read as objects on the table rather than rectangles of a slightly different
+ * darkness.
+ */
 .lf-glass {
-  background: var(--lf-glass);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045) 0%, transparent 42%),
+    var(--lf-glass);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--lf-line);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
 .lf-surface {
-  background: var(--lf-surface);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, transparent 40%),
+    var(--lf-surface);
   border: 1px solid var(--lf-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+/*
+ * Brass rim — the fitting around chrome furniture (top bar, deck, sheets).
+ * Structure only: a hairline, never a fill. Compose with .lf-surface.
+ */
+.lf-rim {
+  border-color: var(--lf-brass-soft);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px var(--lf-brass-faint),
+    0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+/*
+ * Payout surface: the one place gold is a FILL. Used by the salvage verdict,
+ * the jackpot when live, and the Storm Power seal — nothing else.
+ */
+.lf-gold {
+  background: linear-gradient(160deg, #ffd678 0%, var(--lf-amber) 42%, var(--lf-amber-deep) 100%);
+  color: #1c1103;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 0 34px rgba(255, 194, 71, 0.32),
+    0 12px 34px rgba(0, 0, 0, 0.5);
 }
 
 @keyframes lf-pulse {
@@ -99,6 +216,27 @@ button {
   animation: lf-pulse 1.2s ease-in-out infinite;
 }
 
+/*
+ * The place-bet call to action breathes instead of blinking: a light sweep
+ * across the face, which reads as invitation rather than an error state.
+ */
+@keyframes lf-breathe {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      0 0 0 0 rgba(28, 187, 108, 0);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      0 0 26px 2px rgba(28, 187, 108, 0.42);
+  }
+}
+.lf-breathe {
+  animation: lf-breathe 2s ease-in-out infinite;
+}
+
 /* Verdict card rises from the bay (motion token: cinematic). */
 @keyframes lf-rise {
   from {
@@ -112,6 +250,25 @@ button {
 }
 .lf-rise {
   animation: lf-rise 300ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* The salvage number lands with weight before it settles (payout only). */
+@keyframes lf-payout {
+  0% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.lf-payout {
+  animation: lf-payout 420ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
 }
 
 /* Sheets and drawers slide up (motion token: ui). */
@@ -185,11 +342,13 @@ button {
   .lf-rise,
   .lf-sheet,
   .lf-caption,
-  .lf-shake {
+  .lf-shake,
+  .lf-payout {
     animation-duration: 1ms;
     animation-iteration-count: 1;
   }
-  .lf-pulse {
+  .lf-pulse,
+  .lf-breathe {
     animation: none;
   }
   /* Reduced motion still gets the trust cue — static highlight, no pulse. */
@@ -204,10 +363,18 @@ button {
     --lf-line: #83a8c8;
     --lf-dim: #c6d5e5;
     --lf-glass: rgba(3, 10, 20, 0.97);
+    --lf-brass-soft: rgba(214, 172, 92, 0.75);
+    --lf-brass-faint: rgba(214, 172, 92, 0.3);
   }
 
   .lf-glass,
   .lf-surface {
     border-width: 2px;
+  }
+
+  /* The felt wash and vignette both cost contrast — drop them. */
+  .lf-bay::before,
+  .lf-bay::after {
+    display: none;
   }
 }

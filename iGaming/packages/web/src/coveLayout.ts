@@ -17,13 +17,22 @@ export interface CoveLayout {
   shoreHeight: number;
 }
 
+/*
+ * Landscape: three seats a side, mirrored across the centre line. The old
+ * layout was a lopsided oval that left the middle of a wide screen dead while
+ * still crowding its bottom markers into the Storm Clock and the verdict card.
+ * Two columns give every zone identical visual weight (no seat at this table
+ * is a better seat), keep the whole centre clear as the storm's stage, and use
+ * the SAME zone ordering as the portrait layout below — so a player moving
+ * between phone and desktop finds Zone 4 in the same relative place.
+ */
 const LANDSCAPE_CENTERS: readonly [number, number][] = [
-  [0.17, 0.29],
-  [0.16, 0.51],
-  [0.36, 0.7],
-  [0.59, 0.72],
-  [0.78, 0.53],
-  [0.81, 0.31],
+  [0.17, 0.26],
+  [0.83, 0.26],
+  [0.17, 0.5],
+  [0.83, 0.5],
+  [0.17, 0.74],
+  [0.83, 0.74],
 ];
 
 const PORTRAIT_CENTERS: readonly [number, number][] = [

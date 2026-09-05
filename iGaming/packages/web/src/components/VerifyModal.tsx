@@ -110,7 +110,7 @@ export function VerifyModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#02070a]/72 backdrop-blur-[2px] p-3 sm:p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) openVerify(null);
       }}
@@ -119,10 +119,10 @@ export function VerifyModal() {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--lf-line)] bg-[var(--lf-panel)] p-4 text-sm sm:max-h-[80vh] sm:p-5"
+        className="lf-rim max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-2xl border bg-[var(--lf-panel)] p-4 text-sm sm:max-h-[80vh] sm:p-5"
       >
         <div className="mb-3 flex items-center justify-between">
-          <h2 id={titleId} className="text-base font-bold">
+          <h2 id={titleId} className="text-base font-black uppercase tracking-[0.08em] text-[var(--lf-brass)]">
             Verify Round #{roundId}
           </h2>
           <button
