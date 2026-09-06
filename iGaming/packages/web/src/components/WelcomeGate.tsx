@@ -95,10 +95,7 @@ function TableCard({
           : 'border-l-[var(--lf-line)] bg-[var(--lf-surface-2)] hover:border-l-[var(--lf-line-2)]'
       }`}
     >
-      <span
-        aria-hidden="true"
-        className={`h-2.5 w-2.5 shrink-0 ${selected ? 'bg-white' : 'bg-[var(--lf-line-2)]'}`}
-      />
+      <span className="lf-radio" data-checked={selected ? 'true' : 'false'} aria-hidden="true" />
 
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">

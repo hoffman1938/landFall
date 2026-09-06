@@ -36,7 +36,7 @@ import {
   payoutExpectationGains,
 } from '@landfall/core';
 import { audio } from '../audio/engine';
-import { STR, zoneName } from '../strings';
+import { LIVE_MAX_HINT, STR, liveMaxNotice, zoneName } from '../strings';
 import {
   MODE_UNLOCK_ROUNDS,
   getDeckProgress,
@@ -49,6 +49,7 @@ import {
   withStakeEdited,
 } from '../deckProgress';
 import { formatPayoutStrip, resolveDeckState, type PrimaryId } from '../deckState';
+import { resolveStakeLimit } from '../stakeLimits';
 import { fmt, useStore } from '../store';
 import {
   BoatIcon,
@@ -137,9 +138,10 @@ export function ControlDeck() {
   // Room tier limits (C2) — the clamp speaks in this room's numbers.
   const minStakeMinor = useStore((s) => s.roomMinStakeMinor);
   const maxStakeMinor = useStore((s) => s.roomMaxStakeMinor);
-  // B5 whale-cap inputs — so MAX and presets reflect what you can ACTUALLY bet.
+  // B5 round-share inputs — so MAX and presets reflect what you can ACTUALLY bet.
   const whaleCapFraction = useStore((s) => s.whaleCapFraction);
-  const lastKnownHandleMinor = useStore((s) => s.lastKnownHandleMinor);
+  const roomLiquidityFloorMinor = useStore((s) => s.roomLiquidityFloorMinor);
+  const houseSeedMinor = useStore((s) => s.round?.houseSeedMinor ?? 0);
   // B4 flag cooldown mirror: dimmed flag + round counter, no prose.
   const myFlagRounds = useStore((s) => s.myFlagRounds);
   const roundId = useStore((s) => s.round?.roundId);
@@ -235,25 +237,31 @@ export function ControlDeck() {
   }, [stakeError]);
 
   // v3 — everything about the stake scales to what you can ACTUALLY bet right
-  // now: effectiveMax = min(your balance, the table max, 25% of the round). The
-  // whale cap is dynamic (it grows/shrinks each round with the pool), so presets,
-  // the ± step, MAX, and the input ceiling all follow it — no fixed 5k chip in a
-  // room where 500 is the live limit.
-  const effectiveMaxMinor = useMemo(() => {
-    let cap = Math.min(balanceMinor, maxStakeMinor);
-    if (lastKnownHandleMinor !== null && whaleCapFraction < 1) {
-      const others = Math.max(0, lastKnownHandleMinor - (myFleet?.stakeMinor ?? 0));
-      cap = Math.min(cap, Math.floor((whaleCapFraction / (1 - whaleCapFraction)) * others));
-    }
-    return Math.max(minStakeMinor, cap);
-  }, [
-    balanceMinor,
-    maxStakeMinor,
-    minStakeMinor,
-    lastKnownHandleMinor,
-    whaleCapFraction,
-    myFleet?.stakeMinor,
-  ]);
+  // now: min(your balance, the table max, the round-share cap). Presets, the ±
+  // step, MAX and the input ceiling all follow it, so no chip in this row is a
+  // number the server would refuse. The cap itself is derived exactly as the
+  // server derives it — see ../stakeLimits.ts for why the old estimate, taken
+  // from the previous round's handle, promised stakes that got rejected.
+  const stakeLimit = useMemo(
+    () =>
+      resolveStakeLimit({
+        balanceMinor,
+        roomMinStakeMinor: minStakeMinor,
+        roomMaxStakeMinor: maxStakeMinor,
+        whaleCapFraction,
+        liquidityFloorMinor: roomLiquidityFloorMinor,
+        houseSeedMinor,
+      }),
+    [
+      balanceMinor,
+      maxStakeMinor,
+      minStakeMinor,
+      whaleCapFraction,
+      roomLiquidityFloorMinor,
+      houseSeedMinor,
+    ],
+  );
+  const effectiveMaxMinor = stakeLimit.maxMinor;
 
   const presets = useMemo(
     () => niceStakePresets(minStakeMinor, effectiveMaxMinor),
@@ -281,7 +289,7 @@ export function ControlDeck() {
           ? `Table minimum is ${fmt(minStakeMinor)}`
           : value > maxStakeMinor
             ? `Table maximum is ${fmt(maxStakeMinor)}`
-            : `Right now you can bet up to ${fmt(effectiveMaxMinor)} — 25% of the round`,
+            : liveMaxNotice(effectiveMaxMinor),
       );
     } else if (announceClamp) {
       setStakeError(null);
@@ -405,10 +413,10 @@ export function ControlDeck() {
 
   // Flat stake chips: rectangles, hairline, no chip metaphor, no shadow.
   const chipBtn =
-    'flex h-11 min-w-11 items-center justify-center rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface)] px-3.5 text-[13px] font-extrabold tabular-nums text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)] disabled:cursor-not-allowed disabled:opacity-35';
+    'flex h-11 min-w-11 items-center justify-center rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface)] px-3.5 text-[15px] font-semibold tabular-nums text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)] disabled:cursor-not-allowed disabled:opacity-35';
 
   const stepBtn =
-    'flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface)] text-lg font-bold text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)] disabled:cursor-not-allowed disabled:opacity-35';
+    'flex h-12 w-11 shrink-0 items-center justify-center rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface)] text-xl font-bold text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)] disabled:cursor-not-allowed disabled:opacity-35';
 
   return (
     <>
@@ -463,25 +471,51 @@ export function ControlDeck() {
          */}
         {strip && (
           <div
-            className="mx-auto flex max-w-5xl items-center gap-4 border-b border-[var(--lf-line)] px-3 py-1.5"
+            className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--lf-line)] px-3 py-1.5 sm:gap-x-4"
             role="note"
             aria-label={`At risk ${fmt(atRiskMinor)} credits. ${STR.ifSafe}: about ${strip.ifSafeRange}. ${STR.estimateNote}`}
           >
             <span className="flex shrink-0 items-baseline gap-1.5">
               <span className="lf-label">Risk</span>
-              <span className="lf-num text-[13px] text-[var(--lf-text)]">
+              <span className="lf-num text-[14px] text-[var(--lf-text)] sm:text-[16px]">
                 {fmt(atRiskMinor)}
               </span>
             </span>
             <span
-              className={`flex min-w-0 shrink items-baseline gap-1.5 ${
-                fogActive ? 'opacity-60' : ''
-              }`}
+              className={`flex shrink-0 items-baseline gap-1.5 ${fogActive ? 'opacity-60' : ''}`}
               title={STR.estimateNote}
             >
-              <span className="lf-label">{STR.ifSafe}</span>
-              <span className="lf-num truncate text-[13px] text-[var(--lf-win)]">
+              <span className="lf-label whitespace-nowrap">{STR.ifSafe}</span>
+              <span className="lf-num whitespace-nowrap text-[14px] text-[var(--lf-win)] sm:text-[16px]">
                 ≈ {strip.ifSafeRange}
+              </span>
+            </span>
+            {/*
+             * The live ceiling, stated BEFORE the player runs into it. The tier
+             * range printed on the table ("Bet 50–5,000") is what the table is
+             * for; this is what this round will actually take, and on a quiet
+             * table the two are far apart. Showing only the tier number and
+             * then refusing it is what made the limit feel arbitrary.
+             */}
+            <span
+              className="flex shrink-0 items-baseline gap-1.5 whitespace-nowrap"
+              title={
+                stakeLimit.boundBy === 'balance'
+                  ? 'Capped by your balance.'
+                  : stakeLimit.boundBy === 'table'
+                    ? "This table's maximum bet."
+                    : LIVE_MAX_HINT
+              }
+            >
+              <span className="lf-label">Max now</span>
+              <span
+                className={`lf-num text-[14px] sm:text-[16px] ${
+                  effectiveMaxMinor < maxStakeMinor
+                    ? 'text-[var(--lf-warn)]'
+                    : 'text-[var(--lf-dim)]'
+                }`}
+              >
+                {fmt(effectiveMaxMinor)}
               </span>
             </span>
             {fogActive && (
@@ -518,7 +552,7 @@ export function ControlDeck() {
                       setFleetMode(mode);
                     }}
                     disabled={!canOrder}
-                    className={`flex h-11 min-w-20 items-center justify-center gap-1.5 px-3 text-[13px] font-extrabold transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
+                    className={`flex h-11 min-w-20 items-center justify-center gap-1.5 px-3 text-[15px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
                       fleetMode === mode
                         ? 'bg-white text-black'
                         : 'bg-[var(--lf-surface)] text-[var(--lf-dim)] hover:text-[var(--lf-text)]'
@@ -544,7 +578,7 @@ export function ControlDeck() {
                   audio.click('tap');
                   updateDeckProgress(withModesUnlockedByTap(getDeckProgress()));
                 }}
-                className="flex h-11 min-w-[10.5rem] items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--lf-line)] px-3 text-[13px] font-bold text-[var(--lf-mute)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
+                className="flex h-11 min-w-[10.5rem] items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--lf-line)] px-3 text-[14px] font-semibold text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
                 aria-label={`1 Zone and 2 Zones bet modes unlock after ${MODE_UNLOCK_ROUNDS} rounds — activate to unlock now`}
                 title={`Unlocks after ${MODE_UNLOCK_ROUNDS} rounds — tap to unlock now`}
               >
@@ -591,7 +625,7 @@ export function ControlDeck() {
                   disabled={!canOrder}
                   aria-invalid={stakeError !== null}
                   aria-describedby={stakeError ? 'lf-stake-error' : undefined}
-                  className={`lf-num h-11 w-32 min-w-0 rounded-md border bg-[var(--lf-bg)] pb-1 pl-2 pr-2 pt-3 text-right text-[17px] text-[var(--lf-text)] outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                  className={`lf-num h-12 w-36 min-w-0 rounded-md border bg-[var(--lf-bg)] pb-1 pl-2 pr-2.5 pt-4 text-right text-[19px] text-[var(--lf-text)] outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                     stakeError
                       ? 'border-[var(--lf-accent)]'
                       : 'border-[var(--lf-line-2)] focus:border-white'
@@ -610,7 +644,7 @@ export function ControlDeck() {
                 <span
                   id="lf-stake-error"
                   role="status"
-                  className="truncate text-[13px] font-semibold text-[var(--lf-accent)]"
+                  className="truncate text-[13px] font-medium text-[var(--lf-accent)]"
                 >
                   {stakeError}
                 </span>
@@ -671,9 +705,12 @@ export function ControlDeck() {
                     }}
                     disabled={!canOrder}
                     className={chipBtn}
-                    title="Bet the most you can right now (within your balance, the table max, and 25% of the round)"
+                    title={`Bet ${fmt(effectiveMaxMinor)} — the most this round will take from you right now`}
                   >
-                    MAX
+                    {/* The figure is worth the width when there is width. */}
+                    <span className="whitespace-nowrap">
+                      MAX<span className="hidden sm:inline"> {fmt(effectiveMaxMinor)}</span>
+                    </span>
                   </button>
                 </>
               )}
@@ -702,8 +739,8 @@ export function ControlDeck() {
                     : `${STR.updateBet} to ${fmt(stakeInputMinor)} at ${coveName(myFleet.primaryZone)}`
                 }
               >
-                <span className="text-[13px] font-extrabold leading-tight">Update</span>
-                <span className="lf-num text-[12px] leading-tight">{fmt(stakeInputMinor)}</span>
+                <span className="text-[14px] font-semibold leading-tight">Update</span>
+                <span className="lf-num text-[13px] leading-tight">{fmt(stakeInputMinor)}</span>
               </button>
             )}
             {myFleet && open && disclosure.showFlags && (
@@ -787,12 +824,12 @@ export function ControlDeck() {
               } ${deck.primary.kind === 'action' ? 'lf-armed' : ''}`}
               aria-live="polite"
             >
-              <span className="text-[17px] font-black uppercase leading-tight tracking-[0.05em]">
+              <span className="text-[18px] font-black uppercase leading-tight tracking-[0.04em]">
                 {primary.label}
               </span>
               {primary.sub && (
                 <span
-                  className={`text-[11px] font-semibold leading-tight ${
+                  className={`text-[12px] font-medium leading-tight ${
                     deck.primary.kind === 'action' ? 'text-black/60' : 'text-[var(--lf-mute)]'
                   }`}
                 >

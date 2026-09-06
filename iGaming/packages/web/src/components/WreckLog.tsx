@@ -37,7 +37,7 @@ export function WreckLog() {
       </button>
 
       {visibleResults.length === 0 ? (
-        <span className="truncate text-[11px] font-semibold text-[var(--lf-mute)]">
+        <span className="truncate text-[12px] font-medium text-[var(--lf-mute)]">
           No results yet
         </span>
       ) : (
@@ -50,7 +50,7 @@ export function WreckLog() {
             return (
               <li key={index} className="shrink-0">
                 <span
-                  className={`flex h-[22px] w-[22px] items-center justify-center text-[11px] font-black tabular-nums ${
+                  className={`flex h-[24px] w-[24px] items-center justify-center text-[12px] font-black tabular-nums ${
                     latest
                       ? 'bg-[var(--lf-accent)] text-black'
                       : 'bg-[var(--lf-surface-2)] text-[var(--lf-dim)]'

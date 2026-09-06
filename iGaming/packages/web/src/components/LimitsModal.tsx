@@ -200,7 +200,7 @@ export function LimitsModal() {
                 const minutes = Number(event.target.value);
                 sendLimits({ realityCheckMinutes: minutes > 0 ? minutes : null });
               }}
-              className="mt-2 min-h-11 w-full rounded-lg border border-[var(--lf-line)] bg-[var(--lf-bg)] px-2 text-sm font-bold text-[var(--lf-text)]"
+              className="mt-2 min-h-11 w-full rounded-md border border-[var(--lf-line)] bg-[var(--lf-bg)] pl-3 pr-9 text-sm font-semibold text-[var(--lf-text)]"
             >
               <option value={0}>Off</option>
               <option value={15}>15 minutes</option>

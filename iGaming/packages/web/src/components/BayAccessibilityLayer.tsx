@@ -268,7 +268,7 @@ function CoveStatusCard({
       )}
 
       <span className="relative flex items-center gap-1.5 leading-none">
-        <span className="truncate text-[13px] font-extrabold uppercase tracking-[0.08em] text-[var(--lf-text)]">
+        <span className="truncate text-[14px] font-bold uppercase tracking-[0.07em] text-[var(--lf-text)]">
           {zoneName(zone)}
         </span>
         {(mine || selected) && (
@@ -290,7 +290,7 @@ function CoveStatusCard({
           <CrowdMeter band={tide && !struck && !locked && !safe ? tide.band : null} />
         )}
         <span
-          className={`truncate text-[11px] font-bold uppercase ${
+          className={`truncate text-[12px] font-semibold uppercase ${
             struck ? 'text-[var(--lf-accent)]' : 'text-[var(--lf-dim)]'
           }`}
         >
@@ -299,12 +299,12 @@ function CoveStatusCard({
         {trend && !struck && !locked && (
           <span
             aria-label={`${trend.label} trend`}
-            className="shrink-0 text-[11px] font-extrabold text-[var(--lf-mute)]"
+            className="shrink-0 text-[12px] font-extrabold text-[var(--lf-dim)]"
           >
             {trend.glyph}
           </span>
         )}
-        <span className="ml-auto flex shrink-0 items-center gap-1 text-[11px] font-bold tabular-nums text-[var(--lf-mute)]">
+        <span className="ml-auto flex shrink-0 items-center gap-1 text-[12px] font-bold tabular-nums text-[var(--lf-dim)]">
           {struck ? (
             <StormIcon size={13} aria-hidden="true" />
           ) : locked ? (
@@ -322,21 +322,21 @@ function CoveStatusCard({
       <span className="relative mt-1.5 flex items-baseline gap-2 border-t border-[var(--lf-line)] pt-1.5 leading-none">
         {mine ? (
           <span className="flex min-w-0 shrink items-baseline gap-1 text-white">
-            <span className="lf-label shrink-0 !text-white/70">{mine.label}</span>
-            <span className="lf-num truncate text-[13px]">
+            <span className="lf-label-soft shrink-0 !text-white/70">{mine.label}</span>
+            <span className="lf-num truncate text-[16px]">
               {formatCredits(mine.mineMinor)}
             </span>
           </span>
         ) : (
-          <span className="lf-label shrink-0">Pot</span>
+          <span className="lf-label-soft shrink-0">Pot</span>
         )}
         <span
           className={`ml-auto flex shrink-0 items-baseline gap-1 ${
             detail ? 'text-[var(--lf-text)]' : 'text-[var(--lf-mute)]/60'
           }`}
         >
-          {mine && <span className="lf-label">Pot</span>}
-          <span className="lf-num text-[13px]">{detail ?? '—'}</span>
+          {mine && <span className="lf-label-soft">Pot</span>}
+          <span className="lf-num text-[16px]">{detail ?? '—'}</span>
         </span>
       </span>
     </button>

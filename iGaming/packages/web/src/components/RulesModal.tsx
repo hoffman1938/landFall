@@ -147,11 +147,43 @@ export function RulesModal() {
         </Section>
 
         <Section title="Jackpot — the bonus round">
-          A fixed share of every round's take feeds the <b>jackpot</b> (it grows every round).
-          Roughly one round in 25 is a <b>BONUS ROUND</b> — announced before betting. When the storm
-          passes, <b>one safe player</b> — odds proportional to bet size — wins the <b>entire
-          jackpot</b>. A small bet can win hundreds of times its size; a big bet has better odds.
-          This is where the 500x stories come from.
+          <p>
+            <b>Every table has its own jackpot.</b> It is fed only by the rounds played at that
+            table, so money lost at a high-stakes table stays there — it can never pay out to a
+            one-credit bet somewhere else. Switch tables and the jackpot you are playing for
+            changes with you; the top bar always names whose pot it is showing.
+          </p>
+          <p className="mt-2">
+            A fixed share of every round's take feeds it, so it grows every round. Roughly one round
+            in 25 is a <b>BONUS ROUND</b> — announced before betting opens. When the storm passes,{' '}
+            <b>one safe player at that table</b> wins the whole pot, picked with odds{' '}
+            <b>proportional to bet size</b>: bet twice as much, get twice the chance. A small bet
+            can still win many times its size, and a big bet has proportionally better odds.
+          </p>
+          <p className="mt-2">
+            After a payout the house re-seeds the pot to a floor sized to that table, so the next
+            jackpot is never trivial in the money the table actually plays for.
+          </p>
+        </Section>
+
+        <Section title="Why your bet is sometimes capped">
+          <p>
+            The range printed on a table (say 50–5,000) is what the table is <i>for</i>. What it
+            will take from you <i>right now</i> can be lower, and the deck always shows that live
+            number as <b>Max now</b>.
+          </p>
+          <p className="mt-2">
+            The reason is the payout itself. Your winnings come out of the hit zone's pot, so on a
+            quiet table there is very little to win — a 5,000 bet into a near-empty round could
+            only ever return a few credits while still risking the whole 5,000. No single player
+            may hold more than a quarter of a round, which is the rule that stops that bet. It is
+            not the house being careful with your money; it is the game refusing a bet that cannot
+            pay.
+          </p>
+          <p className="mt-2">
+            The limit rises as players join and resets every round. If you want to bet the top of a
+            table's range, play it when it is busy.
+          </p>
         </Section>
 
         <Section title="Strategy">

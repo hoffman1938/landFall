@@ -13,7 +13,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { ZONE_COUNT, liquidityLevel, validateRakeConfig } from '@landfall/core';
+import { ZONE_COUNT, liquidityLevel, surgeFloorFor, validateRakeConfig } from '@landfall/core';
 import { defaultBotBankrollMinor } from './bots.js';
 import type { ChainHandle } from './chain.js';
 import {
@@ -44,6 +44,12 @@ export interface RoomConfigJson {
   /** Balance a practice bot is topped back up to; omitted = derived from the tier. */
   botBankrollMinor?: number;
   surgeProb?: number;
+  /**
+   * Jackpot floor the house re-seeds after a payout at THIS table. Omitted =
+   * derived from the tier (core `surgeFloorFor`), so a table's jackpot is
+   * always worth something in that table's own money.
+   */
+  surgeFloorMinor?: number;
   signalMinStakeMinor?: number;
   rake?: number;
   rakeSplit?: { house: number; surge: number; stormReserve: number };
@@ -83,6 +89,8 @@ export function resolveRoomConfig(
     botBankrollMinor:
       json.botBankrollMinor ?? defaultBotBankrollMinor(json.maxStakeMinor ?? base.maxStakeMinor),
     surgeProb: json.surgeProb ?? base.surgeProb,
+    surgeFloorMinor:
+      json.surgeFloorMinor ?? surgeFloorFor(json.minStakeMinor ?? base.minStakeMinor),
     signalMinStakeMinor: json.signalMinStakeMinor ?? base.signalMinStakeMinor,
     econ: {
       rake: json.rake ?? base.econ.rake,
@@ -100,8 +108,28 @@ export function resolveRoomConfig(
       `room "${cfg.roomId}": minSeedMinor (${cfg.minSeedMinor}) exceeds the seed ceiling (${cfg.seedMinor})`,
     );
   }
+  if (!Number.isInteger(cfg.surgeFloorMinor) || cfg.surgeFloorMinor < 0) {
+    throw new Error(
+      `room "${cfg.roomId}": surgeFloorMinor must be a non-negative whole number of minor units`,
+    );
+  }
   if (cfg.liquidityFloorMinor < 0) {
     throw new Error(`room "${cfg.roomId}": liquidityFloorMinor must not be negative`);
+  }
+  /*
+   * The round-share cap on a dead table is (w / (1 - w)) x the guaranteed
+   * liquidity. If that is below the table's own minimum stake, the first bettor
+   * of every round is rejected and the room is unplayable until someone else
+   * bets — which nobody can. The shipped tiers all satisfy this; the check is
+   * here so a future config cannot quietly break it.
+   */
+  const deadTableCapMinor = Math.floor(
+    (cfg.whaleCapFraction / (1 - cfg.whaleCapFraction)) * cfg.liquidityFloorMinor,
+  );
+  if (cfg.whaleCapFraction < 1 && deadTableCapMinor < cfg.minStakeMinor) {
+    throw new Error(
+      `room "${cfg.roomId}": the ${Math.round(cfg.whaleCapFraction * 100)}% round-share cap on a quiet table allows only ${deadTableCapMinor} minor units, below the table minimum of ${cfg.minStakeMinor}. Raise liquidityFloorMinor to at least ${Math.ceil((cfg.minStakeMinor * (1 - cfg.whaleCapFraction)) / cfg.whaleCapFraction)}.`,
+    );
   }
   if (cfg.botCount !== null && (!Number.isInteger(cfg.botCount) || cfg.botCount < 0)) {
     throw new Error(`room "${cfg.roomId}": botCount must be a non-negative integer`);

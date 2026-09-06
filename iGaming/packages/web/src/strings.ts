@@ -94,7 +94,7 @@ export const STR = {
   welcomeChooseTable: 'Choose your table',
   welcomePlayAt: 'Play at',
   welcomeTableHint:
-    'Your bet range is per round, and no player may hold more than 25% of a round — so your live max can be lower when a table is quiet. You can switch tables any time from Settings.',
+    'The range is your own bet per round. On a quiet table the live limit is lower — payouts come out of the hit zone’s pot, so a bigger bet would have little to win. The deck always shows the live number as “Max now”, and each table has its own jackpot. You can switch tables any time from Settings.',
   welcomeDisclaimer: 'Virtual credits — no real money. Every round is verifiable.',
 } as const;
 
@@ -124,6 +124,26 @@ export const WELCOME_POINTS: readonly { title: string; body: string }[] = [
     body: 'The result is drawn from a seed committed before the round — recheck any round yourself.',
   },
 ];
+
+/**
+ * Why a bet above the live limit is refused — and what changes it.
+ *
+ * The mechanism is "no player may hold more than 25% of a round's handle". That
+ * is the rule, not the reason, and quoting a percentage at someone who just
+ * wanted to bet the number printed on the table is why this felt arbitrary.
+ *
+ * The reason is worth more: payouts come out of the struck zone's pot, so on a
+ * quiet table there is nothing for a bigger bet to win. The cap is the game
+ * refusing to let you risk 5,000 to win 12. Said that way it stops being a
+ * refusal and becomes information — and it names the thing that lifts it.
+ */
+export function liveMaxNotice(capMinor: number): string {
+  return `Most you can bet right now is ${(capMinor / 100).toFixed(2)} — the pot is small while the table is quiet, and there would be little to win. It rises as players join.`;
+}
+
+/** Short form for the deck's inline limit readout. */
+export const LIVE_MAX_HINT =
+  'The most this round can pay you back is capped by the pot, so your bet is capped with it. It rises as players join and resets each round.';
 
 /** Crowd level from a tide band (v3 §4). */
 export function crowdLabel(

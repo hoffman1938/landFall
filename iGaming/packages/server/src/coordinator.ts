@@ -188,6 +188,8 @@ export interface RoomConfig {
    */
   botBankrollMinor: number;
   surgeProb: number;
+  /** Jackpot floor re-seeded by the house after a payout AT THIS TABLE. */
+  surgeFloorMinor: number;
   /** B4: minimum anchored stake required to fly a signal flag. */
   signalMinStakeMinor: number;
   econ: EconomyConfig;
@@ -207,6 +209,7 @@ export const DEFAULT_ROOM: RoomConfig = {
   botCount: null,
   botBankrollMinor: STARTING_BALANCE_MINOR,
   surgeProb: 0,
+  surgeFloorMinor: SURGE_MIN_POT_MINOR,
   signalMinStakeMinor: SIGNAL_MIN_STAKE_MINOR,
   econ: DEFAULT_ECONOMY,
   timings: DEFAULT_TIMINGS,
@@ -305,7 +308,7 @@ export class RoundCoordinator {
     if (pot !== undefined) {
       this.surgePotMinor = pot;
     } else {
-      this.surgePotMinor = SURGE_MIN_POT_MINOR;
+      this.surgePotMinor = cfg.surgeFloorMinor;
       repo.setSurgePot(cfg.roomId, this.surgePotMinor);
       const house = repo.getHousePlayer();
       if (house) repo.creditPlayer(house.id, -this.surgePotMinor);
@@ -599,9 +602,17 @@ export class RoundCoordinator {
       const capMinor = Math.floor(
         (this.cfg.whaleCapFraction / (1 - this.cfg.whaleCapFraction)) * othersMinor,
       );
+      /*
+       * Last line of defence, not the normal path: the client derives the same
+       * cap from published numbers and clamps before sending (web/stakeLimits).
+       * This fires on a genuine race — someone else's stake landing between the
+       * client's read and this check — so it has to read like news rather than
+       * like the internal rule. "Fleet" and "handle" are internal vocabulary
+       * (web/strings.ts §4) and never belong in front of a player.
+       */
       return reject(
         'WHALE_CAP',
-        `A single fleet is capped at ${Math.round(this.cfg.whaleCapFraction * 100)}% of this round's handle — up to ${(capMinor / 100).toFixed(2)} right now.`,
+        `Most you can bet in this round is ${(capMinor / 100).toFixed(2)} — payouts come out of the hit zone's pot, so a bigger bet would have little to win. It rises as players join.`,
       );
     }
     const now = Date.now();
@@ -1046,10 +1057,11 @@ export class RoundCoordinator {
             winnerName: this.fleets.get(winnerPlayerId)?.name ?? '?',
             winnerStakeMinor: goldenWinner.amountMinor,
           };
-          // House re-seeds the floor so the next pot is never trivial.
-          pot = SURGE_MIN_POT_MINOR;
+          // House re-seeds THIS TABLE's floor, so the next pot is never
+          // trivial in the money this table actually plays for.
+          pot = this.cfg.surgeFloorMinor;
           if (housePlayer) {
-            this.repo.creditPlayer(housePlayer.id, -SURGE_MIN_POT_MINOR);
+            this.repo.creditPlayer(housePlayer.id, -this.cfg.surgeFloorMinor);
           }
         } else {
           // No surviving player stake — pot rolls over, event recorded for the log.

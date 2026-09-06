@@ -216,7 +216,7 @@ export function StormClock() {
           <div className="flex w-full items-center justify-between gap-3">
             <span className="lf-label">{round ? `Round ${round.roundId}` : '—'}</span>
             <span
-              className="flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-[0.18em]"
+              className="flex items-center gap-1.5 text-[12px] font-extrabold uppercase tracking-[0.16em]"
               style={{ color }}
             >
               <Icon size={13} />
@@ -226,7 +226,7 @@ export function StormClock() {
 
           {/* the leading figure of the entire product */}
           <span
-            className="lf-display mt-1 text-[clamp(5rem,13vmin,10rem)]"
+            className="lf-display mt-1 text-[clamp(3.5rem,9vmin,5rem)]"
             style={{ color }}
             aria-hidden="true"
           >
@@ -253,12 +253,12 @@ export function StormClock() {
             )}
           </div>
 
-          <p className="mt-2.5 text-center text-[13px] font-semibold text-[var(--lf-dim)]">
+          <p className="mt-3 text-center text-[14px] font-medium text-[var(--lf-text)]">
             {text}
           </p>
 
           {surge && (
-            <p className="mt-2 rounded-md border border-[var(--lf-warn)]/50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-[var(--lf-warn)]">
+            <p className="mt-2.5 rounded-md border border-[var(--lf-warn)]/50 px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-[var(--lf-warn)]">
               Jackpot round
             </p>
           )}
@@ -288,7 +288,7 @@ export function StormClock() {
         <div className="flex items-center justify-between gap-2">
           <span className="lf-label">{round ? `#${round.roundId}` : '—'}</span>
           <span
-            className="flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-[0.16em]"
+            className="flex items-center gap-1 text-[11px] font-extrabold uppercase tracking-[0.14em]"
             style={{ color }}
           >
             <Icon size={11} />
@@ -297,10 +297,10 @@ export function StormClock() {
         </div>
 
         <div className="mt-0.5 flex items-center gap-3">
-          <span className="lf-display text-[42px]" style={{ color }} aria-hidden="true">
+          <span className="lf-display text-[48px]" style={{ color }} aria-hidden="true">
             {figure}
           </span>
-          <span className="min-w-0 flex-1 text-[13px] font-semibold leading-tight text-[var(--lf-dim)]">
+          <span className="min-w-0 flex-1 text-[14px] font-medium leading-tight text-[var(--lf-text)]">
             {text}
           </span>
         </div>

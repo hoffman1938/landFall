@@ -275,6 +275,15 @@ export type ServerMessage =
       minStakeMinor: number;
       maxStakeMinor: number;
       whaleCapFraction: number;
+      /**
+       * Total handle the house guarantees while the table is thin. Published so
+       * the client can derive the SAME round-share cap the server enforces
+       * (`max(liquidityFloor, ZONE_COUNT × houseSeed + others)`) instead of
+       * guessing it from the previous round and offering stakes that get
+       * rejected. Room config, not private state — the practice bots already
+       * derive their ladder from it (remediation decision 63).
+       */
+      liquidityFloorMinor: number;
       round: RoundHeader;
       phase: PhaseInfo;
       /** Exact pools are present only outside the live decision window. */

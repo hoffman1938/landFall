@@ -24,6 +24,9 @@ import type {
   WreckWakeReplay,
 } from '@landfall/core';
 import { audio } from './audio/engine';
+import { resolveStakeLimit, type StakeLimitInput } from './stakeLimits';
+import { liveMaxNotice } from './strings';
+import { tableSwitchReset } from './tableSwitch';
 import { nextWelcomeOpen } from './welcomeGate';
 
 export interface LandfallInfo {
@@ -94,8 +97,8 @@ interface State {
   roomMinStakeMinor: number;
   roomMaxStakeMinor: number;
   whaleCapFraction: number;
-  /** Last known exact handle (from lock snapshots) — whale-cap pre-check estimate (B5). */
-  lastKnownHandleMinor: number | null;
+  /** Guaranteed table liquidity — half of the publicly derivable round-share cap. */
+  roomLiquidityFloorMinor: number;
   /** Rounds in which this client flew a flag — mirrors the B4 cooldown for the UI. */
   myFlagRounds: number[];
   round: RoundHeader | null;
@@ -127,6 +130,12 @@ interface State {
   storm: StormInfo | null;
   lastLandfall: LandfallInfo | null;
   toast: string | null;
+  /**
+   * Whether the toast is a refusal or just news. A refund notice styled like a
+   * rejection teaches players that the game is angry at them for switching
+   * tables, which is the opposite of what happened.
+   */
+  toastTone: 'error' | 'info';
   verifyRoundId: number | null; // open verify modal for this round
   rulesOpen: boolean;
   /**
@@ -218,6 +227,25 @@ interface State {
   dismissRealityCheck(): void;
 }
 
+/** The store's view of everything ./stakeLimits needs. One place, one formula. */
+export function stakeLimitInput(s: {
+  balanceMinor: number;
+  roomMinStakeMinor: number;
+  roomMaxStakeMinor: number;
+  whaleCapFraction: number;
+  roomLiquidityFloorMinor: number;
+  round: RoundHeader | null;
+}): StakeLimitInput {
+  return {
+    balanceMinor: s.balanceMinor,
+    roomMinStakeMinor: s.roomMinStakeMinor,
+    roomMaxStakeMinor: s.roomMaxStakeMinor,
+    whaleCapFraction: s.whaleCapFraction,
+    liquidityFloorMinor: s.roomLiquidityFloorMinor,
+    houseSeedMinor: s.round?.houseSeedMinor ?? 0,
+  };
+}
+
 let ws: WebSocket | null = null;
 let welcomeSettled = false; // see welcomeGate.ts for why this latch exists
 
@@ -273,6 +301,25 @@ export const useStore = create<State>((set, get) => {
             msg.yourFleet ??
             (msg.yourAnchor ? focusFleet(msg.yourAnchor.zone, msg.yourAnchor.stakeMinor) : null);
           localStorage.setItem('landfall.playerId', msg.playerId);
+
+          // Table-scoped state is dropped on a switch; see ./tableSwitch.ts for
+          // the rule and the reason each field is on that list.
+          const previousRoomId = get().roomId;
+          const roomScopedReset =
+            tableSwitchReset({
+              previousRoomId,
+              previousRoomName:
+                get().rooms.find((r) => r.roomId === previousRoomId)?.name ?? null,
+              nextRoomId: msg.roomId,
+              nextRoomName:
+                (msg.rooms as RoomInfo[]).find((r) => r.roomId === msg.roomId)?.name ?? null,
+              liveStakeMinor: get().myFleet?.stakeMinor ?? 0,
+              stakeInputMinor: get().stakeInputMinor,
+              nextMinStakeMinor: msg.minStakeMinor,
+              nextMaxStakeMinor: msg.maxStakeMinor,
+              formatCredits: fmt,
+            }) ?? {};
+
           set({
             welcomeOpen: nextWelcomeOpen({
               settled: welcomeSettled,
@@ -289,7 +336,7 @@ export const useStore = create<State>((set, get) => {
             roomMinStakeMinor: msg.minStakeMinor,
             roomMaxStakeMinor: msg.maxStakeMinor,
             whaleCapFraction: msg.whaleCapFraction,
-            lastKnownHandleMinor: null,
+            roomLiquidityFloorMinor: msg.liquidityFloorMinor ?? 0,
             round: msg.round,
             phase: msg.phase,
             pools: msg.pools ?? null,
@@ -306,6 +353,7 @@ export const useStore = create<State>((set, get) => {
             storm: null,
             limits: msg.limits ?? null,
             sessionStartAt: msg.sessionStartAt ?? Date.now(),
+            ...roomScopedReset,
           });
           welcomeSettled = true;
           break;
@@ -374,11 +422,6 @@ export const useStore = create<State>((set, get) => {
             anchors: msg.anchors,
             phase: msg.phase,
             orderPending: false,
-            // B5 pre-check estimate: the last exact handle this room published.
-            lastKnownHandleMinor: msg.pools.totalsMinor.reduce(
-              (a: number, n: number) => a + n,
-              0,
-            ),
           });
           break;
         case 'ROOM_LIST':
@@ -510,6 +553,7 @@ export const useStore = create<State>((set, get) => {
         case 'ERROR':
           set({
             toast: msg.message,
+            toastTone: 'error',
             orderPending: false,
             // Signed rejection receipts (B1) join the order history too.
             ...(msg.receipt ? { receipts: [...get().receipts.slice(-59), msg.receipt] } : {}),
@@ -563,6 +607,7 @@ export const useStore = create<State>((set, get) => {
     storm: null,
     lastLandfall: null,
     toast: null,
+    toastTone: 'error',
     verifyRoundId: null,
     rulesOpen: false,
     welcomeOpen: false,
@@ -577,7 +622,7 @@ export const useStore = create<State>((set, get) => {
     roomMinStakeMinor: MIN_STAKE_MINOR,
     roomMaxStakeMinor: MAX_STAKE_MINOR,
     whaleCapFraction: 1,
-    lastKnownHandleMinor: null,
+    roomLiquidityFloorMinor: 0,
     myFlagRounds: [],
     replayCards: [],
     wreckLogOpen: false,
@@ -598,23 +643,13 @@ export const useStore = create<State>((set, get) => {
       ) {
         return;
       }
-      // B5 whale-cap pre-check: estimate the room handle from the last exact
-      // lock snapshot; warn locally before the server ever rejects. The server
-      // stays authoritative — this only prevents surprise rejects.
-      if (s.lastKnownHandleMinor !== null && s.whaleCapFraction < 1) {
-        const othersEstimate = Math.max(
-          0,
-          s.lastKnownHandleMinor - (s.myFleet?.stakeMinor ?? 0),
-        );
-        const capEstimate = Math.floor(
-          (s.whaleCapFraction / (1 - s.whaleCapFraction)) * othersEstimate,
-        );
-        if (s.stakeInputMinor > capEstimate) {
-          set({
-            toast: `Your bet can be at most ${Math.round(s.whaleCapFraction * 100)}% of the round's total — up to about ${fmt(capEstimate)} credits right now.`,
-          });
-          return;
-        }
+      // B5 pre-check, derived exactly as the server derives it (./stakeLimits).
+      // The server stays authoritative; this is here so the refusal is never a
+      // surprise, and so the number the deck showed is the number that lands.
+      const limit = resolveStakeLimit(stakeLimitInput(s));
+      if (s.stakeInputMinor > limit.maxMinor) {
+        set({ toastTone: 'error', toast: liveMaxNotice(limit.maxMinor) });
+        return;
       }
       if (s.fleetMode === 'SPLIT') {
         const current = s.myFleet;

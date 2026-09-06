@@ -37,6 +37,7 @@ const HarborMap = lazy(() =>
 
 export default function App() {
   const toast = useStore((s) => s.toast);
+  const toastTone = useStore((s) => s.toastTone);
   const dismissToast = useStore((s) => s.dismissToast);
 
   useEffect(() => {
@@ -74,9 +75,13 @@ export default function App() {
           {/* error toast — above the deck, never a modal */}
           {toast && (
             <div
-              role="alert"
-              aria-live="assertive"
-              className="lf-rise absolute left-1/2 z-30 -translate-x-1/2 rounded-md border border-[var(--lf-accent-line)] bg-[var(--lf-surface)] px-4 py-2 text-sm font-semibold text-[var(--lf-text)]"
+              role={toastTone === 'error' ? 'alert' : 'status'}
+              aria-live={toastTone === 'error' ? 'assertive' : 'polite'}
+              className={`lf-rise absolute left-1/2 z-30 max-w-[min(92vw,34rem)] -translate-x-1/2 rounded-md border bg-[var(--lf-surface)] px-4 py-2 text-center text-sm font-semibold text-[var(--lf-text)] ${
+                toastTone === 'error'
+                  ? 'border-[var(--lf-accent-line)]'
+                  : 'border-[var(--lf-line-2)]'
+              }`}
               style={{ bottom: 'calc(var(--lf-control-deck-height, 7.5rem) + 0.75rem)' }}
             >
               {toast}

@@ -417,6 +417,7 @@ export class Hub {
       minStakeMinor: room.cfg.minStakeMinor,
       maxStakeMinor: room.cfg.maxStakeMinor,
       whaleCapFraction: room.cfg.whaleCapFraction,
+      liquidityFloorMinor: room.cfg.liquidityFloorMinor,
       round: room.roundHeader(),
       phase,
       ...(phase.phase === 'ANCHOR_OPEN' ? {} : { pools: room.poolsState() }),

@@ -44,21 +44,27 @@ const LANDSCAPE_CENTERS: readonly [number, number][] = [
   [0.83, 0.74],
 ];
 
+/*
+ * Portrait stacks three rows in the upper two-thirds of the board, because the
+ * bottom third belongs to the control deck, which overlays it. Sitting the rows
+ * at .26/.44/.62 put the last one under the deck on a phone and clipped it.
+ */
 const PORTRAIT_CENTERS: readonly [number, number][] = [
-  [0.23, 0.26],
-  [0.77, 0.26],
-  [0.23, 0.44],
-  [0.77, 0.44],
-  [0.23, 0.62],
-  [0.77, 0.62],
+  [0.23, 0.22],
+  [0.77, 0.22],
+  [0.23, 0.38],
+  [0.77, 0.38],
+  [0.23, 0.54],
+  [0.77, 0.54],
 ];
 
 /**
  * The card is three rows of fixed type inside fixed padding, so its height is
- * stable at 76px. Markers add their own margin on top of this, so a few pixels
- * of drift here cannot put a marker underneath the card.
+ * stable — 79px at the current type scale, rounded up here. Markers add their
+ * own margin on top of this, so a few pixels of drift cannot put a marker
+ * underneath the card; the rounding just keeps the margin honest.
  */
-const MARKER_HEIGHT = 76;
+const MARKER_HEIGHT = 80;
 
 /**
  * How wide the zone card is at this board width. The markers are big seats on

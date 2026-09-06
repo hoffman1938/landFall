@@ -77,7 +77,29 @@ export const STORM_POWER_MAX_PAYOUT_MULTIPLE = 25;
  * surviving player stake, picked weighted-by-stake from the lock snapshot.
  */
 export const SURGE_PROB = 1 / 25; // expected surge frequency (~every 25 rounds)
-export const SURGE_MIN_POT_MINOR = 500_00; // house re-seeds the pot floor after each payout
+
+/**
+ * The pot floor the house re-seeds after each payout.
+ *
+ * Pots are per TABLE (`surge_pots` is keyed by room) and are fed only by the
+ * rake of rounds played at that table, so a Leviathan player's losses can never
+ * pay out to a 1-credit Skiff bet. The floor, however, used to be a flat 500
+ * credits everywhere, which is a different unfairness in both directions: ten
+ * times the Skiff table maximum, and a tenth of one percent of the Leviathan
+ * minimum bet — a jackpot a high-roller would not notice had been won.
+ *
+ * `surgeFloorFor` ties the floor to the table instead: never trivial in
+ * absolute terms, and never trivial *for this table* either. Rooms may override
+ * it in the rooms config; this is the default shape.
+ */
+export const SURGE_MIN_POT_MINOR = 500_00;
+
+/** A floor worth this many minimum bets at the table it belongs to. */
+export const SURGE_FLOOR_MIN_STAKE_MULTIPLE = 20;
+
+export function surgeFloorFor(minStakeMinor: number): number {
+  return Math.max(SURGE_MIN_POT_MINOR, SURGE_FLOOR_MIN_STAKE_MULTIPLE * minStakeMinor);
+}
 /**
  * Flat-odds Golden Anchor (A4, P2, feature flag): every Nth surge round pays the
  * pot with EQUAL odds per surviving stake entry instead of stake-weighted odds —

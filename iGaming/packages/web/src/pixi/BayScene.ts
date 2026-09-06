@@ -23,7 +23,11 @@ import {
   type WeatherId,
 } from '@landfall/core';
 import { getCoveLayouts } from '../coveLayout';
-import { neutralStop, stormRoute, stormRouteStop } from '../stormPath';
+import {
+  FEINT_ACQUIRE_MS,
+  stormRouteLeg,
+  stormRouteZones,
+} from '../stormPath';
 
 export interface BayState {
   phase: 'ANCHOR_OPEN' | 'LOCKED_STORM' | 'RESOLVED' | 'COOLDOWN' | null;
@@ -232,6 +236,8 @@ export class BayScene {
   private lastTickAt = Date.now();
   /** Storm-window identity + local start, so the feint patrol is phase-relative. */
   private stormLeg = { endsAt: 0, startedAt: 0 };
+  /** Which stop the reticle is on and when it took it, driving the lock-on. */
+  private stormAcquire = { legKey: -1, at: 0 };
   private crates: Crate[] = [];
   private rippleFx: { x: number; y: number; start: number; amber: boolean }[] = [];
   private strikeHandledFor: number | null = null;
@@ -934,9 +940,17 @@ export class BayScene {
       }
     });
 
-    // storm motion: prowls between feints while locked, lunges into the wreck
+    /*
+     * Storm motion. The reticle has exactly six possible positions — the six
+     * zone plots — and it SNAPS between them. It never slides, so there is no
+     * frame in which it sits between harbours, drifts across the countdown, or
+     * hangs off the board. Re-acquiring is carried by a 160ms lock-on instead
+     * of by travel, which is both the stricter reading of "it moves between
+     * zones" and the more instrument-like one.
+     */
     if (this.stormC.visible) {
       let target: { x: number; y: number } | null = null;
+      let legKey = -1;
       if (st.phase === 'LOCKED_STORM' && st.storm) {
         // Restart the leg clock whenever a new storm window opens, so the
         // patrol is timed against THIS phase rather than the wall clock.
@@ -944,41 +958,42 @@ export class BayScene {
           this.stormLeg = { endsAt: st.storm.endsAt, startedAt: now };
         }
         // Route rules and the reason they exist live in ../stormPath.ts.
-        const route = stormRoute(
-          st.storm.feints,
-          (zone) => {
-            const cove = this.coves[zone];
-            // Dead centre of the card: the reticle frames it, so aiming at the
-            // mooring point would leave the frame hanging low over the zone.
-            return cove ? { x: cove.markerX, y: cove.markerY } : null;
-          },
-          neutralStop(W, H, this.stormReach.halfH + 12),
-        );
-        target = stormRouteStop(route, now - this.stormLeg.startedAt);
+        const zones = stormRouteZones(st.storm.feints, ZONE_COUNT);
+        const leg = stormRouteLeg(zones.length, now - this.stormLeg.startedAt);
+        const zone = zones[leg];
+        const cove = zone === undefined ? undefined : this.coves[zone];
+        if (cove) {
+          // Dead centre of the card: the reticle frames it, so aiming at the
+          // mooring point would leave the frame hanging low over the zone.
+          target = { x: cove.markerX, y: cove.markerY };
+          legKey = leg;
+        }
       } else if (st.struckZone !== null) {
         const cove = this.coves[st.struckZone];
-        if (cove) target = { x: cove.markerX, y: cove.markerY };
+        if (cove) {
+          target = { x: cove.markerX, y: cove.markerY };
+          legKey = ZONE_COUNT + st.struckZone;
+        }
       }
       if (target) {
-        if (this.stormPos.x < -100) this.stormPos = { x: W / 2, y: 60 };
-        /*
-         * Frame-rate independent. The old constant was a fixed fraction PER
-         * FRAME, so on a throttled ticker the reticle crawled — it spent the
-         * whole dwell drifting across the middle of the board (straight through
-         * the countdown) instead of arriving at a zone and sitting on it. With
-         * a time constant it covers ~95% of the distance in 300ms whatever the
-         * ticker is doing, so each leg is a quick move and a long hold.
-         */
-        const dt = sinceLastTick;
-        const tau = st.phase === 'RESOLVED' ? 45 : st.weatherId === 'HIGH_SWELL' ? 150 : 110;
-        const k = 1 - Math.exp(-dt / tau);
-        this.stormPos.x += (target.x - this.stormPos.x) * k;
-        this.stormPos.y += (target.y - this.stormPos.y) * k;
+        this.stormPos = target;
+        if (this.stormAcquire.legKey !== legKey) {
+          this.stormAcquire = { legKey, at: now };
+        }
       }
-      this.stormC.position.set(
-        this.stormPos.x + (this.reduced ? 0 : Math.sin(now / 700) * 4),
-        this.stormPos.y + (this.reduced ? 0 : Math.sin(now / 900) * 2),
-      );
+      // Before the first target exists there is nowhere legitimate to draw, and
+      // the sentinel is off-board. `renderable` skips the draw without touching
+      // `visible`, which redraw() owns.
+      this.stormC.renderable = this.stormPos.x >= 0;
+      this.stormC.position.set(this.stormPos.x, this.stormPos.y);
+      // Lock-on: a brief settle from slightly wide, in the 120-180ms band the
+      // rest of the interface uses for a press. No idle jitter — a reticle that
+      // trembles on its target reads as noise, not as aim.
+      const acquire = this.reduced
+        ? 1
+        : Math.min(1, (now - this.stormAcquire.at) / FEINT_ACQUIRE_MS);
+      const ease = 1 - (1 - acquire) ** 3;
+      this.stormC.scale.set(1 + (1 - ease) * 0.18);
       /*
        * Once the round resolves the strike frame takes over the struck zone, so
        * the reticle stands down rather than stacking a second red box on top of
@@ -999,8 +1014,6 @@ export class BayScene {
           this.stormRain.rect(-1, y, 2, 6).fill({ color: DANGER, alpha: 0.45 });
         }
       }
-    } else {
-      this.stormPos = { x: -200, y: -200 };
     }
 
     // strike flash

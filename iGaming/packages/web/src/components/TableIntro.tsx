@@ -8,13 +8,20 @@
  * No mechanics change — this is explanation only.
  */
 import { useEffect, useRef, useState } from 'react';
-import { fmt, useStore } from '../store';
+import { resolveStakeLimit } from '../stakeLimits';
+import { fmt, stakeLimitInput, useStore } from '../store';
 import { SurgeIcon, XIcon } from './icons';
 
 interface Intro {
   name: string;
   minMinor: number;
   maxMinor: number;
+  /**
+   * What this table will actually accept right now, or null when the cap is not
+   * yet knowable or is not biting — in which case the card explains the rule
+   * without quoting a figure that is about to change.
+   */
+  liveMaxMinor: number | null;
 }
 
 const AUTO_DISMISS_MS = 11_000;
@@ -40,7 +47,18 @@ export function TableIntro() {
     // Read the freshest room facts; WELCOME/JOIN_ROOM set them together.
     const s = useStore.getState();
     const name = s.rooms.find((r) => r.roomId === roomId)?.name ?? 'this table';
-    setIntro({ name, minMinor: s.roomMinStakeMinor, maxMinor: s.roomMaxStakeMinor });
+    /*
+     * The same limit the deck and the rail show. Quote the figure only when it
+     * actually binds — on a busy table the tier maximum is the real ceiling and
+     * a second number would just be noise.
+     */
+    const liveMaxMinor = resolveStakeLimit(stakeLimitInput(s)).maxMinor;
+    setIntro({
+      name,
+      minMinor: s.roomMinStakeMinor,
+      maxMinor: s.roomMaxStakeMinor,
+      liveMaxMinor: liveMaxMinor < s.roomMaxStakeMinor ? liveMaxMinor : null,
+    });
     const t = window.setTimeout(() => setIntro(null), AUTO_DISMISS_MS);
     return () => window.clearTimeout(t);
   }, [roomId, welcomeOpen, welcomeChoseRoomId]);
@@ -81,16 +99,36 @@ export function TableIntro() {
             <span aria-hidden="true" className="font-black text-[var(--lf-focus)]">
               •
             </span>
+            {/*
+             * The tier range above is what the table is FOR. This is what it
+             * will take from you right now, which on a quiet table is a much
+             * smaller number — and the deck shows it live as "Max now". Saying
+             * it here, on the way in, is the difference between a rule and an
+             * unexplained rejection ten seconds later.
+             */}
             <span>
-              No player can hold more than <b className="text-[var(--lf-text)]">25% of a round</b>,
-              so your live max can be lower when the table is quiet.
+              {intro.liveMaxMinor === null ? (
+                <>While the table is quiet your bet is capped below that maximum</>
+              ) : (
+                <>
+                  While the table is quiet your bet is capped at{' '}
+                  <b className="text-[var(--lf-warn)]">{fmt(intro.liveMaxMinor)}</b>
+                </>
+              )}{' '}
+              — payouts come out of the hit zone's pot, so there is little for a bigger bet to win.
+              The deck shows the live number as <b className="text-[var(--lf-text)]">Max now</b>,
+              and it rises as players join.
             </span>
           </li>
           <li className="flex gap-2">
             <span aria-hidden="true" className="text-[var(--lf-amber)]">
               <SurgeIcon size={14} />
             </span>
-            <span>Every round feeds the jackpot — one safe player wins it on a bonus round.</span>
+            <span>
+              This table has <b className="text-[var(--lf-text)]">its own jackpot</b>, built only
+              from rounds played here. One safe player wins it on a jackpot round — the bigger
+              your bet, the better your chance.
+            </span>
           </li>
         </ul>
       </div>

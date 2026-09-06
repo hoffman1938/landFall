@@ -99,7 +99,7 @@ export function TopBar() {
         <>
           <span className="h-4 w-px shrink-0 bg-[var(--lf-line)]" aria-hidden="true" />
           <span
-            className="hidden max-w-40 shrink truncate text-[12px] font-bold text-[var(--lf-dim)] md:inline"
+            className="hidden max-w-40 shrink truncate text-[13px] font-semibold text-[var(--lf-dim)] md:inline"
             title="Your table — switch it in Settings"
           >
             {tableName}
@@ -121,22 +121,22 @@ export function TopBar() {
           }`}
           title={
             surge
-              ? 'Jackpot round — one safe player wins the whole jackpot'
-              : 'Jackpot — grows every round until a jackpot round pays it out'
+              ? `${tableName ?? 'This table'} jackpot — one safe player here wins the whole pot this round. A bigger bet is a better chance.`
+              : `${tableName ?? 'This table'} jackpot. Every table has its own, built only from rounds played here, and it grows until a jackpot round pays it out.`
           }
-          aria-label={`Jackpot ${fmt(round.surgePotMinor)} credits${surge ? ', live this round' : ''}`}
+          aria-label={`${tableName ?? 'Table'} jackpot ${fmt(round.surgePotMinor)} credits${surge ? ', live this round' : ''}`}
         >
           <span className={surge ? 'lf-pulse' : 'text-[var(--lf-mute)]'} aria-hidden="true">
             <SurgeIcon size={13} />
           </span>
           <span className="flex flex-col gap-1">
             <span
-              className={`lf-label hidden sm:block ${surge ? '!text-black/60' : ''}`}
+              className={`lf-label hidden max-w-24 truncate sm:block ${surge ? '!text-black/60' : ''}`}
             >
-              Jackpot
+              {tableName ? `${tableName} pot` : 'Jackpot'}
             </span>
             <span
-              className={`lf-num text-[13px] leading-none ${
+              className={`lf-num text-[15px] leading-none ${
                 surge ? 'text-black' : 'text-[var(--lf-text)]'
               }`}
             >
@@ -171,8 +171,8 @@ export function TopBar() {
           className="lf-edge flex shrink-0 items-baseline gap-1.5 rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface)] px-2.5 py-1"
           aria-label={`Balance ${fmt(balanceMinor)} credits`}
         >
-          <span className="lf-label hidden xl:inline">Bal</span>
-          <span className="lf-num text-[15px] text-[var(--lf-text)]">{fmt(balanceMinor)}</span>
+          <span className="lf-label-soft hidden xl:inline">Bal</span>
+          <span className="lf-metric text-[var(--lf-text)]">{fmt(balanceMinor)}</span>
           <span className="hidden text-[10px] font-bold text-[var(--lf-mute)] min-[420px]:inline">
             CR
           </span>
@@ -204,7 +204,7 @@ export function TopBar() {
                 audio.setPrefs({ volume: nextVolume, muted: false });
                 setMuted(false);
               }}
-              className="w-24 accent-[var(--lf-accent)]"
+              className="w-28"
               aria-label="Volume"
             />
           </div>
@@ -267,12 +267,17 @@ export function TopBar() {
                                 ? 'You are at this table'
                                 : 'Switch tables — your live bet is refunded first'
                             }
-                            className={`flex items-center gap-2 rounded-r-md border-l-2 px-2.5 py-2 text-left transition-colors ${
+                            className={`flex items-center gap-2.5 rounded-r-md border-l-2 px-2.5 py-2 text-left transition-colors ${
                               active
                                 ? 'border-white bg-[var(--lf-white-soft)]'
                                 : 'border-[var(--lf-line)] bg-[var(--lf-surface-2)] hover:border-[var(--lf-line-2)]'
                             }`}
                           >
+                            <span
+                              className="lf-radio"
+                              data-checked={active ? 'true' : 'false'}
+                              aria-hidden="true"
+                            />
                             <span className="min-w-0 flex-1">
                               <span className="flex items-center gap-1.5">
                                 <span className="min-w-0 truncate text-[13px] font-bold text-[var(--lf-text)]">
@@ -304,7 +309,7 @@ export function TopBar() {
                   </div>
                 )}
                 <div className="my-1 h-px bg-[var(--lf-line)]" aria-hidden="true" />
-                <label className="flex min-h-11 cursor-pointer items-center gap-2.5 px-2 py-1 text-[13px] font-semibold text-[var(--lf-text)] hover:bg-[var(--lf-surface-2)]">
+                <label className="relative flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 py-1 text-[13px] font-semibold text-[var(--lf-text)] transition-colors hover:bg-[var(--lf-surface-2)]">
                   <input
                     type="checkbox"
                     checked={deckProgress.expert}
@@ -312,8 +317,9 @@ export function TopBar() {
                       audio.click('tap');
                       updateDeckProgress(withExpert(getDeckProgress(), event.target.checked));
                     }}
-                    className="h-4 w-4 shrink-0 accent-[var(--lf-accent)]"
+                    className="lf-switch-input"
                   />
+                  <span className="lf-switch" aria-hidden="true" />
                   <span>
                     Expert mode
                     <span className="block text-[11px] font-medium leading-snug text-[var(--lf-mute)]">
@@ -321,7 +327,7 @@ export function TopBar() {
                     </span>
                   </span>
                 </label>
-                <label className="flex min-h-11 cursor-pointer items-center gap-2.5 px-2 py-1 text-[13px] font-semibold text-[var(--lf-text)] hover:bg-[var(--lf-surface-2)]">
+                <label className="relative flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 py-1 text-[13px] font-semibold text-[var(--lf-text)] transition-colors hover:bg-[var(--lf-surface-2)]">
                   <input
                     type="checkbox"
                     checked={quickBet}
@@ -329,8 +335,9 @@ export function TopBar() {
                       audio.click('tap');
                       setQuickBet(event.target.checked);
                     }}
-                    className="h-4 w-4 shrink-0 accent-[var(--lf-accent)]"
+                    className="lf-switch-input"
                   />
+                  <span className="lf-switch" aria-hidden="true" />
                   <span>
                     Quick bet
                     <span className="block text-[11px] font-medium leading-snug text-[var(--lf-mute)]">

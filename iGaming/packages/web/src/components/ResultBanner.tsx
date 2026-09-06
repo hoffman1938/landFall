@@ -93,7 +93,7 @@ export function ResultBanner() {
 
       {/* the personal verdict */}
       {r.outcome === 'SPECTATOR' ? (
-        <div className="lf-rise lf-surface rounded-md px-4 py-2 text-[12px] font-semibold text-[var(--lf-dim)]">
+        <div className="lf-rise lf-surface rounded-md px-4 py-2 text-[13px] font-medium text-[var(--lf-dim)]">
           The storm hit {struckZone} — players there lost; everyone else shared its pool
         </div>
       ) : r.outcome === 'WRECKED' ? (
@@ -104,10 +104,10 @@ export function ResultBanner() {
          * 1-in-6 that landed, not a thing that was done to them.
          */
         <div className="lf-rise lf-surface rounded-md border-l-2 !border-l-[var(--lf-accent)] px-6 py-2.5 text-center">
-          <div className="lf-display lf-settle text-[30px] text-[var(--lf-text)]">
+          <div className="lf-display lf-settle text-[34px] text-[var(--lf-text)]">
             −{fmt(-r.netMinor)}
           </div>
-          <div className="mt-1.5 text-[12px] font-semibold text-[var(--lf-dim)]">
+          <div className="mt-2 text-[13px] font-medium text-[var(--lf-dim)]">
             {struckZone} was hit — a 1-in-6 chance. Its pool went to the other players.
           </div>
         </div>
@@ -120,7 +120,7 @@ export function ResultBanner() {
           }`}
         >
           <div
-            className={`lf-display lf-settle text-[30px] ${
+            className={`lf-display lf-settle text-[34px] ${
               r.netMinor >= 0 ? 'text-[var(--lf-win)]' : 'text-[var(--lf-text)]'
             }`}
           >
@@ -138,7 +138,7 @@ export function ResultBanner() {
       )}
 
       {/* replay strip: the round retold in one line + one-tap fairness */}
-      <div className="lf-rise lf-surface pointer-events-auto flex max-w-[min(94vw,620px)] items-center gap-3 rounded-md px-3 py-1.5 text-[11px] text-[var(--lf-mute)]">
+      <div className="lf-rise lf-surface pointer-events-auto flex max-w-[min(94vw,620px)] items-center gap-3 rounded-md px-3 py-1.5 text-[12px] text-[var(--lf-mute)]">
         <span className="font-semibold text-[var(--lf-dim)]">{replay.headline}</span>
         <span className="hidden sm:inline">
           {replay.fogMoves} last moves · hit pool {fmt(replay.struckPoolMinor)}

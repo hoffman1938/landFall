@@ -26,8 +26,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { ZONE_COUNT, type TideBand } from '@landfall/core';
 import { audio } from '../audio/engine';
+import { resolveStakeLimit } from '../stakeLimits';
 import { fmt, useStore, type SessionPoint } from '../store';
-import { crowdLabel, zoneName } from '../strings';
+import { LIVE_MAX_HINT, crowdLabel, zoneName } from '../strings';
 import { ChartIcon, LockIcon, StormIcon, XIcon } from './icons';
 
 /** How full a zone's crowd bar reads. Mirrors BAND_FILL in the bay layer. */
@@ -106,7 +107,7 @@ function Row({
 }: {
   label: string;
   value: React.ReactNode;
-  tone?: 'default' | 'mine' | 'win' | 'loss' | 'muted';
+  tone?: 'default' | 'mine' | 'win' | 'loss' | 'warn' | 'muted';
   title?: string;
 }) {
   const color =
@@ -116,13 +117,15 @@ function Row({
         ? 'text-[var(--lf-win)]'
         : tone === 'loss'
           ? 'text-[var(--lf-accent)]'
-          : tone === 'muted'
+          : tone === 'warn'
+            ? 'text-[var(--lf-warn)]'
+            : tone === 'muted'
             ? 'text-[var(--lf-mute)]'
             : 'text-[var(--lf-dim)]';
   return (
     <div className="flex items-baseline justify-between gap-2 py-[3px]" title={title}>
-      <span className="truncate text-[11px] font-semibold text-[var(--lf-mute)]">{label}</span>
-      <span className={`lf-num shrink-0 text-[13px] ${color}`}>{value}</span>
+      <span className="truncate text-[12px] font-medium text-[var(--lf-dim)]">{label}</span>
+      <span className={`lf-num shrink-0 text-[14px] ${color}`}>{value}</span>
     </div>
   );
 }
@@ -139,7 +142,7 @@ function SessionCurve({ series }: { series: SessionPoint[] }) {
   if (series.length < 2) {
     return (
       <div
-        className="flex h-14 items-center justify-center border border-dashed border-[var(--lf-line)] text-[11px] font-semibold text-[var(--lf-mute)]"
+        className="flex h-14 items-center justify-center border border-dashed border-[var(--lf-line)] text-[12px] font-medium text-[var(--lf-mute)]"
         aria-hidden="true"
       >
         Curve starts after 2 rounds
@@ -267,7 +270,7 @@ function ZoneFlow() {
             } ${canPick ? 'cursor-pointer' : 'cursor-default'}`}
           >
             <span
-              className={`w-3 shrink-0 text-[11px] font-black tabular-nums ${
+              className={`w-3 shrink-0 text-[12px] font-black tabular-nums ${
                 hit
                   ? 'text-[var(--lf-accent)]'
                   : mine || selected
@@ -292,7 +295,7 @@ function ZoneFlow() {
               />
             </span>
 
-            <span className="flex w-14 shrink-0 items-center justify-end gap-1 text-[11px] font-bold tabular-nums text-[var(--lf-dim)]">
+            <span className="flex w-16 shrink-0 items-center justify-end gap-1 text-[13px] font-bold tabular-nums text-[var(--lf-dim)]">
               {hit ? (
                 <span className="text-[var(--lf-accent)]">
                   <StormIcon size={11} />
@@ -334,20 +337,20 @@ function StrikeFrequency() {
       >
         {counts.map((count, zone) => (
           <div key={zone} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            <span className="text-[10px] font-bold tabular-nums text-[var(--lf-dim)]">
+            <span className="text-[11px] font-bold tabular-nums text-[var(--lf-dim)]">
               {count}
             </span>
             <span
               className="w-full bg-[var(--lf-line-2)]"
               style={{ height: `${6 + (count / peak) * 26}px` }}
             />
-            <span className="text-[10px] font-bold tabular-nums text-[var(--lf-mute)]">
+            <span className="text-[11px] font-bold tabular-nums text-[var(--lf-mute)]">
               {zone + 1}
             </span>
           </div>
         ))}
       </div>
-      <p className="mt-2 text-[11px] font-semibold leading-snug text-[var(--lf-mute)]">
+      <p className="mt-2.5 text-[12px] font-medium leading-snug text-[var(--lf-mute)]">
         Last {window_.length} rounds. Every zone stays exactly 1 in 6 next round — history never
         moves the odds.
       </p>
@@ -368,6 +371,10 @@ function RailBody() {
   const round = useStore((s) => s.round);
   const roomId = useStore((s) => s.roomId);
   const rooms = useStore((s) => s.rooms);
+  const roomMinStakeMinor = useStore((s) => s.roomMinStakeMinor);
+  const roomMaxStakeMinor = useStore((s) => s.roomMaxStakeMinor);
+  const whaleCapFraction = useStore((s) => s.whaleCapFraction);
+  const roomLiquidityFloorMinor = useStore((s) => s.roomLiquidityFloorMinor);
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -387,12 +394,27 @@ function RailBody() {
     handle && handle > 0 && myFleet ? (myFleet.stakeMinor / handle) * 100 : null;
   const tableName = rooms.find((r) => r.roomId === roomId)?.name ?? '—';
 
+  /*
+   * The live bet ceiling — the same figure the deck shows, from the same
+   * function, so the two can never disagree. It is here because it is a fact
+   * about the round, and because a player who has been refused once wants the
+   * number without poking the stepper.
+   */
+  const liveMaxMinor = resolveStakeLimit({
+    balanceMinor,
+    roomMinStakeMinor,
+    roomMaxStakeMinor,
+    whaleCapFraction,
+    liquidityFloorMinor: roomLiquidityFloorMinor,
+    houseSeedMinor: round?.houseSeedMinor ?? 0,
+  }).maxMinor;
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <Block
         label="Session"
         aside={
-          <span className="lf-num text-[11px] text-[var(--lf-mute)]">
+          <span className="lf-num text-[12px] text-[var(--lf-mute)]">
             {elapsed(sessionStartAt, now)}
           </span>
         }
@@ -400,7 +422,7 @@ function RailBody() {
         {/* the rail's leading figure (rule 3) */}
         <div
           key={net}
-          className={`lf-display lf-tick text-[30px] ${
+          className={`lf-display lf-tick text-[28px] ${
             net > 0
               ? 'text-[var(--lf-win)]'
               : net < 0
@@ -433,11 +455,21 @@ function RailBody() {
         label="This round"
         aside={
           round ? (
-            <span className="lf-num text-[11px] text-[var(--lf-mute)]">#{round.roundId}</span>
+            <span className="lf-num text-[12px] text-[var(--lf-mute)]">#{round.roundId}</span>
           ) : null
         }
       >
         <Row label="Table" value={tableName} tone="muted" />
+        <Row
+          label="Your bet limit"
+          value={fmt(liveMaxMinor)}
+          tone={liveMaxMinor < roomMaxStakeMinor ? 'warn' : 'default'}
+          title={
+            liveMaxMinor < roomMaxStakeMinor
+              ? `${LIVE_MAX_HINT} This table's ceiling is ${fmt(roomMaxStakeMinor)}.`
+              : `The full table maximum is available this round.`
+          }
+        />
         <Row
           label="Your stake"
           value={myFleet ? fmt(myFleet.stakeMinor) : '—'}
