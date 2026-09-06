@@ -66,7 +66,8 @@ const BAND_FILL: Record<TideBand, number> = {
 const CROWD_SEGMENTS = 6;
 
 /**
- * Banded chip-stack meter — informational cyan, never amber (payout-only).
+ * Banded crowd meter — six flat ticks, grey. It reports how many other people
+ * are here, which is information rather than an outcome, so it gets no hue.
  * Renders nothing once the band is gone (lock onward): that is exactly when
  * the status word is at its longest and the exact pot takes over the story,
  * so the meter's width is better spent on the label at narrow widths.
@@ -79,10 +80,10 @@ function CrowdMeter({ band }: { band: TideBand | null }) {
       {Array.from({ length: CROWD_SEGMENTS }, (_, i) => (
         <span
           key={i}
-          className={`h-2.5 w-[3px] rounded-[1px] ${
-            i < lit ? 'bg-[var(--lf-focus)]' : 'bg-[var(--lf-line)]'
+          className={`h-2.5 w-[3px] ${
+            i < lit ? 'bg-[var(--lf-dim)]' : 'bg-[var(--lf-line)]'
           }`}
-          style={i < lit ? { opacity: 0.5 + (i / CROWD_SEGMENTS) * 0.5 } : undefined}
+          style={i < lit ? { opacity: 0.55 + (i / CROWD_SEGMENTS) * 0.45 } : undefined}
         />
       ))}
     </span>
@@ -226,16 +227,16 @@ function CoveStatusCard({
     <button
       type="button"
       data-cove={zone + 1}
-      className={`lf-glass pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border px-3 py-2 text-left text-[var(--lf-text)] transition-[border-color,background-color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--lf-focus)]/40 ${
+      className={`lf-glass pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-md border px-3 py-2 text-left text-[var(--lf-text)] transition-[border-color,background-color] duration-150 ${
         struck
-          ? 'border-[var(--lf-danger)] !shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_28px_rgba(240,54,74,0.3),0_12px_34px_rgba(0,0,0,0.55)]'
+          ? '!border-[var(--lf-accent)]'
           : mine
-            ? 'border-[var(--lf-focus)] !shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_24px_rgba(60,184,234,0.24),0_12px_34px_rgba(0,0,0,0.5)]'
+            ? '!border-white'
             : selected
-              ? 'border-2 border-dashed border-[var(--lf-focus)]'
+              ? 'border-dashed !border-white/60'
               : locked || safe
-                ? 'border-[var(--lf-brass-soft)]'
-                : 'border-[var(--lf-brass-soft)] hover:-translate-y-[calc(50%+2px)] hover:border-[var(--lf-focus)]/70'
+                ? ''
+                : 'hover:!border-[var(--lf-line-2)]'
       } ${canPick ? 'cursor-pointer' : 'cursor-default'}`}
       style={{ left: layout.markerX, top: layout.markerY, width: markerWidth }}
       aria-label={cardDescription}
@@ -264,33 +265,36 @@ function CoveStatusCard({
         <span
           aria-hidden="true"
           className={`absolute inset-0 ${
-            struck
-              ? 'bg-[var(--lf-danger)]/12'
-              : 'bg-[var(--lf-focus)]/[0.07]'
+            struck ? 'bg-[var(--lf-accent-soft)]' : 'bg-[var(--lf-white-soft)]'
           }`}
         />
       )}
 
       <span className="relative flex items-center gap-1.5 leading-none">
-        <span className="truncate text-sm font-extrabold tracking-[0.01em] text-[var(--lf-text)]">
+        <span className="truncate text-[13px] font-extrabold uppercase tracking-[0.08em] text-[var(--lf-text)]">
           {zoneName(zone)}
         </span>
         {(mine || selected) && (
           <span
             aria-hidden="true"
-            className="ml-auto flex h-4 w-4 items-center justify-center rounded-full bg-[var(--lf-focus)] text-[10px] font-black text-[#03202f]"
-          >
-            ✓
-          </span>
+            className={`ml-auto h-2 w-2 shrink-0 ${mine ? 'bg-white' : 'bg-white/45'}`}
+          />
         )}
       </span>
 
       {/* the pot: a banded chip meter, the crowd word, and the fleet count */}
       <span className="relative mt-1.5 flex min-w-0 items-center gap-1.5 leading-none">
-        <CrowdMeter band={tide && !struck && !locked && !safe ? tide.band : null} />
+        {/*
+         * The meter and the word say the same thing. On a phone-sized card
+         * there is room for one of them, and the word wins: "MEDIUM" is
+         * unambiguous where a half-lit bar has to be learned.
+         */}
+        {markerWidth >= 150 && (
+          <CrowdMeter band={tide && !struck && !locked && !safe ? tide.band : null} />
+        )}
         <span
-          className={`truncate text-xs font-bold ${
-            struck ? 'text-[var(--lf-danger)]' : 'text-[var(--lf-dim)]'
+          className={`truncate text-[11px] font-bold uppercase ${
+            struck ? 'text-[var(--lf-accent)]' : 'text-[var(--lf-dim)]'
           }`}
         >
           {status}
@@ -298,12 +302,12 @@ function CoveStatusCard({
         {trend && !struck && !locked && (
           <span
             aria-label={`${trend.label} trend`}
-            className="shrink-0 text-xs font-extrabold text-[var(--lf-focus)]"
+            className="shrink-0 text-[11px] font-extrabold text-[var(--lf-mute)]"
           >
             {trend.glyph}
           </span>
         )}
-        <span className="ml-auto flex shrink-0 items-center gap-1 text-xs font-bold tabular-nums text-[var(--lf-dim)]">
+        <span className="ml-auto flex shrink-0 items-center gap-1 text-[11px] font-bold tabular-nums text-[var(--lf-mute)]">
           {struck ? (
             <StormIcon size={13} aria-hidden="true" />
           ) : locked ? (
@@ -318,32 +322,24 @@ function CoveStatusCard({
           phases — the exact pot only exists after the lock snapshot, and a
           card that grows at lock reads as the table twitching. Your own stake
           on this zone sits left of the pot, so the two are never confused. */}
-      <span className="relative mt-1.5 flex items-baseline gap-2 border-t border-[var(--lf-brass-faint)] pt-1.5 leading-none">
+      <span className="relative mt-1.5 flex items-baseline gap-2 border-t border-[var(--lf-line)] pt-1.5 leading-none">
         {mine ? (
-          <span className="flex min-w-0 shrink items-baseline gap-1 text-[var(--lf-focus)]">
-            <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-[0.06em]">
-              {mine.label}
-            </span>
-            <span className="truncate text-[13px] font-extrabold tabular-nums">
+          <span className="flex min-w-0 shrink items-baseline gap-1 text-white">
+            <span className="lf-label shrink-0 !text-white/70">{mine.label}</span>
+            <span className="lf-num truncate text-[13px]">
               {formatCredits(mine.mineMinor)}
             </span>
           </span>
         ) : (
-          <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-[0.06em] text-[var(--lf-dim)]/80">
-            Pot
-          </span>
+          <span className="lf-label shrink-0">Pot</span>
         )}
         <span
-          className={`ml-auto flex shrink-0 items-baseline gap-1 tabular-nums ${
-            detail ? 'text-[var(--lf-text)]' : 'text-[var(--lf-dim)]/45'
+          className={`ml-auto flex shrink-0 items-baseline gap-1 ${
+            detail ? 'text-[var(--lf-text)]' : 'text-[var(--lf-mute)]/60'
           }`}
         >
-          {mine && (
-            <span className="text-[10px] font-extrabold uppercase tracking-[0.06em] text-[var(--lf-dim)]/80">
-              Pot
-            </span>
-          )}
-          <span className="text-[13px] font-extrabold">{detail ?? '—'}</span>
+          {mine && <span className="lf-label">Pot</span>}
+          <span className="lf-num text-[13px]">{detail ?? '—'}</span>
         </span>
       </span>
     </button>

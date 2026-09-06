@@ -6,9 +6,9 @@
  * with verification — never a pattern oracle.
  */
 import { useEffect } from 'react';
-import { HARBOR_NAMES } from '@landfall/core';
 import { audio } from '../audio/engine';
 import { fmt, useStore, type ReplayCard } from '../store';
+import { STR, zoneName } from '../strings';
 import { downloadReplayCard } from '../replayCardImage';
 import { CrateIcon, ShieldCheckIcon, StormIcon, SurgeIcon, XIcon } from './icons';
 
@@ -21,7 +21,7 @@ function ReplayCardView({ card }: { card: ReplayCard }) {
   const mult = card.stormPower ? card.stormPower.mNum / card.stormPower.mDen : 1;
 
   return (
-    <li className="rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 p-3">
+    <li className="rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 p-3">
       <div className="flex items-baseline gap-2">
         <span className="text-xs font-extrabold tabular-nums text-[var(--lf-dim)]">
           #{card.roundId}
@@ -32,8 +32,9 @@ function ReplayCardView({ card }: { card: ReplayCard }) {
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        <span className="font-extrabold text-[var(--lf-danger)]">
-          ⛈ Cove {card.struckZone + 1} · {HARBOR_NAMES[card.struckZone]}
+        <span className="flex items-center gap-1 font-extrabold text-[var(--lf-accent)]">
+          <StormIcon size={12} />
+          {zoneName(card.struckZone)} hit
         </span>
         <span className="tabular-nums text-[var(--lf-dim)]">
           wreck {fmt(card.replay.struckPoolMinor)}
@@ -59,14 +60,14 @@ function ReplayCardView({ card }: { card: ReplayCard }) {
               className={`font-extrabold ${net > 0 ? 'text-[var(--lf-safe)]' : 'text-[var(--lf-danger)]'}`}
             >
               {net > 0 ? '▲' : '▼'}
-              {Math.abs(net)} C{zone + 1}
+              {Math.abs(net)} Z{zone + 1}
             </span>
           ))
         )}
       </div>
 
       {card.replay.biggestSalvage ? (
-        <div className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-[var(--lf-amber)]">
+        <div className="mt-1.5 flex items-center gap-1.5 text-xs font-bold text-[var(--lf-win)]">
           <CrateIcon size={12} />
           {card.replay.biggestSalvage.name} salvaged +{fmt(card.replay.biggestSalvage.amountMinor)}
         </div>
@@ -87,7 +88,7 @@ function ReplayCardView({ card }: { card: ReplayCard }) {
               key={`${flag.name}-${index}`}
               className={`text-xs font-semibold ${flag.honest ? 'text-[var(--lf-safe)]' : 'text-[var(--lf-danger)]'}`}
             >
-              {flag.honest ? '✓ honest' : '✗ bluff'} — {flag.name}: {flag.kind} C{flag.zone + 1}
+              {flag.honest ? '✓ honest' : '✗ bluff'} — {flag.name}: {flag.kind} Z{flag.zone + 1}
             </li>
           ))}
         </ul>
@@ -100,7 +101,7 @@ function ReplayCardView({ card }: { card: ReplayCard }) {
             audio.click('tap');
             downloadReplayCard(card);
           }}
-          className="min-h-11 flex-1 rounded-lg border border-[var(--lf-line)] px-2 text-xs font-extrabold text-[var(--lf-dim)] hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+          className="min-h-11 flex-1 rounded-lg border border-[var(--lf-line)] px-2 text-xs font-extrabold text-[var(--lf-dim)] hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)]"
         >
           Save image
         </button>
@@ -110,7 +111,7 @@ function ReplayCardView({ card }: { card: ReplayCard }) {
             audio.click('nav');
             openVerify(card.roundId);
           }}
-          className="flex min-h-11 items-center justify-center gap-1 rounded-lg border border-[var(--lf-line)] px-3 text-xs font-extrabold text-[var(--lf-dim)] hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+          className="flex min-h-11 items-center justify-center gap-1 rounded-lg border border-[var(--lf-line)] px-3 text-xs font-extrabold text-[var(--lf-dim)] hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)]"
         >
           <ShieldCheckIcon size={12} />
           Verify
@@ -138,7 +139,7 @@ export function WreckLogSheet() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#02070a]/72 backdrop-blur-[2px] p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) setWreckLogOpen(false);
       }}
@@ -146,15 +147,13 @@ export function WreckLogSheet() {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Wreck Log replay cards"
-        className="lf-sheet lf-surface lf-rim flex max-h-[86dvh] w-full max-w-md flex-col rounded-2xl"
+        aria-label="Round history"
+        className="lf-sheet lf-overlay flex max-h-[86dvh] w-full max-w-md flex-col rounded-lg"
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-[var(--lf-line)] px-4 py-3">
           <StormIcon size={18} />
-          <h2 className="text-sm font-black uppercase tracking-[0.1em] text-[var(--lf-brass)]">
-            WRECK LOG
-          </h2>
-          <span className="text-xs font-semibold text-[var(--lf-dim)]">
+          <h2 className="lf-label !text-[var(--lf-dim)]">{STR.history}</h2>
+          <span className="text-[11px] font-semibold text-[var(--lf-mute)]">
             last {replayCards.length} round{replayCards.length === 1 ? '' : 's'}
           </span>
           <button
@@ -163,8 +162,8 @@ export function WreckLogSheet() {
               audio.click('nav');
               setWreckLogOpen(false);
             }}
-            className="ml-auto flex h-11 w-11 items-center justify-center rounded-full text-[var(--lf-dim)] hover:bg-[var(--lf-panel)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
-            aria-label="Close Wreck Log"
+            className="ml-auto flex h-11 w-11 items-center justify-center rounded-md text-[var(--lf-dim)] hover:bg-[var(--lf-panel)] hover:text-[var(--lf-text)]"
+            aria-label="Close round history"
           >
             <XIcon size={18} />
           </button>

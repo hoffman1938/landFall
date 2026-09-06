@@ -24,14 +24,7 @@ import type { RoomInfo } from '@landfall/core';
 import { audio } from '../audio/engine';
 import { fmt, useStore } from '../store';
 import { ONE_LINER, STR, WELCOME_POINTS } from '../strings';
-import {
-  AnchorIcon,
-  CrateIcon,
-  LighthouseIcon,
-  ShieldCheckIcon,
-  StormIcon,
-  SurgeIcon,
-} from './icons';
+import { AnchorIcon, CrateIcon, ShieldCheckIcon, StormIcon, SurgeIcon } from './icons';
 
 const SEEN_KEY = 'landfall.welcomeSeen';
 
@@ -51,25 +44,29 @@ function markWelcomeSeen(): void {
   }
 }
 
-/** The round in four pictures. Same visual language as the Rules sheet. */
+/**
+ * The round in four frames, colour-coded by the same law the game uses, so a
+ * first-time player learns the palette before they learn the rules: white is
+ * you, red is the storm, green is money coming back, orange is the jackpot.
+ */
 function PitchStrip() {
   const frames: [React.ComponentType<{ size?: number }>, string, string][] = [
-    [AnchorIcon, 'var(--lf-focus)', 'You pick a zone'],
-    [StormIcon, 'var(--lf-danger)', 'The storm hits one'],
-    [CrateIcon, 'var(--lf-amber)', 'Its pot pays the rest'],
-    [SurgeIcon, 'var(--lf-amber)', 'Jackpot builds'],
+    [AnchorIcon, '#ffffff', 'You pick a zone'],
+    [StormIcon, 'var(--lf-accent)', 'The storm hits one'],
+    [CrateIcon, 'var(--lf-win)', 'Its pot pays the rest'],
+    [SurgeIcon, 'var(--lf-warn)', 'Jackpot builds'],
   ];
   return (
     <div className="grid grid-cols-4 gap-1.5">
       {frames.map(([Icon, color, label], i) => (
         <div
           key={i}
-          className="flex flex-col items-center gap-1.5 rounded-xl border border-[var(--lf-brass-faint)] bg-[var(--lf-bg)] px-1 py-2.5 text-center"
+          className="flex flex-col items-center gap-2 rounded-md border border-[var(--lf-line)] bg-[var(--lf-bg)] px-1 py-3 text-center"
         >
           <span style={{ color }} aria-hidden="true">
-            <Icon size={24} />
+            <Icon size={22} />
           </span>
-          <span className="text-[11px] font-bold leading-tight text-[var(--lf-text)]">{label}</span>
+          <span className="text-[11px] font-bold leading-tight text-[var(--lf-dim)]">{label}</span>
         </div>
       ))}
     </div>
@@ -92,22 +89,16 @@ function TableCard({
       role="radio"
       aria-checked={selected}
       onClick={onSelect}
-      className={`flex min-h-14 w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] ${
+      className={`flex min-h-14 w-full items-center gap-3 rounded-r-md border-l-2 px-3 py-2.5 text-left transition-colors ${
         selected
-          ? 'border-[var(--lf-focus)] bg-[var(--lf-focus)]/10 shadow-[0_0_18px_rgba(60,184,234,0.2)]'
-          : 'border-[var(--lf-brass-faint)] bg-[var(--lf-surface-2)] hover:border-[var(--lf-brass-soft)]'
+          ? 'border-l-white bg-[var(--lf-white-soft)]'
+          : 'border-l-[var(--lf-line)] bg-[var(--lf-surface-2)] hover:border-l-[var(--lf-line-2)]'
       }`}
     >
       <span
         aria-hidden="true"
-        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-black ${
-          selected
-            ? 'border-[var(--lf-focus)] bg-[var(--lf-focus)] text-[#03202f]'
-            : 'border-[var(--lf-line)] text-transparent'
-        }`}
-      >
-        ✓
-      </span>
+        className={`h-2.5 w-2.5 shrink-0 ${selected ? 'bg-white' : 'bg-[var(--lf-line-2)]'}`}
+      />
 
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
@@ -116,18 +107,18 @@ function TableCard({
           </span>
           {/* Population honesty (C2): real humans, bots never counted. */}
           <span
-            className={`shrink-0 rounded px-1.5 py-px text-[9px] font-black uppercase tracking-[0.08em] ${
+            className={`shrink-0 rounded-sm px-1.5 py-px text-[9px] font-black uppercase tracking-[0.08em] ${
               liquidity === 'busy'
-                ? 'bg-[var(--lf-action)]/20 text-[var(--lf-safe)]'
+                ? 'bg-[var(--lf-win-soft)] text-[var(--lf-win)]'
                 : liquidity === 'filling'
-                  ? 'bg-[var(--lf-focus)]/15 text-[var(--lf-focus)]'
-                  : 'bg-[var(--lf-line)]/60 text-[var(--lf-dim)]'
+                  ? 'bg-[var(--lf-white-soft)] text-[var(--lf-text)]'
+                  : 'bg-[var(--lf-surface)] text-[var(--lf-mute)]'
             }`}
           >
             {liquidity}
           </span>
         </span>
-        <span className="mt-0.5 block text-xs font-semibold tabular-nums text-[var(--lf-dim)]">
+        <span className="mt-0.5 block text-[11px] font-semibold tabular-nums text-[var(--lf-mute)]">
           Bet {fmt(room.minStakeMinor)}–{fmt(room.maxStakeMinor)} · {room.humanCount}{' '}
           {room.humanCount === 1 ? 'player' : 'players'}
         </span>
@@ -182,22 +173,28 @@ export function WelcomeGate() {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-[#02070a]/80 p-3 backdrop-blur-[3px] sm:p-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-3 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
     >
-      <div className="lf-rise lf-glass lf-rim flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-y-auto rounded-2xl p-4 sm:p-5">
+      <div className="lf-rise lf-overlay flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-y-auto p-4 sm:p-5">
         <div className="flex items-center gap-2">
-          <span className="text-[var(--lf-brass)]" aria-hidden="true">
-            <LighthouseIcon size={22} />
+          <span
+            aria-hidden="true"
+            className="flex h-5 w-5 items-center justify-center bg-[var(--lf-accent)] text-[11px] font-black leading-none text-black"
+          >
+            L
           </span>
-          <span className="bg-gradient-to-b from-[#f6e3b6] to-[var(--lf-brass)] bg-clip-text text-lg font-black tracking-[0.16em] text-transparent">
+          <span className="text-[13px] font-extrabold tracking-[0.24em] text-[var(--lf-text)]">
             LANDFALL
           </span>
         </div>
 
-        <h2 id={titleId} className="mt-2 text-lg font-extrabold leading-snug text-[var(--lf-text)]">
+        <h2
+          id={titleId}
+          className="mt-3 text-[20px] font-extrabold leading-snug tracking-[-0.01em] text-[var(--lf-text)]"
+        >
           {ONE_LINER}
         </h2>
 
@@ -212,15 +209,15 @@ export function WelcomeGate() {
                 <li key={point.title} className="flex gap-2.5">
                   <span
                     aria-hidden="true"
-                    className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--lf-brass-soft)] text-[11px] font-black text-[var(--lf-brass)]"
+                    className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-[var(--lf-line)] text-[11px] font-black text-[var(--lf-mute)]"
                   >
                     {i + 1}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-extrabold text-[var(--lf-text)]">
+                    <span className="block text-[13px] font-extrabold text-[var(--lf-text)]">
                       {point.title}
                     </span>
-                    <span className="block text-[13px] leading-snug text-[var(--lf-dim)]">
+                    <span className="block text-[12px] leading-snug text-[var(--lf-dim)]">
                       {point.body}
                     </span>
                   </span>
@@ -235,7 +232,7 @@ export function WelcomeGate() {
               audio.click('nav');
               setShowRules(true);
             }}
-            className="mt-3 flex min-h-11 items-center gap-2 self-start rounded-xl border border-dashed border-[var(--lf-brass-soft)] px-3 text-sm font-bold text-[var(--lf-brass)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+            className="mt-3 flex min-h-11 items-center gap-2 self-start rounded-md border border-dashed border-[var(--lf-line)] px-3 text-[13px] font-bold text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
           >
             <ShieldCheckIcon size={15} />
             {STR.welcomeRulesToggle}
@@ -247,11 +244,9 @@ export function WelcomeGate() {
           role="separator"
           aria-hidden="true"
         >
-          <span className="h-px flex-1 bg-[var(--lf-brass-soft)]" />
-          <span className="text-[10px] font-black uppercase tracking-[0.14em] text-[var(--lf-brass)]">
-            {STR.welcomeChooseTable}
-          </span>
-          <span className="h-px flex-1 bg-[var(--lf-brass-soft)]" />
+          <span className="h-px flex-1 bg-[var(--lf-line)]" />
+          <span className="lf-label">{STR.welcomeChooseTable}</span>
+          <span className="h-px flex-1 bg-[var(--lf-line)]" />
         </div>
 
         <div role="radiogroup" aria-label={STR.welcomeChooseTable} className="flex flex-col gap-1.5">
@@ -268,27 +263,29 @@ export function WelcomeGate() {
           ))}
         </div>
 
-        <p className="mt-2 text-xs font-semibold text-[var(--lf-dim)]">{STR.welcomeTableHint}</p>
+        <p className="mt-2 text-[11px] font-semibold leading-snug text-[var(--lf-mute)]">
+          {STR.welcomeTableHint}
+        </p>
 
         <button
           ref={playRef}
           type="button"
           onClick={confirm}
           disabled={!selectedRoom}
-          className="lf-breathe mt-3 flex min-h-14 w-full flex-col items-center justify-center rounded-xl bg-gradient-to-b from-[#2ad47c] to-[var(--lf-action-strong)] px-4 text-[#04240f] transition-[background-color,transform] duration-150 hover:from-[#33e087] hover:to-[var(--lf-action)] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+          className="lf-armed mt-3 flex min-h-14 w-full flex-col items-center justify-center rounded-md bg-[var(--lf-win)] px-4 text-[#04180e] transition-colors duration-150 hover:bg-[#2af08c] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <span className="text-lg font-black uppercase leading-tight tracking-[0.06em]">
+          <span className="text-[17px] font-black uppercase leading-tight tracking-[0.05em]">
             {STR.welcomePlayAt} {selectedRoom?.name ?? '—'}
           </span>
           {selectedRoom && (
-            <span className="text-xs font-semibold leading-tight tabular-nums text-[#04240f]/70">
+            <span className="text-[11px] font-semibold leading-tight tabular-nums text-black/60">
               Bet {fmt(selectedRoom.minStakeMinor)}–{fmt(selectedRoom.maxStakeMinor)} per round
             </span>
           )}
         </button>
 
         <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[11px] font-semibold text-[var(--lf-dim)]">
+          <p className="text-[11px] font-semibold text-[var(--lf-mute)]">
             {STR.welcomeDisclaimer}
           </p>
           <button
@@ -297,7 +294,7 @@ export function WelcomeGate() {
               audio.click('nav');
               setRulesOpen(true);
             }}
-            className="min-h-11 rounded-lg px-1 text-xs font-bold text-[var(--lf-focus)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+            className="min-h-11 px-1 text-[12px] font-bold text-[var(--lf-text)] underline decoration-[var(--lf-line-2)] underline-offset-4 hover:decoration-white"
           >
             Full rules & fairness →
           </button>

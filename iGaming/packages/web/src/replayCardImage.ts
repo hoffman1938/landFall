@@ -3,16 +3,16 @@
  * canvas render + download. No external service, ever; the card is built from
  * the public LANDFALL payload only, so nothing private can leak into a share.
  */
-import { HARBOR_NAMES } from '@landfall/core';
 import type { ReplayCard } from './store';
+import { zoneName } from './strings';
 
 const W = 720;
 const H = 405;
 
 const fmt = (minor: number) => (minor / 100).toFixed(2);
 
-function coveLabel(zone: number): string {
-  return `Cove ${zone + 1} · ${HARBOR_NAMES[zone] ?? '?'}`;
+function zoneLabel(zone: number): string {
+  return zoneName(zone);
 }
 
 export function renderReplayCard(card: ReplayCard): HTMLCanvasElement {
@@ -52,7 +52,7 @@ export function renderReplayCard(card: ReplayCard): HTMLCanvasElement {
   // Struck cove + wreck value
   ctx.fillStyle = '#ff5a5a';
   ctx.font = font(800, 17);
-  ctx.fillText(`⛈ ${coveLabel(card.struckZone)} was struck`, 28, 122);
+  ctx.fillText(`⛈ ${zoneLabel(card.struckZone)} was struck`, 28, 122);
   ctx.fillStyle = '#8da0ba';
   ctx.font = font(700, 15);
   ctx.fillText(`Wrecked cargo: ${fmt(card.replay.struckPoolMinor)} cr`, 28, 146);
@@ -75,7 +75,7 @@ export function renderReplayCard(card: ReplayCard): HTMLCanvasElement {
   } else {
     let x = 28;
     for (const { net, zone } of moves) {
-      const text = `${net > 0 ? '▲' : '▼'}${Math.abs(net)} Cove ${zone + 1}`;
+      const text = `${net > 0 ? '▲' : '▼'}${Math.abs(net)} ${zoneName(zone)}`;
       ctx.fillStyle = net > 0 ? '#3ddc97' : '#ff5a5a';
       ctx.fillText(text, x, y);
       x += ctx.measureText(text).width + 22;
@@ -116,7 +116,7 @@ export function renderReplayCard(card: ReplayCard): HTMLCanvasElement {
     for (const flag of reveals.slice(0, 4)) {
       ctx.fillStyle = flag.honest ? '#3ddc97' : '#ff5a5a';
       ctx.fillText(
-        `${flag.honest ? '✓ honest' : '✗ bluff'} — ${flag.name}: ${flag.kind} Cove ${flag.zone + 1}`,
+        `${flag.honest ? '✓ honest' : '✗ bluff'} — ${flag.name}: ${flag.kind} ${zoneName(flag.zone)}`,
         28,
         y,
         W - 56,

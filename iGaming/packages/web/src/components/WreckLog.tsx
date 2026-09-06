@@ -1,7 +1,11 @@
 /**
- * Compact strip of recent struck-cove results — small chips, latest
- * highlighted. The strip itself opens the Wreck Log sheet (E2): the same
- * history retold as replay cards with fog arrows, salvage and flag reveals.
+ * Result tape — the last struck zones as a row of flat cells, newest at the
+ * right, opening the full replay history on tap.
+ *
+ * It is a tape, not a pattern: only the newest cell is red (that is the round
+ * that just happened), and everything behind it decays to grey. The strip is
+ * deliberately unreadable as a trend — the telemetry rail carries the actual
+ * counts, next to the flat statement that every zone stays 1 in 6.
  */
 import { audio } from '../audio/engine';
 import { useStore } from '../store';
@@ -16,7 +20,7 @@ export function WreckLog() {
 
   return (
     <section
-      className="lf-glass lf-rim pointer-events-auto absolute left-2 top-2 z-10 flex h-9 max-w-[calc(100%-4.5rem)] items-center gap-2 rounded-xl px-2.5"
+      className="lf-glass pointer-events-auto absolute left-2 top-2 z-10 flex h-9 max-w-[calc(100%-4.5rem)] items-center gap-2 rounded-md pr-2"
       aria-label="Recent results"
     >
       <button
@@ -25,42 +29,36 @@ export function WreckLog() {
           audio.click('nav');
           setWreckLogOpen(true);
         }}
-        className="-mx-2.5 flex h-11 shrink-0 items-center self-center rounded-xl px-2.5 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--lf-brass)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+        className="lf-label flex h-9 shrink-0 items-center border-r border-[var(--lf-line)] px-2.5 transition-colors hover:!text-[var(--lf-text)]"
         aria-label="Open round history"
         title="Open round history — recent results and replays"
       >
         {STR.history}
       </button>
 
-      <span className="h-4 w-px shrink-0 bg-[var(--lf-brass-soft)]" aria-hidden="true" />
-
       {visibleResults.length === 0 ? (
-        <span className="truncate text-xs font-semibold text-[var(--lf-dim)]">
+        <span className="truncate text-[11px] font-semibold text-[var(--lf-mute)]">
           No results yet
         </span>
       ) : (
-        <ol className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <ol className="flex min-w-0 flex-1 items-center gap-[3px] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {visibleResults.map((zone, index) => {
             const latest = index === visibleResults.length - 1;
             const label = `${latest ? 'Latest result. ' : ''}${zoneName(zone)} was hit.`;
-            // Recency as opacity: the strip reads as a decaying trail rather
-            // than a wall of equal chips. (History is history — it never
-            // implies a pattern; strike odds stay 1/6, see the Rules sheet.)
             const age = visibleResults.length - 1 - index;
 
             return (
               <li key={index} className="shrink-0">
                 <span
-                  className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-black tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] ${
+                  className={`flex h-[22px] w-[22px] items-center justify-center text-[11px] font-black tabular-nums ${
                     latest
-                      ? 'bg-[var(--lf-danger)] text-white shadow-[0_0_14px_rgba(240,54,74,0.55)] ring-1 ring-[#ff8b96]'
-                      : 'bg-[var(--lf-surface-2)] text-[var(--lf-dim)] ring-1 ring-[var(--lf-line)]'
+                      ? 'bg-[var(--lf-accent)] text-black'
+                      : 'bg-[var(--lf-surface-2)] text-[var(--lf-dim)]'
                   }`}
-                  style={latest ? undefined : { opacity: Math.max(0.42, 1 - age * 0.055) }}
+                  style={latest ? undefined : { opacity: Math.max(0.35, 1 - age * 0.06) }}
                   title={label}
                   aria-label={label}
                   aria-current={latest ? 'true' : undefined}
-                  tabIndex={0}
                 >
                   {zone + 1}
                 </span>

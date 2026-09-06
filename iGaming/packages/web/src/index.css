@@ -56,8 +56,8 @@
 
   /* ---- ink ---- */
   --lf-text: #f4f4f4;
-  --lf-dim: #8e8e8e; /* 5.5:1 on --lf-bg — body-legible, not shouting */
-  --lf-mute: #5e5e5e; /* structural labels only, never prose */
+  --lf-dim: #a3a3a3; /* body grey — 6.6:1 on the lightest surface */
+  --lf-mute: #8a8a8a; /* micro-labels — 4.8:1 on the lightest surface */
 
   /* ---- the accent system (rule 2) ---- */
   --lf-accent: #ff2f45; /* the storm */
@@ -70,19 +70,16 @@
   --lf-white-soft: rgba(255, 255, 255, 0.09);
 
   /*
-   * Legacy semantic names, kept so every surface speaks one vocabulary.
-   * They are aliases now — there is no second palette hiding behind them.
+   * Semantic aliases. Components ask for meaning, not for a hue, so a future
+   * repaint changes four lines here and nothing else. There is no second
+   * palette hiding behind them — every one resolves into the four above.
+   * (The old brass/felt tokens are gone: metal has no meaning on this screen.)
    */
   --lf-danger: var(--lf-accent);
   --lf-safe: var(--lf-win);
   --lf-action: var(--lf-win);
-  --lf-action-strong: #0fbb66;
   --lf-amber: var(--lf-warn);
-  --lf-amber-deep: #e07f00;
   --lf-focus: #ffffff; /* YOU: selection, ownership, current tab */
-  --lf-brass: var(--lf-mute); /* micro-labels are grey now, not metal */
-  --lf-brass-soft: var(--lf-line);
-  --lf-brass-faint: var(--lf-line);
 
   --lf-control-deck-height: 7.5rem;
   --lf-rail-width: 15.5rem;
@@ -167,23 +164,6 @@ button {
     linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
   background-size: 56px 56px;
   background-position: center center;
-}
-
-/* Axis lines: one horizontal, one vertical, through the centre of the plot.
-   They give the board an origin, which is what makes it read as an instrument
-   and not a dark rectangle. */
-.lf-bay::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 100% 100%;
-  background-position: center center;
-  background-repeat: no-repeat;
 }
 
 .lf-bay canvas {
@@ -394,6 +374,21 @@ button {
   animation: lf-caption 200ms ease-out both;
 }
 
+/* A field whose value just changed: its edge lights for half a second. Used
+   by the balance, so money moving is felt at the top of the screen without
+   the figure itself jumping or the player having to watch for it. */
+@keyframes lf-edge {
+  from {
+    border-color: #ffffff;
+  }
+  to {
+    border-color: var(--lf-line);
+  }
+}
+.lf-edge {
+  animation: lf-edge 600ms ease-out both;
+}
+
 /* A value that just changed — one frame of white, then back. Used by the
    telemetry rail so a moving number is felt without being read twice. */
 @keyframes lf-tick {
@@ -434,6 +429,7 @@ button {
   .lf-caption,
   .lf-shake,
   .lf-settle,
+  .lf-edge,
   .lf-tick {
     animation-duration: 1ms;
     animation-iteration-count: 1;
@@ -471,8 +467,5 @@ button {
   /* The grid costs contrast for no information — drop it. */
   .lf-bay {
     background-image: none;
-  }
-  .lf-bay::before {
-    display: none;
   }
 }

@@ -19,12 +19,12 @@ export function RealityCheck() {
   const elapsedLabel = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#02070a]/68 backdrop-blur-[2px] p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Reality check"
-        className="lf-rise lf-surface w-full max-w-sm rounded-2xl p-5"
+        className="lf-rise lf-surface w-full max-w-sm rounded-lg p-5"
       >
         <div className="flex items-center gap-2 text-[var(--lf-dim)]">
           <TimerIcon size={18} />
@@ -34,13 +34,13 @@ export function RealityCheck() {
         </div>
 
         <dl className="mt-4 grid grid-cols-2 gap-2">
-          <div className="rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/60 px-3 py-2">
+          <div className="rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/60 px-3 py-2">
             <dt className="text-[11px] font-semibold text-[var(--lf-dim)]">Time at sea</dt>
             <dd className="text-lg font-extrabold tabular-nums text-[var(--lf-text)]">
               {elapsedLabel}
             </dd>
           </div>
-          <div className="rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/60 px-3 py-2">
+          <div className="rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/60 px-3 py-2">
             <dt className="text-[11px] font-semibold text-[var(--lf-dim)]">Session net</dt>
             <dd className="text-lg font-extrabold tabular-nums text-[var(--lf-text)]">
               {sessionNetMinor >= 0 ? '+' : '−'}
@@ -62,7 +62,7 @@ export function RealityCheck() {
               dismissRealityCheck();
               setLimitsOpen(true);
             }}
-            className="min-h-11 flex-1 rounded-xl border border-[var(--lf-line)] px-3 text-sm font-bold text-[var(--lf-dim)] hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+            className="min-h-11 flex-1 rounded-md border border-[var(--lf-line)] px-3 text-sm font-bold text-[var(--lf-dim)] hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)]"
           >
             Adjust limits
           </button>
@@ -72,7 +72,7 @@ export function RealityCheck() {
               audio.click('nav');
               dismissRealityCheck();
             }}
-            className="min-h-11 flex-1 rounded-xl bg-[var(--lf-surface-2)] px-3 text-sm font-extrabold text-[var(--lf-text)] hover:brightness-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+            className="min-h-11 flex-1 rounded-md bg-[var(--lf-surface-2)] px-3 text-sm font-extrabold text-[var(--lf-text)] hover:brightness-125"
           >
             Continue
           </button>

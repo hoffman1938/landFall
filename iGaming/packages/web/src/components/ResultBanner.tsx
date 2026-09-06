@@ -1,9 +1,21 @@
 /**
- * Verdict card — rises from the bay after landfall (ux-redesign-v2.md §5.5).
- * SAFE tells the salvage story in amber; WRECKED is slate, short, and honest
- * ("1 in 6"), never punishing. The replay strip retells the round in one line.
+ * The verdict — what the round did to your balance, stated once, plainly.
+ *
+ * The whole component is built around one rule about losing: a loss is
+ * reported, never staged. It gets the same card, the same size and the same
+ * settle animation as a win; the figure stays white rather than red, and the
+ * only red on it is the hairline that says which zone the storm took. Red here
+ * is the storm's colour, not a verdict on the player.
+ *
+ * A win is green and says the amount. It does not flash, scale up, or throw
+ * anything across the screen — the money already moved, and a product that
+ * celebrates a payout harder than it reports a loss is teaching the wrong
+ * lesson about what just happened.
+ *
+ * The replay strip retells the round in one line and keeps one-tap fairness
+ * within reach of the moment doubt actually occurs.
  */
-import { CrateIcon, ShieldCheckIcon, StormIcon, SurgeIcon } from './icons';
+import { ShieldCheckIcon, StormIcon, SurgeIcon } from './icons';
 import { fmt, useStore } from '../store';
 import { zoneName } from '../strings';
 
@@ -28,43 +40,45 @@ export function ResultBanner() {
 
   return (
     <div
-      className="pointer-events-none absolute inset-x-0 z-10 flex flex-col items-center gap-2 px-3"
+      className="pointer-events-none absolute inset-x-0 z-10 flex flex-col items-center gap-1.5 px-3"
       style={{ bottom: 'calc(var(--lf-control-deck-height, 7.5rem) + 0.75rem)' }}
     >
-      {/* Storm Power seal — Cat 3+ announces itself */}
+      {/* Storm Power — a multiplier is a fact about the round, so it is a chip */}
       {power && powerMult >= 2 && (
         <div
-          className={`lf-rise flex items-center gap-2 rounded-xl border px-5 py-2 text-lg font-black uppercase tracking-[0.04em] ${
+          className={`lf-rise flex items-center gap-2 rounded-md border px-3 py-1 text-[12px] font-black uppercase tracking-[0.12em] ${
             powerMult >= 25
-              ? 'lf-gold lf-pulse border-[var(--lf-amber)]'
-              : 'border-[var(--lf-amber)]/70 bg-[#1c1508]/90 text-[var(--lf-amber)]'
+              ? 'border-[var(--lf-warn)] bg-[var(--lf-warn)] text-black'
+              : 'border-[var(--lf-warn)]/60 text-[var(--lf-warn)]'
           }`}
         >
-          <StormIcon size={20} />
-          {isPerfectStorm ? `Perfect Storm — payouts ×${powerMult}` : `×${powerMult} multiplier round`}
+          <StormIcon size={14} />
+          {isPerfectStorm ? `Perfect storm — payouts ×${powerMult}` : `×${powerMult} round`}
         </div>
       )}
 
       {/* Liability cap disclosure — never silent (A3) */}
       {lastLandfall.powerCapped && (
-        <div className="lf-rise rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/95 px-4 py-1.5 text-sm font-semibold text-[var(--lf-text)]">
+        <div className="lf-rise lf-surface rounded-md px-3 py-1 text-[12px] font-semibold text-[var(--lf-dim)]">
           Maximum round payout reached — the multiplier was capped
         </div>
       )}
 
-      {/* Golden Anchor — the rarest moment in the game */}
+      {/* Jackpot — the rarest moment in the game */}
       {surge && surge.winnerName && (
         <div
-          className={`lf-rise flex items-center gap-3 rounded-2xl border-2 border-[var(--lf-amber)] px-6 py-3 text-center font-extrabold ${
-            iWonSurge ? 'lf-gold lf-payout' : 'bg-[#1c1508]/95 text-[var(--lf-amber)]'
+          className={`lf-rise flex items-center gap-3 rounded-md border px-4 py-2 ${
+            iWonSurge
+              ? 'border-[var(--lf-warn)] bg-[var(--lf-warn)] text-black'
+              : 'border-[var(--lf-warn)]/60 text-[var(--lf-warn)]'
           }`}
         >
-          <SurgeIcon size={26} />
+          <SurgeIcon size={20} />
           <div>
-            <div className="text-xl font-black uppercase leading-tight tracking-[0.14em]">
+            <div className="text-[13px] font-black uppercase leading-tight tracking-[0.16em]">
               Jackpot
             </div>
-            <div className="text-sm leading-tight">
+            <div className="text-[12px] font-semibold leading-tight">
               {iWonSurge ? 'You win the whole jackpot' : `${surge.winnerName} wins the jackpot`}: +
               {fmt(surge.potMinor)}
             </div>
@@ -72,45 +86,48 @@ export function ResultBanner() {
         </div>
       )}
       {surge && !surge.winnerName && (
-        <div className="lf-rise rounded-xl border border-[var(--lf-amber)]/60 bg-[#1c1508]/90 px-4 py-1.5 text-sm font-semibold text-[var(--lf-amber)]">
+        <div className="lf-rise rounded-md border border-[var(--lf-warn)]/50 px-3 py-1 text-[12px] font-semibold text-[var(--lf-warn)]">
           No one was safe — the {fmt(surge.potMinor)} jackpot rolls over
         </div>
       )}
 
       {/* the personal verdict */}
       {r.outcome === 'SPECTATOR' ? (
-        <div className="lf-rise lf-surface rounded-lg px-4 py-2 text-sm text-[var(--lf-dim)]">
+        <div className="lf-rise lf-surface rounded-md px-4 py-2 text-[12px] font-semibold text-[var(--lf-dim)]">
           The storm hit {struckZone} — players there lost; everyone else shared its pool
         </div>
       ) : r.outcome === 'WRECKED' ? (
-        /* §2.8 — a loss stays short, honest and calm: slate, never punished,
-           never styled like a win. It gets weight, not heat. */
-        <div className="lf-rise lf-surface rounded-2xl border-[var(--lf-line)] px-7 py-3 text-center">
-          <div className="text-[2rem] font-black leading-none text-[var(--lf-text)]">
+        /*
+         * §2.8 — a loss is short, exact and calm. White figure on the standard
+         * card, one red hairline on the leading edge for the storm, and the
+         * odds restated so the player leaves with the true frame: this was a
+         * 1-in-6 that landed, not a thing that was done to them.
+         */
+        <div className="lf-rise lf-surface rounded-md border-l-2 !border-l-[var(--lf-accent)] px-6 py-2.5 text-center">
+          <div className="lf-display lf-settle text-[30px] text-[var(--lf-text)]">
             −{fmt(-r.netMinor)}
           </div>
-          <div className="mt-1 text-[13px] font-semibold text-[var(--lf-dim)]">
+          <div className="mt-1.5 text-[12px] font-semibold text-[var(--lf-dim)]">
             {struckZone} was hit — a 1-in-6 chance. Its pool went to the other players.
           </div>
         </div>
       ) : (
         <div
-          className={`lf-rise rounded-2xl px-7 py-3 text-center ${
+          className={`lf-rise rounded-md border px-6 py-2.5 text-center ${
             r.netMinor >= 0
-              ? 'lf-gold'
-              : 'lf-surface border-[var(--lf-line)] text-[var(--lf-text)]'
+              ? 'border-[var(--lf-win)]/55 bg-[var(--lf-win-soft)]'
+              : 'lf-surface'
           }`}
         >
           <div
-            className={`flex items-center justify-center gap-2.5 text-[2rem] font-black leading-none ${
-              r.netMinor >= 0 ? 'lf-payout' : ''
+            className={`lf-display lf-settle text-[30px] ${
+              r.netMinor >= 0 ? 'text-[var(--lf-win)]' : 'text-[var(--lf-text)]'
             }`}
           >
-            <CrateIcon size={26} />
             {r.netMinor >= 0 ? '+' : '−'}
             {fmt(Math.abs(r.netMinor))}
           </div>
-          <div className={`mt-1 text-[13px] font-semibold ${r.netMinor >= 0 ? 'text-black/75' : 'text-[var(--lf-dim)]'}`}>
+          <div className="mt-1.5 text-[12px] font-semibold text-[var(--lf-dim)]">
             {r.outcome === 'SPLIT'
               ? `Half your bet was in ${struckZone}`
               : powerMult >= 2
@@ -121,22 +138,22 @@ export function ResultBanner() {
       )}
 
       {/* replay strip: the round retold in one line + one-tap fairness */}
-      <div className="lf-rise lf-surface pointer-events-auto flex max-w-[min(94vw,620px)] items-center gap-3 rounded-lg px-4 py-2 text-xs text-[var(--lf-dim)]">
-        <span className="font-semibold text-[var(--lf-text)]">{replay.headline}</span>
+      <div className="lf-rise lf-surface pointer-events-auto flex max-w-[min(94vw,620px)] items-center gap-3 rounded-md px-3 py-1.5 text-[11px] text-[var(--lf-mute)]">
+        <span className="font-semibold text-[var(--lf-dim)]">{replay.headline}</span>
         <span className="hidden sm:inline">
           {replay.fogMoves} last moves · hit pool {fmt(replay.struckPoolMinor)}
         </span>
-        {/* E3 first-loss trust moment: the stamp glows once (focus cyan, never
-            amber) on the first loss ≥ 10× min stake — fairness offered exactly
-            when doubt is felt (ux-redesign-v2.md §6.3). */}
+        {/* E3 first-loss trust moment: the stamp draws attention once on the
+            first loss ≥ 10× min stake — fairness offered exactly when doubt is
+            felt (ux-redesign-v2.md §6.3). White, never red. */}
         <button
           onClick={() => openVerify(lastLandfall.roundId)}
-          className={`ml-auto flex shrink-0 items-center gap-1 rounded-lg border border-[var(--lf-line)] px-2 py-1 font-semibold hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)] ${
+          className={`ml-auto flex shrink-0 items-center gap-1.5 rounded-md border border-[var(--lf-line)] px-2 py-1 font-bold text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)] ${
             verifyGlow ? 'lf-verify-glow' : ''
           }`}
           title="Verify this round cryptographically"
         >
-          <ShieldCheckIcon size={14} />
+          <ShieldCheckIcon size={13} />
           Verify
         </button>
       </div>

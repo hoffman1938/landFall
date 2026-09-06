@@ -156,6 +156,14 @@ export const QuestionIcon = (p: P) => (
   </svg>
 );
 
+/** Telemetry: an axis with a plotted line — the rail's own mark. */
+export const ChartIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M4 4v16h16" />
+    <path d="m7.5 14.5 3.5-4 3 2.5 4.5-6" />
+  </svg>
+);
+
 export const SurgeIcon = (p: P) => (
   <svg {...base(p)}>
     <path d="M13 2.5 5.5 13.5H11L9.5 21.5 18 10h-5.5Z" fill="currentColor" stroke="none" />

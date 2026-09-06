@@ -285,10 +285,10 @@ export function SecondaryPanel() {
 
   const panelClass =
     mode === 'docked'
-      ? 'relative z-20 flex h-full w-72 shrink-0 flex-col overflow-hidden border-l border-[var(--lf-brass-soft)] bg-[var(--lf-surface)]'
+      ? 'relative z-20 flex h-full w-72 shrink-0 flex-col overflow-hidden border-l border-[var(--lf-line)] bg-[var(--lf-surface)]'
       : mode === 'drawer'
-        ? 'lf-sheet fixed bottom-0 right-0 top-10 z-50 flex w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-l-2xl border border-r-0 border-[var(--lf-brass-soft)] bg-[var(--lf-surface)] shadow-[-18px_0_60px_rgba(0,0,0,0.42)]'
-        : 'lf-sheet fixed inset-x-0 bottom-0 z-50 flex h-[72dvh] max-h-[44rem] flex-col overflow-hidden rounded-t-2xl border border-b-0 border-[var(--lf-brass-soft)] bg-[var(--lf-surface)] pb-[env(safe-area-inset-bottom)] shadow-[0_-18px_60px_rgba(0,0,0,0.45)]';
+        ? 'lf-sheet fixed bottom-0 right-0 top-10 z-50 flex w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-l-lg border border-r-0 border-[var(--lf-line)] bg-[var(--lf-surface)]'
+        : 'lf-sheet fixed inset-x-0 bottom-0 z-50 flex h-[72dvh] max-h-[44rem] flex-col overflow-hidden rounded-t-lg border border-b-0 border-[var(--lf-line)] bg-[var(--lf-surface)] pb-[env(safe-area-inset-bottom)]';
 
   return (
     <>
@@ -297,7 +297,7 @@ export function SecondaryPanel() {
           ref={launcherRef}
           type="button"
           onClick={openPanel}
-          className="lf-surface absolute right-2 top-2 z-20 flex h-11 w-11 items-center justify-center rounded-full text-[var(--lf-dim)] shadow-lg hover:border-[var(--lf-focus)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+          className="lf-surface absolute right-2 top-2 z-20 flex h-11 w-11 items-center justify-center rounded-md text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
           aria-label={`Open Chat and Activity${unreadCount > 0 ? `, ${unreadCount} unread chat messages` : ''}`}
           aria-controls={panelId}
           aria-expanded="false"
@@ -307,7 +307,7 @@ export function SecondaryPanel() {
           <ChatIcon size={20} />
           {unreadCount > 0 ? (
             <span
-              className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--lf-focus)] px-1 text-[10px] font-extrabold text-black"
+              className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center bg-white px-1 text-[10px] font-extrabold text-black"
               aria-hidden="true"
             >
               {unreadCount > 99 ? '99+' : unreadCount}
@@ -318,7 +318,7 @@ export function SecondaryPanel() {
 
       {open && mode !== 'docked' ? (
         <div
-          className={`fixed z-40 bg-black/65 ${mode === 'drawer' ? 'inset-x-0 bottom-0 top-10' : 'inset-0'}`}
+          className={`fixed z-40 bg-black/80 ${mode === 'drawer' ? 'inset-x-0 bottom-0 top-10' : 'inset-0'}`}
           aria-hidden="true"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closePanel();
@@ -341,12 +341,12 @@ export function SecondaryPanel() {
           <div className="flex min-h-14 shrink-0 items-center gap-2 border-b border-[var(--lf-line)] px-3">
             <div className="flex min-w-0 items-center gap-2">
               <ChatIcon size={18} />
-              <h2 id={titleId} className="truncate text-sm font-extrabold text-[var(--lf-text)]">
-                Harbor
+              <h2 id={titleId} className="lf-label truncate !text-[var(--lf-dim)]">
+                Table
               </h2>
             </div>
             <span
-              className={`ml-auto h-2 w-2 rounded-full ${connected ? 'bg-[var(--lf-safe)]' : 'bg-[var(--lf-danger)]'}`}
+              className={`ml-auto h-2 w-2 rounded-md ${connected ? 'bg-[var(--lf-safe)]' : 'bg-[var(--lf-danger)]'}`}
               aria-hidden="true"
             />
             <span className="sr-only">{connected ? 'Connected' : 'Disconnected'}</span>
@@ -357,7 +357,7 @@ export function SecondaryPanel() {
                 audio.click('nav');
                 closePanel();
               }}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--lf-dim)] hover:bg-[var(--lf-panel)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--lf-dim)] hover:bg-[var(--lf-panel)] hover:text-[var(--lf-text)]"
               aria-label={mode === 'docked' ? 'Collapse chat panel' : 'Close chat panel'}
             >
               <XIcon size={18} />
@@ -388,7 +388,7 @@ export function SecondaryPanel() {
                   tabIndex={active ? 0 : -1}
                   onClick={() => selectTab(tab)}
                   onKeyDown={(event) => onTabKeyDown(event, index)}
-                  className={`relative min-h-11 rounded-lg px-2 text-sm font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] ${
+                  className={`relative min-h-11 rounded-lg px-2 text-sm font-extrabold ${
                     active
                       ? 'bg-[var(--lf-focus)] text-black'
                       : 'text-[var(--lf-dim)] hover:bg-[var(--lf-panel)] hover:text-[var(--lf-text)]'
@@ -397,7 +397,7 @@ export function SecondaryPanel() {
                   {TAB_LABELS[tab]}
                   {tab === 'chat' && unreadCount > 0 ? (
                     <span
-                      className={`ml-1 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-extrabold ${
+                      className={`ml-1 inline-flex min-w-4 items-center justify-center rounded-md px-1 text-[9px] font-extrabold ${
                         active
                           ? 'bg-black/20 text-black'
                           : 'bg-[var(--lf-focus)] text-black'
@@ -417,7 +417,7 @@ export function SecondaryPanel() {
             role="tabpanel"
             aria-labelledby={`${titleId}-tab-${preferences.activeTab}`}
             tabIndex={0}
-            className="min-h-0 flex-1 overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--lf-focus)]"
+            className="min-h-0 flex-1 overflow-hidden"
           >
             {preferences.activeTab === 'chat' ? (
               <ChatPanel showHeader={false} dense />

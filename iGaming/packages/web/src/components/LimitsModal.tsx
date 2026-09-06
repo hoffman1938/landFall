@@ -31,7 +31,7 @@ function LimitRow({
   const [draft, setDraft] = useState('');
 
   return (
-    <div className="rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 p-3">
+    <div className="rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 p-3">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm font-bold text-[var(--lf-text)]">{label}</span>
         <span className="text-sm font-extrabold tabular-nums text-[var(--lf-text)]">
@@ -113,7 +113,7 @@ export function LimitsModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#02070a]/72 backdrop-blur-[2px] p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) setLimitsOpen(false);
       }}
@@ -122,11 +122,11 @@ export function LimitsModal() {
         role="dialog"
         aria-modal="true"
         aria-label="Play limits and session"
-        className="lf-sheet lf-surface lf-rim flex max-h-[86dvh] w-full max-w-md flex-col rounded-2xl"
+        className="lf-sheet lf-overlay flex max-h-[86dvh] w-full max-w-md flex-col rounded-lg"
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-[var(--lf-line)] px-4 py-3">
           <TimerIcon size={18} />
-          <h2 className="text-sm font-black uppercase tracking-[0.1em] text-[var(--lf-brass)]">
+          <h2 className="text-sm font-black uppercase tracking-[0.1em] text-[var(--lf-mute)]">
             PLAY LIMITS & SESSION
           </h2>
           <button
@@ -135,7 +135,7 @@ export function LimitsModal() {
               audio.click('nav');
               setLimitsOpen(false);
             }}
-            className="ml-auto flex h-11 w-11 items-center justify-center rounded-full text-[var(--lf-dim)] hover:bg-[var(--lf-panel)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+            className="ml-auto flex h-11 w-11 items-center justify-center rounded-md text-[var(--lf-dim)] hover:bg-[var(--lf-panel)] hover:text-[var(--lf-text)]"
             aria-label="Close play limits"
           >
             <XIcon size={18} />
@@ -144,7 +144,7 @@ export function LimitsModal() {
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
           {/* Session clock (F2) — always visible, always honest. */}
-          <div className="flex items-center justify-between rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 px-3 py-2.5">
+          <div className="flex items-center justify-between rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 px-3 py-2.5">
             <span className="text-sm font-bold text-[var(--lf-text)]">This session</span>
             <span className="text-lg font-extrabold tabular-nums text-[var(--lf-text)]">
               {sessionClock}
@@ -154,35 +154,35 @@ export function LimitsModal() {
           {excluded ? (
             <div
               role="status"
-              className="rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/70 px-3 py-2.5 text-sm text-[var(--lf-text)]"
+              className="rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/70 px-3 py-2.5 text-sm text-[var(--lf-text)]"
             >
               You're on a break until{' '}
               <strong>{new Date(limits.excludedUntil!).toLocaleString()}</strong>. Watching is
-              fine; anchoring is off.
+              fine; betting is off.
             </div>
           ) : null}
 
           <LimitRow
             label="Session loss limit"
-            hint="Anchors stop once this session is down by this much. Resets next session."
+            hint="Betting stops once this session is down by this much. Resets next session."
             valueMinor={limits?.sessionLossLimitMinor ?? null}
             onSet={(minor) => sendLimits({ sessionLossLimitMinor: minor })}
           />
           <LimitRow
             label="Daily loss limit"
-            hint="Anchors stop once today (UTC) is down by this much."
+            hint="Betting stops once today (UTC) is down by this much."
             valueMinor={limits?.dailyLossLimitMinor ?? null}
             onSet={(minor) => sendLimits({ dailyLossLimitMinor: minor })}
           />
           <LimitRow
             label="Stake per round"
-            hint="A personal ceiling under the room's — checked before every anchor."
+            hint="A personal ceiling under the table's — checked before every bet."
             valueMinor={limits?.stakePerRoundCapMinor ?? null}
             onSet={(minor) => sendLimits({ stakePerRoundCapMinor: minor })}
           />
 
           {/* Reality check cadence (F1). */}
-          <div className="rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 p-3">
+          <div className="rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 p-3">
             <label
               htmlFor="lf-reality-cadence"
               className="text-sm font-bold text-[var(--lf-text)]"
@@ -200,7 +200,7 @@ export function LimitsModal() {
                 const minutes = Number(event.target.value);
                 sendLimits({ realityCheckMinutes: minutes > 0 ? minutes : null });
               }}
-              className="mt-2 min-h-11 w-full rounded-lg border border-[var(--lf-line)] bg-[var(--lf-bg)] px-2 text-sm font-bold text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+              className="mt-2 min-h-11 w-full rounded-lg border border-[var(--lf-line)] bg-[var(--lf-bg)] px-2 text-sm font-bold text-[var(--lf-text)]"
             >
               <option value={0}>Off</option>
               <option value={15}>15 minutes</option>
@@ -211,7 +211,7 @@ export function LimitsModal() {
 
           {/* Pending loosenings (F1): honesty about the 24h cooldown. */}
           {limits && limits.pending.length > 0 ? (
-            <div className="rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 p-3">
+            <div className="rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 p-3">
               <span className="text-sm font-bold text-[var(--lf-text)]">Pending changes</span>
               <ul className="mt-1 space-y-1">
                 {limits.pending.map((p) => (
@@ -226,10 +226,10 @@ export function LimitsModal() {
           ) : null}
 
           {/* Self-exclusion (F2, demo-grade lockout — only ever extends). */}
-          <div className="rounded-xl border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 p-3">
+          <div className="rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 p-3">
             <span className="text-sm font-bold text-[var(--lf-text)]">Take a break</span>
             <p className="mt-0.5 text-[11px] leading-snug text-[var(--lf-dim)]">
-              Locks anchoring for the chosen time. It cannot be shortened once set.
+              Locks betting for the chosen time. It cannot be shortened once set.
             </p>
             <div className="mt-2 flex gap-2">
               {[
@@ -249,7 +249,7 @@ export function LimitsModal() {
                       setConfirmExclusion(minutes);
                     }
                   }}
-                  className={`min-h-11 flex-1 rounded-lg border px-2 text-xs font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] ${
+                  className={`min-h-11 flex-1 rounded-lg border px-2 text-xs font-extrabold ${
                     confirmExclusion === minutes
                       ? 'border-[var(--lf-danger)] bg-[var(--lf-danger)]/15 text-[var(--lf-text)]'
                       : 'border-[var(--lf-line)] text-[var(--lf-dim)] hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)]'

@@ -5,10 +5,10 @@ import { AnchorIcon, CrateIcon, FogIcon, LockIcon, StormIcon, XIcon } from './ic
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <details className="group rounded-xl border border-[var(--lf-brass-faint)] bg-[var(--lf-bg)]/55 px-3 transition-colors open:border-[var(--lf-brass-soft)] hover:border-[var(--lf-brass-soft)]">
-      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 font-bold text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]">
+    <details className="group rounded-md border border-[var(--lf-line)] bg-[var(--lf-bg)] px-3 transition-colors open:border-[var(--lf-line-2)] hover:border-[var(--lf-line-2)]">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 font-bold text-[var(--lf-text)]">
         <span>{title}</span>
-        <span className="ml-auto text-lg text-[var(--lf-brass)] transition-transform group-open:rotate-45" aria-hidden="true">
+        <span className="ml-auto text-lg text-[var(--lf-mute)] transition-transform group-open:rotate-45" aria-hidden="true">
           +
         </span>
       </summary>
@@ -21,23 +21,23 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function PictogramStrip() {
   const frames: [React.ComponentType<{ size?: number }>, string, string][] = [
     [AnchorIcon, 'var(--lf-focus)', 'Pick a zone'],
-    [FogIcon, '#aebccf', 'Bets hide: one last move'],
-    [LockIcon, '#51678a', 'Bets lock'],
+    [FogIcon, 'var(--lf-warn)', 'Bets hide: one last move'],
+    [LockIcon, 'var(--lf-mute)', 'Bets lock'],
     [StormIcon, 'var(--lf-danger)', 'Storm hits one zone'],
     [XIcon, 'var(--lf-danger)', 'That zone loses'],
-    [CrateIcon, 'var(--lf-amber)', 'Its money pays the rest'],
+    [CrateIcon, 'var(--lf-win)', 'Its money pays the rest'],
   ];
   return (
     <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
       {frames.map(([Icon, color, label], i) => (
         <div
           key={i}
-          className="flex flex-col items-center gap-1.5 rounded-xl bg-[var(--lf-bg)] px-1 py-3 text-center"
+          className="flex flex-col items-center gap-2 rounded-md border border-[var(--lf-line)] bg-[var(--lf-bg)] px-1 py-3 text-center"
         >
           <span style={{ color }}>
             <Icon size={26} />
           </span>
-          <span className="text-[11px] font-semibold leading-tight text-[var(--lf-text)]">
+          <span className="text-[11px] font-semibold leading-tight text-[var(--lf-dim)]">
             {label}
           </span>
         </div>
@@ -74,7 +74,7 @@ export function RulesModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#02070a]/72 backdrop-blur-[2px] p-3 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) setRulesOpen(false);
       }}
@@ -83,12 +83,12 @@ export function RulesModal() {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="lf-rim max-h-[calc(100dvh-1.5rem)] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl border bg-[var(--lf-panel)] p-4 text-sm sm:max-h-[85vh] sm:p-6"
+        className="lf-overlay max-h-[calc(100dvh-1.5rem)] w-full max-w-xl space-y-4 overflow-y-auto rounded-lg p-4 text-sm sm:max-h-[85vh] sm:p-6"
       >
         <div className="flex items-center justify-between">
           <h2
             id={titleId}
-            className="text-lg font-black uppercase tracking-[0.08em] text-[var(--lf-brass)]"
+            className="text-[15px] font-black uppercase tracking-[0.16em] text-[var(--lf-text)]"
           >
             How Landfall Works
           </h2>
@@ -96,7 +96,7 @@ export function RulesModal() {
             ref={closeRef}
             type="button"
             onClick={() => setRulesOpen(false)}
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[var(--lf-dim)] hover:text-[var(--lf-text)]"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md text-[var(--lf-dim)] hover:text-[var(--lf-text)]"
             aria-label="Close how to play"
           >
             <XIcon size={18} />
@@ -170,7 +170,7 @@ export function RulesModal() {
         </Section>
 
         <Section title="Provably Fair">
-          Every outcome is fixed <b>before</b> anchoring opens, committed in a public hash chain.
+          Every outcome is fixed <b>before</b> betting opens, committed in a public hash chain.
           After each round the seed is revealed — hit <b>Verify</b> to have your own browser
           recompute the strike, weather, the surge trigger, the Golden Anchor pick, and your exact
           payout. Exact lock pools are hidden during play but published after lock for verification.

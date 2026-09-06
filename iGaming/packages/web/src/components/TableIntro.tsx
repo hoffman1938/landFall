@@ -53,21 +53,21 @@ export function TableIntro() {
       role="status"
       aria-live="polite"
     >
-      <div className="lf-rise lf-glass lf-rim pointer-events-auto relative w-full max-w-md rounded-2xl px-4 py-3">
+      <div className="lf-rise lf-overlay pointer-events-auto relative w-full max-w-md rounded-lg px-4 py-3">
         <button
           type="button"
           onClick={() => setIntro(null)}
-          className="absolute right-1.5 top-1.5 flex h-8 w-8 items-center justify-center rounded-full text-[var(--lf-dim)] hover:text-[var(--lf-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)]"
+          className="absolute right-1.5 top-1.5 flex h-8 w-8 items-center justify-center rounded-md text-[var(--lf-dim)] hover:text-[var(--lf-text)]"
           aria-label="Dismiss table info"
         >
           <XIcon size={15} />
         </button>
 
-        <p className="pr-6 text-base font-black uppercase tracking-[0.06em] text-[var(--lf-brass)]">
-          Welcome to {intro.name}
+        <p className="pr-6 text-[15px] font-black uppercase tracking-[0.12em] text-[var(--lf-text)]">
+          {intro.name}
         </p>
 
-        <ul className="mt-1.5 space-y-1.5 text-[13px] leading-snug text-[var(--lf-dim)]">
+        <ul className="mt-2 space-y-1.5 text-[12px] leading-snug text-[var(--lf-dim)]">
           <li className="flex gap-2">
             <span aria-hidden="true" className="font-black text-[var(--lf-focus)]">
               •

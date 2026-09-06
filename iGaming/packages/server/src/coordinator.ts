@@ -1158,7 +1158,7 @@ export class RoundCoordinator {
     for (const r of results) {
       if (r.outcome !== 'WRECKED' && r.netMinor > 0) {
         this.events.systemMessage(
-          `${r.name} salvaged +${(r.netMinor / 100).toFixed(2)} from Harbor ${struckZone + 1}'s wreck`,
+          `${r.name} salvaged +${(r.netMinor / 100).toFixed(2)} from Zone ${struckZone + 1}'s pool`,
         );
       }
     }
@@ -1383,10 +1383,10 @@ export class RoundCoordinator {
     const splitFleets = [...this.fleets.values()].filter((f) => f.mode === 'SPLIT').length;
     const headline =
       this.fogMoveCount > 0
-        ? `${this.fogMoveCount} fleet${this.fogMoveCount === 1 ? '' : 's'} moved in the fog before Harbor ${
+        ? `${this.fogMoveCount} player${this.fogMoveCount === 1 ? '' : 's'} moved in the fog before Zone ${
             struckZone + 1
-          } took the storm.`
-        : `The room held steady before Harbor ${struckZone + 1} took the storm.`;
+          } was hit.`
+        : `Nobody moved in the fog before Zone ${struckZone + 1} was hit.`;
 
     // E2: net fog movement (lock − fog-start boat counts), from public counts only.
     const lockBoatCounts = this.poolsState().boatCounts;
