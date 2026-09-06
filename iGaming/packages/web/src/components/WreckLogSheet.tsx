@@ -99,7 +99,7 @@ function ReplayCardView({ card }: { card: ReplayCard }) {
           type="button"
           onClick={() => {
             audio.click('tap');
-            downloadReplayCard(card);
+            void downloadReplayCard(card);
           }}
           className="min-h-11 flex-1 rounded-lg border border-[var(--lf-line)] px-2 text-xs font-extrabold text-[var(--lf-dim)] hover:border-[var(--lf-dim)] hover:text-[var(--lf-text)]"
         >
