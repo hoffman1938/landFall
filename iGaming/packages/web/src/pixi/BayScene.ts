@@ -23,6 +23,7 @@ import {
   type WeatherId,
 } from '@landfall/core';
 import { getCoveLayouts } from '../coveLayout';
+import { neutralStop, stormRoute, stormRouteStop } from '../stormPath';
 
 export interface BayState {
   phase: 'ANCHOR_OPEN' | 'LOCKED_STORM' | 'RESOLVED' | 'COOLDOWN' | null;
@@ -198,6 +199,8 @@ export class BayScene {
   private sky = MOOD.night;
   private fogAlpha = 0;
   private stormPos = { x: -200, y: -200 };
+  /** Storm-window identity + local start, so the feint patrol is phase-relative. */
+  private stormLeg = { endsAt: 0, startedAt: 0 };
   private crates: Crate[] = [];
   private rippleFx: { x: number; y: number; start: number; amber: boolean }[] = [];
   private strikeHandledFor: number | null = null;
@@ -878,9 +881,21 @@ export class BayScene {
     if (this.stormC.visible) {
       let target: { x: number; y: number } | null = null;
       if (st.phase === 'LOCKED_STORM' && st.storm) {
-        const which = now % 3000 < 1500 ? st.storm.feints[0] : st.storm.feints[1];
-        const cove = this.coves[which];
-        if (cove) target = { x: cove.moorX, y: cove.moorY - 34 };
+        // Restart the leg clock whenever a new storm window opens, so the
+        // patrol is timed against THIS phase rather than the wall clock.
+        if (this.stormLeg.endsAt !== st.storm.endsAt) {
+          this.stormLeg = { endsAt: st.storm.endsAt, startedAt: now };
+        }
+        // Route rules and the reason they exist live in ../stormPath.ts.
+        const route = stormRoute(
+          st.storm.feints,
+          (zone) => {
+            const cove = this.coves[zone];
+            return cove ? { x: cove.moorX, y: cove.moorY - 34 } : null;
+          },
+          neutralStop(W, H),
+        );
+        target = stormRouteStop(route, now - this.stormLeg.startedAt);
       } else if (st.struckZone !== null) {
         const cove = this.coves[st.struckZone];
         if (cove) target = { x: cove.moorX, y: cove.moorY - 26 };
