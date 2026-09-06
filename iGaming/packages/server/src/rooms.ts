@@ -7,11 +7,14 @@
  * BOTS POLICY (C5, non-negotiable): `botsAllowed` is hard-false unless the
  * server runs with LANDFALL_ENV=demo. A room config requesting bots outside
  * demo is a STARTUP CRASH, not a warning — bots can never touch a real-money
- * surface by construction.
+ * surface by construction. `botCount` and `botBankrollMinor` are tier economics
+ * and live beside the stake tiers for the same reason: a bot has to be able to
+ * afford the table it sits at, and that number is different in every room.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ZONE_COUNT, liquidityLevel, validateRakeConfig } from '@landfall/core';
+import { defaultBotBankrollMinor } from './bots.js';
 import type { ChainHandle } from './chain.js';
 import {
   DEFAULT_ECONOMY,
@@ -36,6 +39,10 @@ export interface RoomConfigJson {
   liquidityFloorMinor?: number;
   minSeedMinor?: number;
   botsAllowed?: boolean;
+  /** Practice bots seated here; omitted = the server's global default. */
+  botCount?: number;
+  /** Balance a practice bot is topped back up to; omitted = derived from the tier. */
+  botBankrollMinor?: number;
   surgeProb?: number;
   signalMinStakeMinor?: number;
   rake?: number;
@@ -72,6 +79,9 @@ export function resolveRoomConfig(
       json.liquidityFloorMinor ?? (json.seedMinor ?? base.seedMinor) * ZONE_COUNT,
     minSeedMinor: json.minSeedMinor ?? json.minStakeMinor ?? base.minSeedMinor,
     botsAllowed,
+    botCount: json.botCount ?? base.botCount,
+    botBankrollMinor:
+      json.botBankrollMinor ?? defaultBotBankrollMinor(json.maxStakeMinor ?? base.maxStakeMinor),
     surgeProb: json.surgeProb ?? base.surgeProb,
     signalMinStakeMinor: json.signalMinStakeMinor ?? base.signalMinStakeMinor,
     econ: {
@@ -92,6 +102,16 @@ export function resolveRoomConfig(
   }
   if (cfg.liquidityFloorMinor < 0) {
     throw new Error(`room "${cfg.roomId}": liquidityFloorMinor must not be negative`);
+  }
+  if (cfg.botCount !== null && (!Number.isInteger(cfg.botCount) || cfg.botCount < 0)) {
+    throw new Error(`room "${cfg.roomId}": botCount must be a non-negative integer`);
+  }
+  // A bot that cannot cover one table-maximum stake would be topped up mid-round
+  // forever and never show up in the pools at the size the tier advertises.
+  if (!Number.isInteger(cfg.botBankrollMinor) || cfg.botBankrollMinor < cfg.maxStakeMinor) {
+    throw new Error(
+      `room "${cfg.roomId}": botBankrollMinor (${cfg.botBankrollMinor}) must be a whole number of minor units and at least the tier maximum stake (${cfg.maxStakeMinor})`,
+    );
   }
   return cfg;
 }
@@ -161,11 +181,12 @@ export class RoomManager {
    *
    * Liquidity is the product's existential risk: the strategy layer only exists
    * when pools differ, and pools only differ when people are in the same room.
-   * Splitting a small population evenly across three tiers is the worst thing
-   * this server can do to itself, so an unrouted player goes to the BUSIEST
-   * room they are eligible for, and only falls back to configuration order when
-   * every room is equally empty. Stake eligibility still wins — nobody is
-   * seated at a table they cannot afford.
+   * Splitting a small population evenly across the tier ladder is the worst
+   * thing this server can do to itself — and the ladder got longer when the
+   * high-roller rooms were added, so it matters more now, not less. An unrouted
+   * player therefore goes to the BUSIEST room they are eligible for, and only
+   * falls back to configuration order when every room is equally empty. Stake
+   * eligibility still wins — nobody is seated at a table they cannot afford.
    */
   bestRoomFor(humansPerRoom: ReadonlyMap<string, number>, balanceMinor?: number): string {
     const order = [...this.rooms.keys()];

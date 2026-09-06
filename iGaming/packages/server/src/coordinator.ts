@@ -27,6 +27,7 @@ import {
   RAKE_SPLIT,
   SIGNAL_MIN_STAKE_MINOR,
   SPLIT_PRIMARY_PERCENT,
+  STARTING_BALANCE_MINOR,
   STORM_POWER_MAX_PAYOUT_MULTIPLE,
   SURGE_FLAT_ODDS_EVERY_N,
   SURGE_MIN_POT_MINOR,
@@ -172,6 +173,20 @@ export interface RoomConfig {
   minSeedMinor: number;
   /** C5: demo practice bots. Hard-false outside LANDFALL_ENV=demo (rooms.ts crashes otherwise). */
   botsAllowed: boolean;
+  /**
+   * How many practice bots this room seats. `null` means "no per-room opinion"
+   * — main.ts falls back to the global default. Ignored when `botsAllowed` is
+   * false. High-roller tiers seat fewer: a thin, expensive table is the honest
+   * picture of one, and every bot there carries a large bankroll.
+   */
+  botCount: number | null;
+  /**
+   * Balance a practice bot is topped back up to. Scales with the tier — a bot
+   * with a Skiff bankroll on a Leviathan table is broke on its first anchor,
+   * which would leave the rich rooms looking deserted. Demo-only, like the
+   * bots themselves.
+   */
+  botBankrollMinor: number;
   surgeProb: number;
   /** B4: minimum anchored stake required to fly a signal flag. */
   signalMinStakeMinor: number;
@@ -189,6 +204,8 @@ export const DEFAULT_ROOM: RoomConfig = {
   liquidityFloorMinor: LIQUIDITY_FLOOR_MINOR,
   minSeedMinor: LIQUIDITY_MIN_SEED_MINOR,
   botsAllowed: false,
+  botCount: null,
+  botBankrollMinor: STARTING_BALANCE_MINOR,
   surgeProb: 0,
   signalMinStakeMinor: SIGNAL_MIN_STAKE_MINOR,
   econ: DEFAULT_ECONOMY,

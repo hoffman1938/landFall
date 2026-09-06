@@ -5,7 +5,7 @@ import { WebSocketServer } from 'ws';
 import { eq } from 'drizzle-orm';
 import { DEFAULT_TIMINGS, SURGE_PROB, validateRakeConfig } from '@landfall/core';
 import { createApp } from './app.js';
-import { BotManager } from './bots.js';
+import { BotManager, DEFAULT_BOT_COUNT } from './bots.js';
 import { ensureChain } from './chain.js';
 import { ChatService } from './chat.js';
 import { DEFAULT_ECONOMY, type CoordinatorEvents, type EconomyConfig, type Timings } from './coordinator.js';
@@ -114,6 +114,8 @@ const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
       seedCeilingMinor: r.seedMinor,
       liquidityFloorMinor: r.liquidityFloorMinor,
       botsAllowed: r.botsAllowed,
+      botCount: r.botCount,
+      botBankrollMinor: r.botBankrollMinor,
     })),
   });
   metrics.gauge('landfall_rooms_configured', 'Rooms configured on this instance.', roomConfigs.length);
@@ -125,22 +127,31 @@ rooms.start();
 roomsRunning = true;
 log.info('ws listening', { path: '/ws', port: PORT });
 
-// Practice bots so solo players can see the crowd dynamics (LANDFALL_BOTS=0
-// disables). Bots exist ONLY in rooms whose config allows them, which the
-// rooms loader already refused outside LANDFALL_ENV=demo (C5).
-const botCount = Number(process.env.LANDFALL_BOTS ?? 14);
+// Practice bots so solo players can see the crowd dynamics. Head-counts come
+// from the rooms config per tier; LANDFALL_BOTS overrides every room and
+// LANDFALL_BOTS=0 disables bots entirely. Bots exist ONLY in rooms whose config
+// allows them, which the rooms loader already refused outside LANDFALL_ENV=demo (C5).
+const botsEnv = process.env.LANDFALL_BOTS;
+const botOverride = botsEnv === undefined ? null : Number(botsEnv);
+if (botOverride !== null && (!Number.isInteger(botOverride) || botOverride < 0)) {
+  throw new Error(`LANDFALL_BOTS must be a non-negative integer, got "${botsEnv}"`);
+}
 const botManagers: BotManager[] = [];
-if (botCount > 0) {
+const botSeating: { roomId: string; count: number }[] = [];
+if (botOverride !== 0) {
   for (const room of rooms.rooms.values()) {
     if (!room.cfg.botsAllowed) continue;
-    const manager = new BotManager(db, room, botCount);
+    const count = botOverride ?? room.cfg.botCount ?? DEFAULT_BOT_COUNT;
+    if (count <= 0) continue;
+    const manager = new BotManager(db, room, count);
     manager.start();
     botManagers.push(manager);
+    botSeating.push({ roomId: room.cfg.roomId, count });
   }
 }
 
 if (botManagers.length > 0) {
-  log.info('practice bots started', { rooms: botManagers.length, perRoom: botCount });
+  log.info('practice bots started', { rooms: botManagers.length, seating: botSeating });
 }
 
 /**

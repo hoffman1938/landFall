@@ -9,7 +9,11 @@
  * window, with a varied stake, mildly preferring less-crowded harbors; some
  * re-anchor in the final seconds using only the public Tide Report — reproducing
  * the Blind Fog mind game without giving practice bots exact hidden pools.
- * Disable with LANDFALL_BOTS=0.
+ *
+ * Head-count and bankroll are per-tier, from the rooms config: a bot must be
+ * able to afford the table it sits at, so a Leviathan bot carries far more than
+ * a Skiff one and the high-roller rooms are not deserted. LANDFALL_BOTS
+ * overrides the head-count for every room; LANDFALL_BOTS=0 disables bots.
  */
 import { eq } from 'drizzle-orm';
 import { STARTING_BALANCE_MINOR, ZONE_COUNT, type TideBand } from '@landfall/core';
@@ -24,14 +28,38 @@ interface Bot {
   name: string;
 }
 
+/** Bots per room when neither the room config nor LANDFALL_BOTS says otherwise. */
+export const DEFAULT_BOT_COUNT = 14;
+
+/**
+ * A bot's bankroll as a multiple of its table's maximum stake, used when the
+ * room config does not name one. The tier ceiling is what a bot may be asked
+ * to cover; 25× of it survives a long unlucky streak without the top-up
+ * kicking in every round and making the table's balances look synthetic.
+ */
+export const BOT_BANKROLL_STAKE_MULTIPLE = 25;
+
+/**
+ * Default demo bankroll for a bot at a table whose ceiling is `maxStakeMinor`.
+ * Never below the human starting balance, so the cheap tiers keep the exact
+ * bankroll they have always had.
+ */
+export function defaultBotBankrollMinor(maxStakeMinor: number): number {
+  return Math.max(STARTING_BALANCE_MINOR, maxStakeMinor * BOT_BANKROLL_STAKE_MULTIPLE);
+}
+
 export class BotManager {
   private bots: Bot[] = [];
   private poll: NodeJS.Timeout | null = null;
   private pending: NodeJS.Timeout[] = [];
   private lastRound = 0;
-  /** Per-tier stake table (D3/C2): multiples of the room's min stake, clamped
-   *  to the tier ceiling — a min-stake human is always visible in the pools. */
+  /** Per-tier stake ladder (D3/C2): multiples of the room's min stake, clamped
+   *  to the tier ceiling — a min-stake human is always visible in the pools, and
+   *  the ×1 rung guarantees the ladder always holds one bet the whale cap on a
+   *  dead table will accept. `pickStake` chooses from it. */
   private stakesMinor: number[];
+  /** Per-tier demo bankroll — see `defaultBotBankrollMinor`. */
+  private bankrollMinor: number;
 
   constructor(
     private db: Db,
@@ -46,9 +74,10 @@ export class BotManager {
       );
     }
     const { minStakeMinor, maxStakeMinor } = coordinator.cfg;
-    this.stakesMinor = [2, 5, 5, 10, 25, 50, 100].map((m) =>
+    this.stakesMinor = [1, 2, 5, 5, 10, 25, 50, 100].map((m) =>
       Math.max(minStakeMinor, Math.min(maxStakeMinor, m * minStakeMinor)),
     );
+    this.bankrollMinor = coordinator.cfg.botBankrollMinor;
   }
 
   start(): void {
@@ -57,6 +86,7 @@ export class BotManager {
     log.info('practice bots active', {
       room: this.coordinator.cfg.roomId,
       count: this.bots.length,
+      bankrollMinor: this.bankrollMinor,
       names: this.bots.map((b) => b.name),
     });
   }
@@ -81,7 +111,7 @@ export class BotManager {
       .values({
         id,
         name,
-        balanceMinor: STARTING_BALANCE_MINOR,
+        balanceMinor: this.bankrollMinor,
         isHouse: false,
         isBot: true,
         lastRoomId: this.coordinator.cfg.roomId,
@@ -102,9 +132,7 @@ export class BotManager {
       if (Math.random() < 0.15) continue; // sits this round out
       this.topUp(bot);
       // Bots chase surge rounds like humans do — bigger stakes when the pot pays.
-      const surgeBoost = round.surgeRound ? 2 : 1;
-      const base = this.stakesMinor[Math.floor(Math.random() * this.stakesMinor.length)]!;
-      const stake = Math.min(this.coordinator.cfg.maxStakeMinor, base * surgeBoost);
+      const stake = this.pickStake(round.surgeRound ? 2 : 1);
 
       // Initial anchor at a random moment in the first ~70% of the window.
       const t1 = 300 + Math.random() * Math.max(500, windowMs * 0.7 - 300);
@@ -128,6 +156,49 @@ export class BotManager {
       return;
     }
     this.coordinator.anchor(bot.id, bot.name, primary, stake);
+  }
+
+  /**
+   * The whale cap (B5) a bot can be CERTAIN of, from public information only.
+   * The server evaluates the cap against `max(liquidityFloor, K·seed + other
+   * fleets)`; the other fleets are hidden during anchoring, and the published
+   * house seed is not. Dropping the hidden term makes this a lower bound on the
+   * real cap, which is what we want twice over: a bot that stays under it is
+   * never rejected, and it reads nothing a human's client cannot read off the
+   * round header (the client pre-checks the same cap — see ControlDeck).
+   */
+  private publicWhaleCapMinor(): number {
+    const { whaleCapFraction, liquidityFloorMinor } = this.coordinator.cfg;
+    if (whaleCapFraction >= 1) return Number.POSITIVE_INFINITY;
+    const othersMinor = Math.max(
+      liquidityFloorMinor,
+      ZONE_COUNT * this.coordinator.roundHeader().houseSeedMinor,
+    );
+    return Math.floor((whaleCapFraction / (1 - whaleCapFraction)) * othersMinor);
+  }
+
+  /**
+   * A stake this bot can actually place: a random rung of the tier ladder that
+   * still fits under the cap above.
+   *
+   * Without the filter a bot at a high-roller table drew from a ladder spanning
+   * the whole tier while B5 held it near the seed total, so most of its anchors
+   * were rejected and the expensive rooms — the ones with the fewest real
+   * players to begin with — looked deserted. Filtering rather than truncating
+   * to the cap matters: clamping every bot to the same number would make the
+   * six pools identical, which is the exact failure liquidity.ts exists to
+   * prevent.
+   */
+  private pickStake(surgeBoost: number): number {
+    const { minStakeMinor, maxStakeMinor } = this.coordinator.cfg;
+    const capMinor = this.publicWhaleCapMinor();
+    const boosted = (rung: number) => Math.min(maxStakeMinor, rung * surgeBoost);
+    const fits = this.stakesMinor.filter((rung) => boosted(rung) <= capMinor);
+    // Nothing fits: bet the table minimum anyway. It is the only honest try, and
+    // a room configured so tightly that it rejects its own minimum is a config
+    // bug the rooms loader is meant to catch, not something to paper over here.
+    if (fits.length === 0) return minStakeMinor;
+    return boosted(fits[Math.floor(Math.random() * fits.length)]!);
   }
 
   /** Mildly anti-crowd: prefer lower public tide bands, with noise so bots don't stack. */
@@ -154,14 +225,16 @@ export class BotManager {
     return Math.floor(Math.random() * ZONE_COUNT);
   }
 
-  /** Practice bots reset to the starting balance when low so they never run dry
-   *  and stay near the table's headline balance (their PnL is not meaningful). */
+  /** Practice bots reset to the room's bankroll when low so they never run dry
+   *  and stay near the table's headline balance (their PnL is not meaningful).
+   *  An existing bot row from a cheaper config is topped up too, so raising a
+   *  room's tier does not leave its bots permanently unable to anchor. */
   private topUp(bot: Bot): void {
     const row = this.db.select().from(players).where(eq(players.id, bot.id)).get();
-    if (row && row.balanceMinor < STARTING_BALANCE_MINOR / 2) {
+    if (row && row.balanceMinor < this.bankrollMinor / 2) {
       this.db
         .update(players)
-        .set({ balanceMinor: STARTING_BALANCE_MINOR })
+        .set({ balanceMinor: this.bankrollMinor })
         .where(eq(players.id, bot.id))
         .run();
     }

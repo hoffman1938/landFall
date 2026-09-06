@@ -2,10 +2,21 @@
  * Phase R3 integration tests — multi-room concurrency (C1), tier caps (C2/B5),
  * flag friction (B4), bots policy (C5). Real coordinators, in-memory SQLite,
  * fake timers.
+ *
+ * The last two suites hold the SHIPPED `config/rooms.json` to the invariants a
+ * new stake tier is most likely to break: a ladder that stays ordered and inside
+ * the 100× span, a liquidity floor big enough that the whale cap still admits
+ * the table's own minimum bet, and bots that can afford the table they sit at.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { chainCommitment, roundSeed, pickGoldenAnchor, type StakeEntry } from '@landfall/core';
+import {
+  STARTING_BALANCE_MINOR,
+  chainCommitment,
+  roundSeed,
+  pickGoldenAnchor,
+  type StakeEntry,
+} from '@landfall/core';
 import { openDb, type Db, type Sqlite } from '../src/db/index.js';
 import { players, rounds } from '../src/db/schema.js';
 import {
@@ -15,8 +26,8 @@ import {
   type Timings,
 } from '../src/coordinator.js';
 import { DrizzleSqliteRepository } from '../src/db/repository.js';
-import { resolveRoomConfig } from '../src/rooms.js';
-import { BotManager } from '../src/bots.js';
+import { loadRoomConfigs, resolveRoomConfig } from '../src/rooms.js';
+import { BOT_BANKROLL_STAKE_MULTIPLE, BotManager } from '../src/bots.js';
 
 const TERMINAL = 'e'.repeat(64);
 const TIMINGS: Timings = { anchorMs: 10_000, stormMs: 1_000, resolvedMs: 500, cooldownMs: 500 };
@@ -239,5 +250,109 @@ describe('bots policy enforcement (C5)', () => {
     });
     expect(() => new BotManager(db, c, 3)).toThrow(/BOTS POLICY VIOLATION/);
     sqlite.close();
+  });
+});
+
+describe('per-tier bot seating', () => {
+  it('derives a bot bankroll from the tier ceiling and honours an explicit one', () => {
+    const rich = resolveRoomConfig(
+      {
+        roomId: 'rich',
+        name: 'Rich',
+        minStakeMinor: 500_00,
+        maxStakeMinor: 50_000_00,
+        seedMinor: 1_250_00,
+      },
+      DEFAULT_ROOM,
+      false,
+    );
+    expect(rich.botBankrollMinor).toBe(50_000_00 * BOT_BANKROLL_STAKE_MULTIPLE);
+    expect(rich.botCount).toBeNull(); // no per-room opinion -> the global default
+
+    const explicit = resolveRoomConfig(
+      {
+        roomId: 'rich',
+        name: 'Rich',
+        minStakeMinor: 500_00,
+        maxStakeMinor: 50_000_00,
+        seedMinor: 1_250_00,
+        botBankrollMinor: 1_000_000_00,
+        botCount: 6,
+      },
+      DEFAULT_ROOM,
+      false,
+    );
+    expect(explicit.botBankrollMinor).toBe(1_000_000_00);
+    expect(explicit.botCount).toBe(6);
+  });
+
+  it('refuses a bot bankroll that cannot cover one table-maximum stake', () => {
+    expect(() =>
+      resolveRoomConfig(
+        {
+          roomId: 'broke',
+          name: 'Broke',
+          minStakeMinor: 500_00,
+          maxStakeMinor: 50_000_00,
+          seedMinor: 1_250_00,
+          botBankrollMinor: 100_00,
+        },
+        DEFAULT_ROOM,
+        false,
+      ),
+    ).toThrow(/at least the tier maximum stake/);
+  });
+
+  it('refuses a negative or fractional bot head-count', () => {
+    for (const botCount of [-1, 2.5]) {
+      expect(() =>
+        resolveRoomConfig({ roomId: 'r', name: 'R', botCount }, DEFAULT_ROOM, false),
+      ).toThrow(/botCount must be a non-negative integer/);
+    }
+  });
+});
+
+describe('shipped rooms.json', () => {
+  // Loaded per test rather than once at collection time, so a bad config shows
+  // up as a failing assertion instead of an unattributed collection error.
+  const load = () => loadRoomConfigs(true, TIMINGS, 0);
+
+  it('offers a ladder of tiers with bots at every table', () => {
+    const configs = load();
+    expect(configs.length).toBeGreaterThanOrEqual(5);
+    for (const cfg of configs) {
+      expect(cfg.botsAllowed).toBe(true);
+      expect(cfg.botCount ?? 0).toBeGreaterThan(0);
+    }
+    // Each tier is strictly richer than the last, and spans at most 100× so a
+    // casual never shares a table with someone betting 100× their stake (C2).
+    for (const [i, cfg] of configs.entries()) {
+      expect(cfg.maxStakeMinor).toBeLessThanOrEqual(cfg.minStakeMinor * 100);
+      const prev = configs[i - 1];
+      if (prev) {
+        expect(cfg.minStakeMinor).toBeGreaterThan(prev.minStakeMinor);
+        expect(cfg.maxStakeMinor).toBeGreaterThan(prev.maxStakeMinor);
+      }
+    }
+  });
+
+  it('lets the first bettor of a dead round place the table minimum (B5 × liquidity)', () => {
+    // The whale cap is evaluated against max(liveHandle, liquidityFloorMinor),
+    // so on an empty table the live ceiling is floor × f/(1−f). A tier whose
+    // floor is too thin for its own minimum stake would reject every opening
+    // bet — the failure mode a new high-roller room walks straight into.
+    for (const cfg of load()) {
+      const capMinor = Math.floor(
+        (cfg.whaleCapFraction / (1 - cfg.whaleCapFraction)) * cfg.liquidityFloorMinor,
+      );
+      expect(capMinor).toBeGreaterThanOrEqual(cfg.minStakeMinor);
+    }
+  });
+
+  it('gives every bot enough to bet its table (and never less than a human starts with)', () => {
+    for (const cfg of load()) {
+      expect(cfg.botBankrollMinor).toBeGreaterThanOrEqual(cfg.maxStakeMinor);
+      expect(cfg.botBankrollMinor).toBeGreaterThanOrEqual(STARTING_BALANCE_MINOR);
+    }
   });
 });

@@ -214,7 +214,9 @@ export function TopBar() {
                 aria-hidden="true"
                 onMouseDown={() => setSettingsOpen(false)}
               />
-              <div className="absolute right-0 top-full z-30 mt-1 w-64 rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] p-1.5 shadow-xl">
+              {/* Scrolls: the table list grows with the tier ladder, and the
+                  rows under it must stay reachable on a short phone screen. */}
+              <div className="absolute right-0 top-full z-30 mt-1 max-h-[calc(100dvh-4.5rem)] w-64 overflow-y-auto rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] p-1.5 shadow-xl">
                 {/* v3 P0-7: Table switcher moved out of the top bar into Settings,
                     styled as selectable cards (no raw native <select>). */}
                 {rooms.length > 0 && (

@@ -183,8 +183,14 @@ Operator note: the house pays the rake on its own seed, so seeding is a real cos
 policy that cost decays towards zero exactly as the room becomes self-sustaining — the operator
 funds liquidity only while liquidity is genuinely scarce.
 
-Room defaults (`packages/server/config/rooms.json`): Skiff `F = 90`, `h_min = 1`, `h_max = 25`;
-Schooner `F = 180`, `h_min = 5`, `h_max = 50`; Flagship `F = 900`, `h_min = 50`, `h_max = 250`.
+Room defaults (`packages/server/config/rooms.json`, credits): Skiff `F = 90`, `h_min = 1`,
+`h_max = 25`; Schooner `F = 180`, `h_min = 5`, `h_max = 50`; Flagship `F = 900`, `h_min = 50`,
+`h_max = 250`; Galleon `F = 4,500`, `h_min = 500`, `h_max = 1,250`; Leviathan `F = 22,500`,
+`h_min = 5,000`, `h_max = 6,250`. Every tier keeps `F = 3.6 · h_max`, while `h_max/h_min` decays
+up the ladder (25, 10, 5, 2.5, 1.25) — the richer the room, the smaller the house seed is
+relative to a single player's bet, which is the dispersion argument above applied per tier. The floors are additionally sized so that the B5 whale cap on a dead table,
+`f/(1−f) · F`, still admits the tier's own minimum stake; otherwise the guardrail would reject
+the opening bet of every round (asserted in `packages/server/test/rooms.test.ts`).
 
 Properties (validated by simulation, §7):
 
@@ -351,7 +357,8 @@ unchanged).
 
 ## 11. Open Parameters (tracked, not finalized here)
 
-- Min/max stake come from room tier config (Skiff/Schooner/Flagship — Workstream C2). A single
+- Min/max stake come from room tier config (Skiff/Schooner/Flagship/Galleon/Leviathan —
+  Workstream C2). A single
   player's round stake is additionally capped at `WHALE_CAP_FRACTION` (default 25%) of the
   current public handle at accept time (B5) — the pari-mutuel-native anti-domination lever.
 - ~~`h` (house seed) sizing policy as typical room population grows~~ — RESOLVED: `h` now

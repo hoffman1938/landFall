@@ -18,7 +18,14 @@ export const LIQUIDITY_FLOOR_MINOR = ZONE_COUNT * HOUSE_SEED_MINOR;
 /** Token seed that always remains, so no harbor is ever literally empty. */
 export const LIQUIDITY_MIN_SEED_MINOR = 1_00;
 export const MIN_STAKE_MINOR = 1_00;
-export const MAX_STAKE_MINOR = 5_000_00; // absolute protocol ceiling; effective ceilings come from room tiers
+/**
+ * Absolute protocol ceiling — the widest stake the wire schema will carry.
+ * Effective ceilings come from room tiers (`packages/server/config/rooms.json`)
+ * and are always far lower; this exists so the top tier has head-room and so a
+ * malformed client cannot ask for an unbounded number. Raised from 5,000 to
+ * 500,000 credits when the Galleon/Leviathan high-roller tiers were added.
+ */
+export const MAX_STAKE_MINOR = 500_000_00;
 export const STARTING_BALANCE_MINOR = 50_000_00;
 
 /**

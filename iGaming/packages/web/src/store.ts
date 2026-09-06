@@ -60,6 +60,28 @@ export interface StormInfo {
   endsAt: number;
 }
 
+/**
+ * One settled round from THIS session, as it affected this player. Feeds the
+ * telemetry rail's session curve.
+ *
+ * This exists for the player, not for the product: a running, honest session
+ * P&L is the same disclosure the F1 reality check makes, shown continuously
+ * instead of on a timer. It is deliberately never smoothed, never reset by a
+ * win, and never hidden while it is negative.
+ */
+export interface SessionPoint {
+  roundId: number;
+  /** Signed credits this round moved for this player (0 when sitting out). */
+  netMinor: number;
+  /** Running session total after this round. */
+  cumulativeMinor: number;
+  balanceMinor: number;
+  played: boolean;
+}
+
+/** Rounds kept in the session curve — roughly 20 minutes of play at 20s rounds. */
+const SESSION_SERIES_MAX = 60;
+
 interface State {
   connected: boolean;
   playerId: string | null;
@@ -133,6 +155,8 @@ interface State {
   receipts: ActionReceipt[];
   /** Wreck Wake Replay card stack (E2), newest last, capped at 20. */
   replayCards: ReplayCard[];
+  /** This session's settled rounds, oldest first — the telemetry session curve. */
+  sessionSeries: SessionPoint[];
   /** The Wreck Log card-stack sheet (E2). */
   wreckLogOpen: boolean;
   /** Skipper profile card (E1): open lookup, or null. */
@@ -385,12 +409,26 @@ export const useStore = create<State>((set, get) => {
             ...(msg.surge ? { surge: msg.surge } : {}),
             at: Date.now(),
           };
+          // Session curve: every settled round is a point, including the ones
+          // sat out (they flatten the line, which is the truth).
+          const prevSeries = get().sessionSeries;
+          const prevCumulative = prevSeries.at(-1)?.cumulativeMinor ?? 0;
+          const played = msg.yourResult.outcome !== 'SPECTATOR';
+          const point: SessionPoint = {
+            roundId: msg.roundId,
+            netMinor: played ? msg.yourResult.netMinor : 0,
+            cumulativeMinor: prevCumulative + (played ? msg.yourResult.netMinor : 0),
+            balanceMinor: msg.balanceMinor,
+            played,
+          };
+
           set({
             phase: msg.phase,
             orderPending: false,
             balanceMinor: msg.balanceMinor,
             wreckLog: msg.wreckLog,
             verifyGlow,
+            sessionSeries: [...prevSeries.slice(-(SESSION_SERIES_MAX - 1)), point],
             // E2: the Wreck Log is a stack of the last 20 replay cards.
             replayCards: [...get().replayCards.slice(-19), card],
             lastLandfall: {
@@ -533,6 +571,7 @@ export const useStore = create<State>((set, get) => {
     lastAnchor: null,
     lastFleet: null,
     receipts: [],
+    sessionSeries: [],
     roomId: null,
     rooms: [],
     roomMinStakeMinor: MIN_STAKE_MINOR,
