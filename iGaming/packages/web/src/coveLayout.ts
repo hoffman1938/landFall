@@ -11,6 +11,15 @@ export interface CoveLayout {
   hit: CoveRect;
   markerX: number;
   markerY: number;
+  /**
+   * The zone card's box. The card itself is DOM, painted ABOVE the canvas, so
+   * anything the Pixi scene draws inside this rectangle is invisible. Every
+   * marker the scene draws for a zone — the static plot brackets, your
+   * selection, the storm reticle, the strike frame — is sized to sit outside
+   * it, which is why the box has to be shared rather than guessed twice.
+   */
+  markerWidth: number;
+  markerHeight: number;
   moorX: number;
   moorY: number;
   side: 'top' | 'bottom';
@@ -44,7 +53,22 @@ const PORTRAIT_CENTERS: readonly [number, number][] = [
   [0.77, 0.62],
 ];
 
-const MARKER_HALF_WIDTH = 80;
+/**
+ * The card is three rows of fixed type inside fixed padding, so its height is
+ * stable at 76px. Markers add their own margin on top of this, so a few pixels
+ * of drift here cannot put a marker underneath the card.
+ */
+const MARKER_HEIGHT = 76;
+
+/**
+ * How wide the zone card is at this board width. The markers are big seats on
+ * a wide board and stay thumb-sized on a phone.
+ */
+export function markerWidthFor(width: number): number {
+  return width >= 768
+    ? Math.min(206, Math.max(168, width * 0.135))
+    : Math.min(158, Math.max(126, width * 0.38));
+}
 
 /** Shared geometry for the Pixi world and the semantic DOM cove cards. */
 export function getCoveLayouts(width: number, height: number): CoveLayout[] {
@@ -54,7 +78,11 @@ export function getCoveLayouts(width: number, height: number): CoveLayout[] {
   const centers = landscape ? LANDSCAPE_CENTERS : PORTRAIT_CENTERS;
   const coveWidth = width * (landscape ? 0.24 : 0.44);
   const coveHeight = height * (landscape ? 0.22 : 0.17);
-  const markerRightEdge = width;
+  const markerWidth = markerWidthFor(width);
+  // Clamp against the card's ACTUAL half-width. This used to be a fixed 80,
+  // which is narrower than the card gets on a wide board, so the clamp could
+  // still let an edge column hang off the board.
+  const markerHalf = markerWidth / 2;
 
   return Array.from({ length: ZONE_COUNT }, (_, zone) => {
     const [centerX, centerY] = centers[zone]!;
@@ -65,11 +93,10 @@ export function getCoveLayouts(width: number, height: number): CoveLayout[] {
 
     return {
       hit: { x, y, width: coveWidth, height: coveHeight },
-      markerX: Math.max(
-        MARKER_HALF_WIDTH,
-        Math.min(markerRightEdge - MARKER_HALF_WIDTH, centerX * width),
-      ),
+      markerX: Math.max(markerHalf, Math.min(width - markerHalf, centerX * width)),
       markerY: centerY * height,
+      markerWidth,
+      markerHeight: MARKER_HEIGHT,
       moorX: centerX * width,
       moorY: centerY * height + coveHeight * (side === 'top' ? 0.12 : 0.04),
       side,

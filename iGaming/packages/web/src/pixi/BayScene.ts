@@ -123,7 +123,33 @@ interface Cove {
   shoreH: number;
   moorX: number;
   moorY: number;
+  /** Centre and size of the DOM zone card — every marker is framed around this. */
+  markerX: number;
+  markerY: number;
+  markerW: number;
+  markerH: number;
   beamOrigin: { x: number; y: number };
+}
+
+/**
+ * The box a marker draws for a zone: concentric with the card, and always at
+ * least `pad` clear of it on every side.
+ *
+ * Markers nest by padding, so they never collide: the static plot brackets sit
+ * outside the card, your selection just outside those, and the strike frame and
+ * storm reticle outside everything.
+ */
+function markerFrame(cove: Cove, pad: number) {
+  const halfW = Math.max(cove.w * 0.42, cove.markerW / 2 + pad);
+  const halfH = Math.max(cove.h * 0.3, cove.markerH / 2 + pad);
+  return {
+    x: cove.markerX - halfW,
+    y: cove.markerY - halfH,
+    w: halfW * 2,
+    h: halfH * 2,
+    halfW,
+    halfH,
+  };
 }
 
 interface Crate {
@@ -175,7 +201,10 @@ export class BayScene {
   private stormC = new Container();
   private stormBolt = new Graphics();
   private stormRain = new Graphics();
-  private churn = new Graphics();
+  /** The reticle body — sized per layout so it always clears the zone card. */
+  private stormReticle = new Graphics();
+  /** Half-extents of the reticle, so the drop line and bolt start below it. */
+  private stormReach = { halfW: 44, halfH: 26 };
   private flashG = new Graphics();
   private cargoC = new Container();
   private ripples = new Graphics();
@@ -199,6 +228,8 @@ export class BayScene {
   private sky = MOOD.night;
   private fogAlpha = 0;
   private stormPos = { x: -200, y: -200 };
+  /** Previous frame's timestamp, so scene motion is time-based, not per-frame. */
+  private lastTickAt = Date.now();
   /** Storm-window identity + local start, so the feint patrol is phase-relative. */
   private stormLeg = { endsAt: 0, startedAt: 0 };
   private crates: Crate[] = [];
@@ -310,6 +341,10 @@ export class BayScene {
         shoreH: 0,
         moorX: 0,
         moorY: 0,
+        markerX: 0,
+        markerY: 0,
+        markerW: 168,
+        markerH: 76,
         beamOrigin: { x: 0, y: 0 },
       });
     }
@@ -325,38 +360,15 @@ export class BayScene {
     stage.addChild(this.fogC);
 
     /*
-     * The storm is a targeting reticle: four red corner brackets and a centre
-     * tick that hunt between the two published feints and then lock onto the
-     * zone that was drawn. A weather system would be an illustration; a
-     * reticle is the same information as a mark, and it says the honest thing
-     * — something is being aimed, and it is not aiming at you personally.
+     * The storm is a targeting reticle that hunts between the two published
+     * feints and then locks onto the zone that was drawn. A weather system
+     * would be an illustration; a reticle is the same information as a mark,
+     * and it says the honest thing — something is being aimed, and it is not
+     * aiming at you personally. Its geometry is set in layout(), because it has
+     * to be sized to clear the DOM card it lands on.
      */
-    this.churn.rect(-30, -1, 60, 2).fill({ color: DANGER, alpha: 0.25 });
-    const mass = new Graphics();
-    const RW = 44;
-    const RH = 26;
-    const ARM = 12;
-    for (const [sx, sy] of [
-      [-1, -1],
-      [1, -1],
-      [-1, 1],
-      [1, 1],
-    ] as const) {
-      const x = sx * RW;
-      const y = sy * RH;
-      mass
-        .moveTo(x - sx * ARM, y)
-        .lineTo(x, y)
-        .lineTo(x, y - sy * ARM)
-        .stroke({ color: DANGER, width: 2 });
-    }
-    mass.rect(-2, -2, 4, 4).fill(DANGER);
-    mass.rect(-RW, -RH, RW * 2, RH * 2).fill({ color: DANGER, alpha: 0.06 });
-    // the strike itself: a hard red column, not a lightning bolt
-    this.stormBolt.rect(-5, 26, 10, 52).fill(DANGER);
-    this.stormBolt.rect(-1.5, 26, 3, 60).fill(0xffffff);
     this.stormBolt.visible = false;
-    this.stormC.addChild(this.churn, this.stormRain, mass, this.stormBolt);
+    this.stormC.addChild(this.stormRain, this.stormReticle, this.stormBolt);
     this.stormC.visible = false;
     stage.addChild(this.stormC, this.cargoC, this.ripples);
 
@@ -436,6 +448,10 @@ export class BayScene {
       cove.shoreH = l.shoreHeight;
       cove.moorX = l.moorX;
       cove.moorY = l.moorY;
+      cove.markerX = l.markerX;
+      cove.markerY = l.markerY;
+      cove.markerW = l.markerWidth;
+      cove.markerH = l.markerHeight;
       cove.hit.clear();
       cove.hit.rect(0, 0, cove.w, cove.h).fill({ color: 0xffffff, alpha: 0.0001 });
       cove.hit.position.set(cove.x, cove.y);
@@ -446,6 +462,10 @@ export class BayScene {
       };
       this.drawAnchorage(cove);
     });
+
+    // Every cove shares a card size, so one reticle serves all six.
+    const firstCove = this.coves[0];
+    if (firstCove) this.drawStormReticle(firstCove);
 
     this.drawChart(W, H);
     this.flashG.clear();
@@ -467,21 +487,16 @@ export class BayScene {
    * card without drawing a second border around it.
    */
   private drawAnchorage(cove: Cove): void {
-    const { land, moorX, moorY, w, h } = cove;
+    const { land } = cove;
     land.clear();
-    const bw = w * 0.4;
-    const bh = h * 0.34;
-    const arm = Math.min(16, Math.min(bw, bh) * 0.36);
-    const x0 = moorX - bw;
-    const x1 = moorX + bw;
-    const y0 = moorY - bh;
-    const y1 = moorY + bh;
-    land.rect(x0, y0, bw * 2, bh * 2).fill({ color: 0xffffff, alpha: 0.012 });
+    const f = markerFrame(cove, 12);
+    const arm = Math.min(18, Math.min(f.halfW, f.halfH) * 0.36);
+    land.rect(f.x, f.y, f.w, f.h).fill({ color: 0xffffff, alpha: 0.012 });
     for (const [x, y, sx, sy] of [
-      [x0, y0, 1, 1],
-      [x1, y0, -1, 1],
-      [x0, y1, 1, -1],
-      [x1, y1, -1, -1],
+      [f.x, f.y, 1, 1],
+      [f.x + f.w, f.y, -1, 1],
+      [f.x, f.y + f.h, 1, -1],
+      [f.x + f.w, f.y + f.h, -1, -1],
     ] as const) {
       land
         .moveTo(x + sx * arm, y)
@@ -489,7 +504,49 @@ export class BayScene {
         .lineTo(x, y + sy * arm)
         .stroke({ color: CHART, width: 1 });
     }
-    land.rect(moorX - 1, moorY - 1, 2, 2).fill({ color: CHART, alpha: 0.9 });
+  }
+
+  /**
+   * The reticle brackets its target rather than sitting on it.
+   *
+   * Sized from the zone card plus a margin, so the card can never swallow it —
+   * which is exactly what happened when this was a fixed 88x52 box aimed at the
+   * middle of a 168x76 card. Bracketing is also the truer picture: a targeting
+   * reticle encloses what it is aimed at.
+   */
+  private drawStormReticle(cove: Cove): void {
+    const f = markerFrame(cove, 20);
+    this.stormReach = { halfW: f.halfW, halfH: f.halfH };
+
+    const g = this.stormReticle;
+    g.clear();
+    const arm = Math.min(30, Math.min(f.halfW, f.halfH) * 0.45);
+    for (const [sx, sy] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ] as const) {
+      const x = sx * f.halfW;
+      const y = sy * f.halfH;
+      g.moveTo(x - sx * arm, y)
+        .lineTo(x, y)
+        .lineTo(x, y - sy * arm)
+        .stroke({ color: DANGER, width: 2 });
+    }
+    // A hairline ties the four brackets together. Nothing is painted inside the
+    // frame: that is the card's territory, and a fill there would be invisible
+    // over a zone and a loud red slab over open board.
+    g.rect(-f.halfW, -f.halfH, f.halfW * 2, f.halfH * 2).stroke({
+      color: DANGER,
+      width: 1,
+      alpha: 0.3,
+    });
+
+    // The strike: a hard red column dropping from the bottom of the frame.
+    this.stormBolt.clear();
+    this.stormBolt.rect(-5, f.halfH, 10, 52).fill(DANGER);
+    this.stormBolt.rect(-1.5, f.halfH, 3, 60).fill(0xffffff);
   }
 
   /**
@@ -576,17 +633,12 @@ export class BayScene {
       const hovered = this.hoveredZone === z;
       cove.selection.clear();
       if (mine || (hovered && st.phase === 'ANCHOR_OPEN')) {
-        const bw = cove.w * 0.4;
-        const bh = cove.h * 0.34;
+        // Just outside the card, inside the static plot brackets.
+        const f = markerFrame(cove, 5);
         const color = struck ? DANGER : FOCUS;
         cove.selection
-          .rect(cove.moorX - bw, cove.moorY - bh, bw * 2, bh * 2)
+          .rect(f.x, f.y, f.w, f.h)
           .stroke({ color, width: mine ? 2 : 1, alpha: mine ? 1 : 0.5 });
-        if (mine) {
-          cove.selection
-            .rect(cove.moorX - bw, cove.moorY - bh, bw * 2, bh * 2)
-            .fill({ color, alpha: 0.05 });
-        }
       }
 
       // other players' boats — crowding as literal fleets (public boatCount)
@@ -655,19 +707,16 @@ export class BayScene {
         // "This one." Fill, hard frame and a struck-through diagonal — three
         // signals, none of them colour alone, all of them legible with motion
         // disabled and at a glance from across a desk.
-        const bw = cove.w * 0.44;
-        const bh = cove.h * 0.4;
-        const x = cove.moorX - bw;
-        const y = cove.moorY - bh;
-        cove.wreckG.rect(x, y, bw * 2, bh * 2).fill({ color: DANGER, alpha: 0.14 });
-        cove.wreckG.rect(x, y, bw * 2, bh * 2).stroke({ color: DANGER, width: 2.5 });
+        const f = markerFrame(cove, 20);
+        cove.wreckG.rect(f.x, f.y, f.w, f.h).fill({ color: DANGER, alpha: 0.14 });
+        cove.wreckG.rect(f.x, f.y, f.w, f.h).stroke({ color: DANGER, width: 2.5 });
         cove.wreckG
-          .moveTo(x, y)
-          .lineTo(x + bw * 2, y + bh * 2)
+          .moveTo(f.x, f.y)
+          .lineTo(f.x + f.w, f.y + f.h)
           .stroke({ color: DANGER, width: 1.5, alpha: 0.6 });
         cove.wreckG
-          .moveTo(x + bw * 2, y)
-          .lineTo(x, y + bh * 2)
+          .moveTo(f.x + f.w, f.y)
+          .lineTo(f.x, f.y + f.h)
           .stroke({ color: DANGER, width: 1.5, alpha: 0.6 });
       } else if (survived) {
         // survived: one small green tick at the plot's corner
@@ -732,6 +781,8 @@ export class BayScene {
   private tick(): void {
     const st = this.state;
     const now = Date.now();
+    const sinceLastTick = Math.min(64, Math.max(0, now - this.lastTickAt));
+    this.lastTickAt = now;
     const W = this.app.screen.width;
     const H = this.app.screen.height;
 
@@ -783,11 +834,18 @@ export class BayScene {
     this.coves.forEach((cove, z) => {
       const struck = st.struckZone === z && (st.phase === 'RESOLVED' || st.phase === 'COOLDOWN');
       const n = cove.fleet.children.length;
-      // Tokens sit on an even row — a queue, not a scatter. They do not bob;
-      // a data mark that drifts is a data mark you cannot count.
+      /*
+       * Tokens sit on an even row BELOW the zone's frame — a queue, not a
+       * scatter, and out from under the card. Drawn at the mooring point they
+       * were inside the DOM card's rectangle, so the crowd was reduced to a few
+       * grey pixels poking out under the card's bottom edge. They do not bob
+       * either: a data mark that drifts is a data mark you cannot count.
+       */
+      const plotFrame = markerFrame(cove, 12);
+      const tokenRowY = plotFrame.y + plotFrame.h + 10;
       cove.fleet.children.forEach((b, i) => {
         const slot = i - (n - 1) / 2;
-        b.position.set(cove.moorX + slot * 13, cove.moorY + 14);
+        b.position.set(cove.markerX + slot * 13, tokenRowY);
         b.rotation = 0;
         b.alpha = struck ? 0.3 : st.fogActive ? 0.35 : 1;
         b.scale.set(1);
@@ -796,7 +854,9 @@ export class BayScene {
       // my boat: bob, halo while a fog order is available, seal once committed, rope when locked
       if (cove.myBoat.visible) {
         const mine = st.myZones.find((m) => m.zone === z);
-        cove.myBoat.position.set(cove.moorX, cove.moorY);
+        // Your own token gets its own line under the crowd, stem pointing up at
+        // the card it is staked on — visible, and unmistakably not one of them.
+        cove.myBoat.position.set(cove.markerX, tokenRowY + 18);
         cove.myBoat.rotation = 0;
         cove.myBoat.alpha = struck ? 0.55 : 1;
         cove.myHalo.clear();
@@ -862,17 +922,14 @@ export class BayScene {
       if (survived && this.beamStart && now > this.beamStart && now < this.beamStart + 1400) {
         // survived: a green underline that draws itself once, then stops
         const t = Math.min(1, (now - this.beamStart) / 500);
-        const bw = cove.w * 0.4;
-        cove.beam
-          .rect(cove.moorX - bw, cove.moorY + cove.h * 0.34, bw * 2 * t, 2)
-          .fill({ color: SAFE, alpha: 0.85 });
+        const f = markerFrame(cove, 12);
+        cove.beam.rect(f.x, f.y + f.h, f.w * t, 2).fill({ color: SAFE, alpha: 0.85 });
       } else if (struck && !this.reduced) {
         // the struck plot keeps a slow red pulse until the next round opens
         const pulse = 0.5 + 0.5 * Math.sin(now / 300);
-        const bw = cove.w * 0.5;
-        const bh = cove.h * 0.45;
+        const f = markerFrame(cove, 28);
         cove.beam
-          .rect(cove.moorX - bw, cove.moorY - bh, bw * 2, bh * 2)
+          .rect(f.x, f.y, f.w, f.h)
           .stroke({ color: DANGER, width: 1 + pulse * 2, alpha: 0.25 + pulse * 0.4 });
       }
     });
@@ -891,34 +948,54 @@ export class BayScene {
           st.storm.feints,
           (zone) => {
             const cove = this.coves[zone];
-            return cove ? { x: cove.moorX, y: cove.moorY - 34 } : null;
+            // Dead centre of the card: the reticle frames it, so aiming at the
+            // mooring point would leave the frame hanging low over the zone.
+            return cove ? { x: cove.markerX, y: cove.markerY } : null;
           },
-          neutralStop(W, H),
+          neutralStop(W, H, this.stormReach.halfH + 12),
         );
         target = stormRouteStop(route, now - this.stormLeg.startedAt);
       } else if (st.struckZone !== null) {
         const cove = this.coves[st.struckZone];
-        if (cove) target = { x: cove.moorX, y: cove.moorY - 26 };
+        if (cove) target = { x: cove.markerX, y: cove.markerY };
       }
       if (target) {
         if (this.stormPos.x < -100) this.stormPos = { x: W / 2, y: 60 };
-        const speed =
-          st.phase === 'RESOLVED' ? 0.28 : st.weatherId === 'HIGH_SWELL' ? 0.09 : 0.06;
-        this.stormPos.x += (target.x - this.stormPos.x) * speed;
-        this.stormPos.y += (target.y - this.stormPos.y) * speed;
+        /*
+         * Frame-rate independent. The old constant was a fixed fraction PER
+         * FRAME, so on a throttled ticker the reticle crawled — it spent the
+         * whole dwell drifting across the middle of the board (straight through
+         * the countdown) instead of arriving at a zone and sitting on it. With
+         * a time constant it covers ~95% of the distance in 300ms whatever the
+         * ticker is doing, so each leg is a quick move and a long hold.
+         */
+        const dt = sinceLastTick;
+        const tau = st.phase === 'RESOLVED' ? 45 : st.weatherId === 'HIGH_SWELL' ? 150 : 110;
+        const k = 1 - Math.exp(-dt / tau);
+        this.stormPos.x += (target.x - this.stormPos.x) * k;
+        this.stormPos.y += (target.y - this.stormPos.y) * k;
       }
       this.stormC.position.set(
         this.stormPos.x + (this.reduced ? 0 : Math.sin(now / 700) * 4),
         this.stormPos.y + (this.reduced ? 0 : Math.sin(now / 900) * 2),
       );
-      this.churn.position.set(0, 40);
-      // the aiming line: a dashed red drop-line under the reticle, running
-      // downward while the storm is still choosing.
+      /*
+       * Once the round resolves the strike frame takes over the struck zone, so
+       * the reticle stands down rather than stacking a second red box on top of
+       * it. Eased, not cut, so the lock-on visibly becomes the hit.
+       */
+      const reticleTarget = st.phase === 'LOCKED_STORM' ? 1 : 0;
+      this.stormReticle.alpha +=
+        (reticleTarget - this.stormReticle.alpha) *
+        (this.reduced ? 1 : 1 - Math.exp(-sinceLastTick / 90));
+
+      // The aiming line: a dashed red drop-line below the frame, running
+      // downward while the table is sealed.
       this.stormRain.clear();
-      if (st.phase !== 'COOLDOWN') {
+      if (st.phase === 'LOCKED_STORM') {
         const drop = (now / 9) % 12;
         for (let i = 0; i < 4; i++) {
-          const y = 30 + drop + i * 12;
+          const y = this.stormReach.halfH + 6 + drop + i * 12;
           this.stormRain.rect(-1, y, 2, 6).fill({ color: DANGER, alpha: 0.45 });
         }
       }

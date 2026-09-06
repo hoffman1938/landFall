@@ -65,7 +65,11 @@ export function stormRouteStop(route: readonly Point[], elapsedMs: number): Poin
  * The off-harbour holding point: top of the centre line. Clear of the six zone
  * plots (which sit in two side columns) and clear of the round's countdown,
  * which owns the middle of the board.
+ *
+ * `clearance` is the reticle's own half-height — the reticle is a frame sized
+ * to enclose a zone card, so the holding point has to sit far enough down that
+ * the frame does not hang off the top edge.
  */
-export function neutralStop(width: number, height: number): Point {
-  return { x: width / 2, y: Math.max(56, height * 0.12) };
+export function neutralStop(width: number, height: number, clearance = 0): Point {
+  return { x: width / 2, y: Math.max(clearance, height * 0.16) };
 }

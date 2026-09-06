@@ -20,7 +20,6 @@ interface BayAccessibilityLayerProps {
 interface CoveStatusCardProps {
   zone: number;
   layout: CoveLayout;
-  width: number;
   phase: RoundPhase | null;
   tide: TideReportEntry | null;
   boatCount: number;
@@ -159,7 +158,6 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 function CoveStatusCard({
   zone,
   layout,
-  width,
   phase,
   tide,
   boatCount,
@@ -183,10 +181,9 @@ function CoveStatusCard({
   const detail = lockedTotalMinor !== null ? formatCredits(lockedTotalMinor) : null;
   // Bigger seats: the markers are the product's primary betting surface, so on
   // a wide table they get real presence instead of hugging a 132px minimum.
-  const markerWidth =
-    width >= 768
-      ? Math.min(206, Math.max(168, width * 0.135))
-      : Math.min(158, Math.max(126, width * 0.38));
+  // The size lives in coveLayout so the Pixi scene can frame this exact box
+  // rather than guess at it — a marker drawn inside it would be invisible.
+  const markerWidth = layout.markerWidth;
   const cardDescription = [
     `${zoneName(zone)}.`,
     struck ? 'Hit by the storm.' : locked ? 'Bets locked.' : safe ? 'Safe.' : `${band} crowd.`,
@@ -449,7 +446,6 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
               key={zone}
               zone={zone}
               layout={layout}
-              width={size.width}
               phase={phase}
               tide={tide}
               boatCount={boatCount}
