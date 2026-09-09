@@ -146,6 +146,26 @@ export class Hub {
     });
   }
 
+  /**
+   * Drop sessions whose socket has closed, and report how many remain.
+   *
+   * Close events are the fast path, but a peer that vanishes without a close
+   * frame can leave a session behind — so a host that decides "is anyone still
+   * here?" from event bookkeeping alone will keep an empty table running
+   * forever. The socket's own state is the authority, and this is what a host
+   * should ask.
+   */
+  pruneClosedSessions(): number {
+    let dropped = 0;
+    for (const session of [...this.sessions]) {
+      if (session.ws.open) continue;
+      this.dropSession(session);
+      dropped += 1;
+    }
+    if (dropped > 0) this.broadcastRoomList();
+    return this.sessions.size;
+  }
+
   private dropSession(session: Session): void {
     if (session.realityTimer) clearInterval(session.realityTimer);
     session.realityTimer = null;

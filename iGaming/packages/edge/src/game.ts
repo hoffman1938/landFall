@@ -54,7 +54,8 @@ export class LandfallGame extends DurableObject<Env> {
   private botManagers: BotManager[] = [];
   /** True while the round loop is running — see IDLE PARKING above. */
   private running = false;
-  private connections = 0;
+  /** Safety net for sockets that die without ever firing `close`. */
+  private idleSweep: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Build the game. Split from the constructor because a Durable Object is
@@ -135,6 +136,20 @@ export class LandfallGame extends DurableObject<Env> {
     const { managers, seating } = seatBots(db, rooms.rooms.values(), override);
     this.botManagers = managers;
     if (managers.length > 0) log.info('practice bots started', { seating });
+
+    this.idleSweep ??= setInterval(() => this.parkIfEmpty(), IDLE_SWEEP_MS);
+  }
+
+  /**
+   * Stop the game if nobody is left.
+   *
+   * Asks the sockets rather than trusting a connection count: a browser tab
+   * that goes away without a close frame leaves a session the `close` handler
+   * never hears about, and an empty table would then run — and bill — forever.
+   */
+  private parkIfEmpty(): void {
+    if (!this.running || !this.booted) return;
+    if (this.booted.hub.pruneClosedSessions() === 0) this.stopRooms();
   }
 
   /** Park the game once the last player has gone. */
@@ -143,6 +158,8 @@ export class LandfallGame extends DurableObject<Env> {
     for (const manager of this.botManagers) manager.stop();
     this.botManagers = [];
     this.booted?.rooms.stop();
+    if (this.idleSweep) clearInterval(this.idleSweep);
+    this.idleSweep = null;
     this.running = false;
     log.info('rooms parked — no players connected');
   }
@@ -168,7 +185,6 @@ export class LandfallGame extends DurableObject<Env> {
     // machine driven by timers, so the object has to stay resident while anyone
     // is playing. Hibernation would evict it between frames and strand the round.
     server.accept();
-    this.connections += 1;
 
     const connection: HubConnection = hub.connect({
       send: (data) => {
@@ -189,8 +205,7 @@ export class LandfallGame extends DurableObject<Env> {
       if (released) return;
       released = true;
       connection.close();
-      this.connections -= 1;
-      if (this.connections <= 0) this.stopRooms();
+      this.parkIfEmpty();
     };
 
     server.addEventListener('message', (event: MessageEvent) => {
@@ -210,6 +225,12 @@ export class LandfallGame extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 }
+
+/**
+ * How often to check whether the table has emptied. Long enough to be free,
+ * short enough that an abandoned game does not run for minutes.
+ */
+const IDLE_SWEEP_MS = 30_000;
 
 /** Numeric env override, ignoring blanks and anything unparseable. */
 function numberFrom(raw: string | undefined, fallback: number): number {
