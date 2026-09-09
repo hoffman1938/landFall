@@ -75,7 +75,9 @@ describe('copy', () => {
     const lines = [
       TIDE_DISCLAIMER,
       tideSentence(tideDirection(report(['packed', 'seed', 'packed', 'seed', 'packed', 'seed']))),
-      tideSentence(tideDirection(report(['medium', 'medium', 'medium', 'medium', 'medium', 'medium']))),
+      tideSentence(
+        tideDirection(report(['medium', 'medium', 'medium', 'medium', 'medium', 'medium'])),
+      ),
     ];
     for (const line of lines) {
       // No forecasting vocabulary anywhere.
@@ -87,13 +89,19 @@ describe('copy', () => {
   });
 
   it('describes an even table as even', () => {
-    const sentence = tideSentence(tideDirection(report(['light', 'light', 'light', 'light', 'light', 'light'])));
+    const sentence = tideSentence(
+      tideDirection(report(['light', 'light', 'light', 'light', 'light', 'light'])),
+    );
     expect(sentence).toMatch(/spread evenly/i);
   });
 
   it('scales its adjective with the lean', () => {
-    const strong = tideSentence(tideDirection(report(['packed', 'seed', 'packed', 'seed', 'packed', 'seed'])));
-    const mild = tideSentence(tideDirection(report(['heavy', 'light', 'heavy', 'light', 'medium', 'medium'])));
+    const strong = tideSentence(
+      tideDirection(report(['packed', 'seed', 'packed', 'seed', 'packed', 'seed'])),
+    );
+    const mild = tideSentence(
+      tideDirection(report(['heavy', 'light', 'heavy', 'light', 'medium', 'medium'])),
+    );
     expect(strong).toMatch(/^Most /);
     expect(mild).toMatch(/^More /);
   });

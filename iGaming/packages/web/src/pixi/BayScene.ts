@@ -25,12 +25,9 @@ import {
   type TideReport,
   type WeatherId,
 } from '@landfall/core';
-import { getCoveLayouts } from '../coveLayout';
-import {
-  FEINT_ACQUIRE_MS,
-  stormRouteLeg,
-  stormRouteZones,
-} from '../stormPath';
+import { boardInsets, getCoveLayouts } from '../coveLayout';
+import { subscribeDeckHeight } from '../deckHeight';
+import { FEINT_ACQUIRE_MS, stormRouteLeg, stormRouteZones } from '../stormPath';
 
 export interface BayState {
   phase: 'ANCHOR_OPEN' | 'LOCKED_STORM' | 'RESOLVED' | 'COOLDOWN' | null;
@@ -284,12 +281,30 @@ export class BayScene {
   private reduced = false;
   private destroyed = false;
   private hostObserver: ResizeObserver | null = null;
+  private unsubscribeDeck: (() => void) | null = null;
 
   async init(host: HTMLElement, handlers: BayHandlers): Promise<void> {
     this.handlers = handlers;
     this.reduced =
       typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    await this.app.init({ backgroundAlpha: 0, resizeTo: host, antialias: true });
+    /*
+     * The canvas is sized EXPLICITLY, never by `resizeTo`.
+     *
+     * `resizeTo: host` looked right and failed in one specific, common case: if
+     * the host measures 0x0 at init — which is exactly what happens when this
+     * lazy chunk resolves while the board is not being composited (a
+     * backgrounded tab, a hidden pane, a `display:none` ancestor) — Pixi keeps
+     * its 800x600 default, and no later host resize recovers it. The board then
+     * draws every bracket, reticle, token and strike frame in an 800x600
+     * coordinate space while the DOM harbor cards reflow to the real viewport:
+     * the two halves of the same map, permanently out of register. Measured
+     * live at a 390px viewport with the canvas still at 800x600.
+     *
+     * Driving `renderer.resize(w, h)` from the ResizeObserver instead removes
+     * the plugin from the path entirely and is self-healing: the observer fires
+     * again the moment the host has a real size, whenever that turns out to be.
+     */
+    await this.app.init({ backgroundAlpha: 0, antialias: true });
     if (this.destroyed) return;
     host.appendChild(this.app.canvas);
     host.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -420,19 +435,33 @@ export class BayScene {
     this.layout();
     this.app.renderer.on('resize', () => this.layout());
 
-    // `resizeTo` only reacts to WINDOW resizes, so the bay kept its old size
-    // whenever the host box changed on its own — opening or closing the docked
-    // chat column, for instance. The canvas then drew every anchorage, boat and
-    // pier at the previous width while the DOM cove cards had already moved:
-    // the two halves of the same map, visibly out of register. Observe the host.
-    this.hostObserver = new ResizeObserver(() => {
+    /*
+     * The single source of the canvas's size. It runs on `observe()` too, so
+     * the first real measurement arrives here rather than depending on whatever
+     * the host happened to be during `init()`.
+     */
+    const syncSize = () => {
       if (this.destroyed || !this.app.renderer) return;
-      const { clientWidth, clientHeight } = host;
-      if (clientWidth <= 0 || clientHeight <= 0) return;
-      if (clientWidth === this.app.screen.width && clientHeight === this.app.screen.height) return;
-      this.app.resize();
-    });
+      const width = host.clientWidth;
+      const height = host.clientHeight;
+      // A zero box means the board is not laid out yet (hidden pane, lazy chunk
+      // landing early). Keep the last good size and wait — the observer will
+      // fire again with real numbers.
+      if (width <= 0 || height <= 0) return;
+      if (width === this.app.screen.width && height === this.app.screen.height) return;
+      this.app.renderer.resize(width, height); // emits 'resize' -> this.layout()
+    };
+
+    this.hostObserver = new ResizeObserver(syncSize);
     this.hostObserver.observe(host);
+    syncSize();
+
+    // The board reserves the deck's band, so a deck that changes height (mode
+    // switch, stake row wrapping on a narrow screen) has to re-lay the harbors
+    // — otherwise the canvas marks and the DOM cards drift apart.
+    this.unsubscribeDeck = subscribeDeckHeight(() => {
+      if (!this.destroyed && this.app.renderer) this.layout();
+    });
 
     this.app.ticker.add(() => this.tick());
   }
@@ -456,6 +485,8 @@ export class BayScene {
     this.clearLongPress();
     this.hostObserver?.disconnect();
     this.hostObserver = null;
+    this.unsubscribeDeck?.();
+    this.unsubscribeDeck = null;
     if (this.app.renderer) this.app.destroy(true, { children: true });
   }
 
@@ -476,7 +507,7 @@ export class BayScene {
     // also read. This used to be a second hardcoded copy of the centers, which
     // silently drifted: the cards sat in one arrangement and the boats, piers
     // and anchorages in another.
-    const layouts = getCoveLayouts(W, H);
+    const layouts = getCoveLayouts(W, H, boardInsets(W, H));
 
     this.coves.forEach((cove, z) => {
       const l = layouts[z];
@@ -620,7 +651,10 @@ export class BayScene {
     }
 
     // axes, interrupted at the origin
-    this.chartG.moveTo(m, cy).lineTo(cx - gap, cy).stroke({ color: CHART, width: 1, alpha: 0.7 });
+    this.chartG
+      .moveTo(m, cy)
+      .lineTo(cx - gap, cy)
+      .stroke({ color: CHART, width: 1, alpha: 0.7 });
     this.chartG
       .moveTo(cx + gap, cy)
       .lineTo(W - m, cy)
@@ -639,7 +673,10 @@ export class BayScene {
       const x = m + ((W - 2 * m) * i) / 12;
       const long = i % 3 === 0;
       const len = long ? 9 : 5;
-      this.chartG.moveTo(x, m).lineTo(x, m + len).stroke({ color: CHART, width: 1, alpha: long ? 0.9 : 0.45 });
+      this.chartG
+        .moveTo(x, m)
+        .lineTo(x, m + len)
+        .stroke({ color: CHART, width: 1, alpha: long ? 0.9 : 0.45 });
       this.chartG
         .moveTo(x, H - m)
         .lineTo(x, H - m - len)
@@ -649,7 +686,10 @@ export class BayScene {
       const y = m + ((H - 2 * m) * i) / 8;
       const long = i % 2 === 0;
       const len = long ? 9 : 5;
-      this.chartG.moveTo(m, y).lineTo(m + len, y).stroke({ color: CHART, width: 1, alpha: long ? 0.9 : 0.45 });
+      this.chartG
+        .moveTo(m, y)
+        .lineTo(m + len, y)
+        .stroke({ color: CHART, width: 1, alpha: long ? 0.9 : 0.45 });
       this.chartG
         .moveTo(W - m, y)
         .lineTo(W - m - len, y)
@@ -666,8 +706,7 @@ export class BayScene {
 
     this.coves.forEach((cove, z) => {
       const report = tideByZone.get(z);
-      const struck =
-        st.struckZone === z && (st.phase === 'RESOLVED' || st.phase === 'COOLDOWN');
+      const struck = st.struckZone === z && (st.phase === 'RESOLVED' || st.phase === 'COOLDOWN');
 
       // Selection uses ring + boat + the DOM card so it never relies on color alone.
       const mine = st.myZones.find((m) => m.zone === z);
@@ -813,7 +852,7 @@ export class BayScene {
         // board is an instrument and the weather on it should read as hatching.
         const drift = (now / 9) % 26;
         for (let i = 0; i < 46; i++) {
-          const x = (this.cosmeticRandom(i) * (W + 120) + drift * 2) % (W + 120) - 60;
+          const x = ((this.cosmeticRandom(i) * (W + 120) + drift * 2) % (W + 120)) - 60;
           const y = (this.cosmeticRandom(i + 200) * H + drift * 6) % H;
           this.envFrontG
             .moveTo(x, y)
@@ -930,9 +969,7 @@ export class BayScene {
     if (t < 0.2) {
       const u = t / 0.2;
       const r = maxR * 0.16 * (1 - (1 - u) ** 2);
-      this.revealG
-        .circle(cx, cy, r)
-        .stroke({ color: DANGER, width: 2, alpha: 0.5 * (1 - u) });
+      this.revealG.circle(cx, cy, r).stroke({ color: DANGER, width: 2, alpha: 0.5 * (1 - u) });
     }
 
     // Stage 2 — radar sweeps. Each pulse is a ring crossing the whole board, so
@@ -1013,7 +1050,11 @@ export class BayScene {
     const from = this.coves[struck];
     if (!from) return;
     // the shockwave that answers "which zone got hit?" — fires as the bolt lands
-    this.strikeImpact = { x: from.moorX, y: from.moorY, start: Date.now() + (this.reduced ? 0 : 150) };
+    this.strikeImpact = {
+      x: from.moorX,
+      y: from.moorY,
+      start: Date.now() + (this.reduced ? 0 : 150),
+    };
     const now = Date.now();
     let stagger = 620; // let the bolt land first
     this.coves.forEach((cove, z) => {
@@ -1144,7 +1185,9 @@ export class BayScene {
         // token. Spent: the bracket closes to a solid bar.
         if (st.fogActive && !st.finalOrderUsed && mine?.primary) {
           const r = 15 + Math.sin(now / 320) * 2;
-          cove.myHalo.rect(-r, -r - 6, r * 2, r * 2).stroke({ color: FOCUS, width: 1.5, alpha: 0.9 });
+          cove.myHalo
+            .rect(-r, -r - 6, r * 2, r * 2)
+            .stroke({ color: FOCUS, width: 1.5, alpha: 0.9 });
         }
         if (st.fogActive && st.finalOrderUsed && mine?.primary) {
           cove.mySeal.rect(-11, -30, 22, 3).fill({ color: FOCUS, alpha: 0.9 });
@@ -1300,10 +1343,7 @@ export class BayScene {
     if (this.shake.until > now) {
       const remaining = (this.shake.until - now) / 520;
       const amp = this.shake.amplitude * remaining * remaining;
-      this.app.stage.position.set(
-        (Math.random() - 0.5) * 2 * amp,
-        (Math.random() - 0.5) * 2 * amp,
-      );
+      this.app.stage.position.set((Math.random() - 0.5) * 2 * amp, (Math.random() - 0.5) * 2 * amp);
     } else if (this.app.stage.position.x !== 0 || this.app.stage.position.y !== 0) {
       this.app.stage.position.set(0, 0);
     }

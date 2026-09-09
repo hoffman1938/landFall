@@ -19,12 +19,14 @@ import type { TideReport } from '@landfall/core';
 import { TIDE_DISCLAIMER, tideDirection, tideSentence } from '../tideDirection';
 import { crowdLabel, zoneName } from '../strings';
 import { useStore } from '../store';
+import { useShortViewport } from '../useShortViewport';
 
 const TREND_GLYPH = { rising: '↗', stable: '→', falling: '↘' } as const;
 
 export function TideReportCard({ report }: { report: TideReport | null }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const myFleet = useStore((s) => s.myFleet);
+  const shortBoard = useShortViewport();
   if (!report) return null;
 
   const direction = tideDirection(report.entries);
@@ -35,11 +37,36 @@ export function TideReportCard({ report }: { report: TideReport | null }) {
       ])
     : new Set<number>();
 
+  /*
+   * A short board gets one line. The full card is ~190px tall, which on a
+   * 740x360 board reached up past the clock and drew its headline through the
+   * countdown. The direction, the arrow and the disclaimer are the whole point;
+   * the bar and the second sentence are the parts that can wait for Details.
+   */
+  if (shortBoard) {
+    return (
+      <section
+        role="status"
+        aria-label={`Tide report. ${tideSentence(direction)} ${TIDE_DISCLAIMER}`}
+        className="lf-appear lf-overlay pointer-events-auto flex w-[min(96vw,30rem)] items-center gap-2.5 rounded-md px-3 py-1.5"
+      >
+        <span className="lf-label-soft shrink-0">Tide</span>
+        <span aria-hidden="true" className="lf-num shrink-0 text-[18px] leading-none">
+          {direction.arrow}
+        </span>
+        <span className="lf-num shrink-0 text-[15px] leading-none text-[var(--lf-text)]">
+          {direction.axis === 'EVEN' ? 'EVEN' : direction.axis}
+        </span>
+        <span className="truncate text-[12px] text-[var(--lf-mute)]">{TIDE_DISCLAIMER}</span>
+      </section>
+    );
+  }
+
   return (
     <section
       role="status"
       aria-label={`Tide report. ${tideSentence(direction)} ${TIDE_DISCLAIMER}`}
-      className="lf-rise lf-overlay pointer-events-auto w-[min(92vw,26rem)] rounded-lg px-5 py-4"
+      className="lf-appear lf-overlay pointer-events-auto w-[min(92vw,26rem)] rounded-lg px-5 py-4"
     >
       <h2 className="lf-label">Tide report</h2>
 

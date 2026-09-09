@@ -83,7 +83,9 @@ export function SalvageLog({ showHeader = true, dense = false }: SalvageLogProps
                 >
                   {visibleTime}
                 </time>
-                <div className={`flex min-w-0 items-start gap-1.5 leading-relaxed ${KIND_STYLE[event.kind] ?? KIND_STYLE.info}`}>
+                <div
+                  className={`flex min-w-0 items-start gap-1.5 leading-relaxed ${KIND_STYLE[event.kind] ?? KIND_STYLE.info}`}
+                >
                   {Icon ? (
                     <span className="mt-0.5 shrink-0" aria-hidden="true">
                       <Icon size={13} />

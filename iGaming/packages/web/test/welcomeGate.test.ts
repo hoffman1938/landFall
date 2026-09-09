@@ -26,7 +26,9 @@ describe('entry gate open decision', () => {
   });
 
   it('does not reopen on a reconnect after the gate was dismissed', () => {
-    expect(nextWelcomeOpen({ settled: true, hasLiveFleet: true, currentlyOpen: false })).toBe(false);
+    expect(nextWelcomeOpen({ settled: true, hasLiveFleet: true, currentlyOpen: false })).toBe(
+      false,
+    );
   });
 
   it('leaves an still-open gate open if a frame arrives before it is answered', () => {

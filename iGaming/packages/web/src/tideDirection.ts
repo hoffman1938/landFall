@@ -30,6 +30,14 @@
  * the harbor cards use — the direction on the card is the direction on screen.
  */
 import { ZONE_COUNT, type TideBand, type TideReportEntry } from '@landfall/core';
+import {
+  GRID_2x3,
+  eastHarbors,
+  northHarbors,
+  southHarbors,
+  westHarbors,
+  type GridShape,
+} from './coveLayout';
 
 export type TideAxis = 'WEST' | 'EAST' | 'NORTH' | 'SOUTH' | 'EVEN';
 
@@ -58,20 +66,14 @@ const BAND_WEIGHT: Record<TideBand, number> = {
   packed: 2.2,
 };
 
-/**
- * Board geometry, mirrored from `coveLayout.ts`:
+/*
+ * Board geometry comes from `coveLayout.ts`, never from a second copy here.
  *
- *   harbor 1 · 2      north row      (west, east)
- *   harbor 3 · 4      middle row     (west, east)
- *   harbor 5 · 6      south row      (west, east)
- *
- * Both the landscape and the portrait layouts use this ordering, which is why a
- * player moving between phone and desktop finds "west" in the same place.
+ * The board reflows to a 3x2 grid on a board too short for three rows (a phone
+ * held sideways), and when it does, "west" stops meaning harbors 1·3·5. A
+ * hardcoded set would have had the card pointing at the wrong side of the
+ * screen; asking the layout keeps the arrow and the harbors in agreement.
  */
-const WEST = [0, 2, 4];
-const EAST = [1, 3, 5];
-const NORTH = [0, 1];
-const SOUTH = [4, 5];
 
 /** Below this the table is genuinely even and the card says so. */
 const EVEN_THRESHOLD = 0.12;
@@ -87,7 +89,10 @@ function massOf(weights: readonly number[], zones: readonly number[]): number {
  * names a winner would be inventing a signal out of noise, which is the exact
  * failure mode the "information, never a prediction" rule exists to prevent.
  */
-export function tideDirection(entries: readonly TideReportEntry[] | undefined): TideDirection {
+export function tideDirection(
+  entries: readonly TideReportEntry[] | undefined,
+  grid: GridShape = GRID_2x3,
+): TideDirection {
   const even: TideDirection = {
     axis: 'EVEN',
     arrow: '=',
@@ -108,10 +113,16 @@ export function tideDirection(entries: readonly TideReportEntry[] | undefined): 
   // Two independent axes; the more lopsided one gets the headline. Comparing
   // east/west against north/south directly would be unfair to the vertical
   // axis, which has four harbors in play and two on each named side.
-  const westShare = massOf(weights, WEST) / total;
+  const west = westHarbors(grid);
+  const east = eastHarbors(grid);
+  const north = northHarbors(grid);
+  const south = southHarbors(grid);
+
+  const sideMass = massOf(weights, west) + massOf(weights, east);
+  const westShare = sideMass > 0 ? massOf(weights, west) / sideMass : 0.5;
   const eastShare = 1 - westShare;
-  const northMass = massOf(weights, NORTH);
-  const southMass = massOf(weights, SOUTH);
+  const northMass = massOf(weights, north);
+  const southMass = massOf(weights, south);
   const vertical = northMass + southMass;
   const northShare = vertical > 0 ? northMass / vertical : 0.5;
 
@@ -121,21 +132,21 @@ export function tideDirection(entries: readonly TideReportEntry[] | undefined): 
   if (Math.max(horizontalLean, verticalLean) < EVEN_THRESHOLD) return even;
 
   if (horizontalLean >= verticalLean) {
-    const west = westShare > eastShare;
+    const isWest = westShare > eastShare;
     return {
-      axis: west ? 'WEST' : 'EAST',
-      arrow: west ? '←' : '→',
+      axis: isWest ? 'WEST' : 'EAST',
+      arrow: isWest ? '←' : '→',
       strength: Math.min(1, horizontalLean),
-      zones: west ? [...WEST] : [...EAST],
+      zones: isWest ? west : east,
       headline: 'Crowd building',
     };
   }
-  const north = northShare > 0.5;
+  const isNorth = northShare > 0.5;
   return {
-    axis: north ? 'NORTH' : 'SOUTH',
-    arrow: north ? '↑' : '↓',
+    axis: isNorth ? 'NORTH' : 'SOUTH',
+    arrow: isNorth ? '↑' : '↓',
     strength: Math.min(1, verticalLean),
-    zones: north ? [...NORTH] : [...SOUTH],
+    zones: isNorth ? north : south,
     headline: 'Crowd building',
   };
 }

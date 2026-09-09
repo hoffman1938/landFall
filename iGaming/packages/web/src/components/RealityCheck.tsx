@@ -3,14 +3,29 @@
  * position + elapsed time. Calm styling by design law: neutral surfaces,
  * NEVER amber (amber is payout-only), no sound, fully dismissible.
  */
+import { useRef } from 'react';
 import { audio } from '../audio/engine';
 import { fmt, useStore } from '../store';
+import { useDialog } from '../useDialog';
 import { TimerIcon } from './icons';
 
 export function RealityCheck() {
   const realityCheck = useStore((s) => s.realityCheck);
   const dismissRealityCheck = useStore((s) => s.dismissRealityCheck);
   const setLimitsOpen = useStore((s) => s.setLimitsOpen);
+  const dismissRef = useRef<HTMLButtonElement>(null);
+
+  /*
+   * This was the one overlay with no keyboard behaviour at all: no Escape, no
+   * focus move, no restore. It also interrupts unprompted, which makes it the
+   * overlay a keyboard user is least expecting and most needs to be able to
+   * dismiss. Escape maps to "keep playing", the same as the dismiss button.
+   */
+  useDialog({
+    open: realityCheck !== null,
+    onClose: dismissRealityCheck,
+    initialFocus: dismissRef,
+  });
 
   if (!realityCheck) return null;
   const { elapsedMinutes, sessionNetMinor } = realityCheck;
@@ -19,7 +34,7 @@ export function RealityCheck() {
   const elapsedLabel = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+    <div className="fixed inset-0 z-[var(--lf-z-modal)] flex items-center justify-center bg-black/80 p-4">
       <div
         role="dialog"
         aria-modal="true"
@@ -50,8 +65,8 @@ export function RealityCheck() {
         </dl>
 
         <p className="mt-3 text-sm leading-snug text-[var(--lf-dim)]">
-          You asked to see this every so often. Keep sailing, take a break, or adjust your
-          limits — your call.
+          You asked to see this every so often. Keep sailing, take a break, or adjust your limits —
+          your call.
         </p>
 
         <div className="mt-4 flex gap-2">
@@ -67,6 +82,7 @@ export function RealityCheck() {
             Adjust limits
           </button>
           <button
+            ref={dismissRef}
             type="button"
             onClick={() => {
               audio.click('nav');

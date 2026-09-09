@@ -39,10 +39,7 @@ export const FEINT_ACQUIRE_MS = 160;
  * The zones the reticle will visit this window, in order. Always two distinct
  * zones, always real zones.
  */
-export function stormRouteZones(
-  feints: readonly [number, number],
-  zoneCount: number,
-): number[] {
+export function stormRouteZones(feints: readonly [number, number], zoneCount: number): number[] {
   if (zoneCount <= 0) return [];
   const first = ((feints[0] % zoneCount) + zoneCount) % zoneCount;
   const second = ((feints[1] % zoneCount) + zoneCount) % zoneCount;

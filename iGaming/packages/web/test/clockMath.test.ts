@@ -35,8 +35,16 @@ describe('fog segment fraction (D6)', () => {
   it('Heavy Fog draws a visibly larger segment than Clear Tide', () => {
     const start = 0;
     const anchorMs = DEFAULT_TIMINGS.anchorMs;
-    const clear = fogSegmentFraction(start, anchorMs - serverFogWindow(anchorMs, 'CLEAR_TIDE'), anchorMs);
-    const heavy = fogSegmentFraction(start, anchorMs - serverFogWindow(anchorMs, 'HEAVY_FOG'), anchorMs);
+    const clear = fogSegmentFraction(
+      start,
+      anchorMs - serverFogWindow(anchorMs, 'CLEAR_TIDE'),
+      anchorMs,
+    );
+    const heavy = fogSegmentFraction(
+      start,
+      anchorMs - serverFogWindow(anchorMs, 'HEAVY_FOG'),
+      anchorMs,
+    );
     expect(heavy).toBeGreaterThan(clear);
     expect(heavy).toBeCloseTo((BLIND_FOG_MS + 1_000) / anchorMs, 10);
   });

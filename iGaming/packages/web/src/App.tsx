@@ -27,34 +27,26 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { BeginnerDeck } from './components/BeginnerDeck';
 import { BeginnerTopBar } from './components/BeginnerTopBar';
 import { AdvancedSheet } from './components/AdvancedSheet';
+import { BoardNotices } from './components/BoardNotices';
 import { ControlDeck } from './components/ControlDeck';
 import { LimitsModal } from './components/LimitsModal';
 import { RealityCheck } from './components/RealityCheck';
-import { ResultBanner } from './components/ResultBanner';
 import { RoundStage } from './components/RoundStage';
 import { RulesModal } from './components/RulesModal';
 import { SecondaryPanel } from './components/SecondaryPanel';
 import { SkipperCard } from './components/SkipperCard';
+import { SignalFlagCard } from './components/SignalFlagCard';
 import { StormClock } from './components/StormClock';
-import { TableIntro } from './components/TableIntro';
 import { TelemetryRail } from './components/TelemetryRail';
 import { TopBar } from './components/TopBar';
 import { VerifyModal } from './components/VerifyModal';
 import { WelcomeGate } from './components/WelcomeGate';
 import { WreckLog } from './components/WreckLog';
 import { WreckLogSheet } from './components/WreckLogSheet';
-import { useDeckProgress } from './deckProgress';
 import { useDeckProgressTriggers } from './useDeckProgressTriggers';
 import { useRoundState } from './useRoundState';
-import type { RoundState } from './roundMachine';
-import {
-  getUiMode,
-  setUiMode,
-  shouldOfferAdvanced,
-  useUiMode,
-  withMode,
-  withOfferDismissed,
-} from './uiMode';
+import { useBoardTopBand } from './useShortViewport';
+import { useUiMode } from './uiMode';
 import { useStore } from './store';
 
 const HarborMap = lazy(() =>
@@ -63,13 +55,12 @@ const HarborMap = lazy(() =>
 
 export default function App() {
   const toast = useStore((s) => s.toast);
-  const toastTone = useStore((s) => s.toastTone);
   const dismissToast = useStore((s) => s.dismissToast);
   const roundState = useRoundState();
   const uiMode = useUiMode();
-  const progress = useDeckProgress();
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const beginner = uiMode.mode === 'beginner';
+  const topBand = useBoardTopBand();
 
   // Counts rounds and first-flag sightings for BOTH layouts (see the module).
   useDeckProgressTriggers();
@@ -103,38 +94,41 @@ export default function App() {
 
           {!beginner && <WreckLog />}
           <StormClock />
-          <TableIntro />
 
-          {/* One overlay slot, one thing in it (RoundStage enforces this). The
-              old ResultBanner keeps its job on the advanced board, where the
-              storm-power chip and replay strip still have an audience. */}
-          <RoundStage state={roundState} />
-          {!beginner && <ResultBanner />}
+          {/*
+            Ambient signal card. `top-14` clears the history strip (`top-2`,
+            36px tall) that the advanced board puts in the same corner — at
+            `top-3` the two drew straight through each other. It keeps the
+            offset in beginner mode too: one geometry beats two.
+          */}
+          <div className="pointer-events-none absolute left-3 top-14 z-[var(--lf-z-hud)] hidden lg:block">
+            <SignalFlagCard state={roundState} />
+          </div>
+
+          {/*
+            ONE bottom column. The round's surface and the notice band are
+            siblings in a flex column anchored above the deck, so they stack
+            rather than overlap; previously three components pinned themselves
+            to this same offset independently and any two could collide.
+          */}
+          <div
+            className="pointer-events-none absolute inset-x-0 z-[var(--lf-z-stage)] flex flex-col items-center justify-end gap-2 overflow-hidden px-3"
+            style={{
+              top: topBand,
+              bottom: 'calc(var(--lf-control-deck-height, 7.5rem) + 0.75rem)',
+            }}
+          >
+            <RoundStage state={roundState} />
+            <BoardNotices state={roundState} />
+          </div>
 
           {beginner ? <BeginnerDeck state={roundState} /> : <ControlDeck />}
-
-          {/* error toast — above the deck, never a modal */}
-          {toast && (
-            <div
-              role={toastTone === 'error' ? 'alert' : 'status'}
-              aria-live={toastTone === 'error' ? 'assertive' : 'polite'}
-              className={`lf-rise absolute left-1/2 z-30 max-w-[min(92vw,34rem)] -translate-x-1/2 rounded-md border bg-[var(--lf-surface)] px-4 py-2 text-center text-sm font-semibold text-[var(--lf-text)] ${
-                toastTone === 'error'
-                  ? 'border-[var(--lf-accent-line)]'
-                  : 'border-[var(--lf-line-2)]'
-              }`}
-              style={{ bottom: 'calc(var(--lf-control-deck-height, 7.5rem) + 0.75rem)' }}
-            >
-              {toast}
-            </div>
-          )}
         </div>
 
         {!beginner && <SecondaryPanel />}
       </main>
 
       <AdvancedSheet open={advancedOpen} onClose={() => setAdvancedOpen(false)} />
-      <AdvancedOffer roundsCompleted={progress.roundsCompleted} state={roundState} />
 
       <VerifyModal />
       <RulesModal />
@@ -146,52 +140,6 @@ export default function App() {
       <RealityCheck />
       {/* Entry gate — rules, then a table choice, before the first bet. */}
       <WelcomeGate />
-    </div>
-  );
-}
-
-/**
- * The one time the product asks a beginner a question.
- *
- * It arrives after five completed rounds — long enough that the player has
- * their own reason to want more, short enough that they have not yet decided
- * the game is shallow. It is a strip above the deck rather than a modal,
- * because it must never interrupt a live round, and it is asked exactly once
- * either way.
- */
-function AdvancedOffer({ roundsCompleted, state }: { roundsCompleted: number; state: RoundState }) {
-  const uiMode = useUiMode();
-  // SELECTING only. It shares the overlay slot with the tide report, the final
-  // order and the result card, and the one rule that slot exists to enforce is
-  // that exactly one thing is ever in it. SELECTING is the only state where the
-  // slot is empty AND the player has nothing they must read.
-  if (state !== 'SELECTING') return null;
-  if (!shouldOfferAdvanced(uiMode, roundsCompleted)) return null;
-
-  return (
-    <div
-      className="lf-rise pointer-events-auto fixed left-1/2 z-30 flex w-[min(94vw,30rem)] -translate-x-1/2 items-center gap-3 rounded-md border border-[var(--lf-line-2)] bg-[var(--lf-surface)] px-3 py-2.5"
-      style={{ bottom: 'calc(var(--lf-control-deck-height, 7.5rem) + 0.75rem)' }}
-      role="status"
-    >
-      <p className="min-w-0 flex-1 text-[13px] leading-snug text-[var(--lf-text)]">
-        There is more here: play styles, signals, live table activity and your session chart.
-      </p>
-      <button
-        type="button"
-        onClick={() => setUiMode(withMode(getUiMode(), 'advanced'))}
-        className="min-h-[40px] shrink-0 rounded-md border border-white px-3 text-[12px] font-bold uppercase tracking-[0.1em] text-[var(--lf-text)]"
-      >
-        Show me
-      </button>
-      <button
-        type="button"
-        onClick={() => setUiMode(withOfferDismissed(getUiMode()))}
-        aria-label="Keep the simple board"
-        className="min-h-[40px] shrink-0 px-2 text-[12px] font-bold uppercase tracking-[0.1em] text-[var(--lf-mute)] hover:text-[var(--lf-text)]"
-      >
-        No thanks
-      </button>
     </div>
   );
 }

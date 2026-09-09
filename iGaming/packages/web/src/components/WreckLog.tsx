@@ -20,7 +20,7 @@ export function WreckLog() {
 
   return (
     <section
-      className="lf-glass pointer-events-auto absolute left-2 top-2 z-10 flex h-9 max-w-[calc(100%-4.5rem)] items-center gap-2 rounded-md pr-2"
+      className="lf-glass pointer-events-auto absolute left-2 top-2 z-[var(--lf-z-hud)] flex h-10 max-w-[calc(100%-4.5rem)] items-center gap-2 rounded-md pr-2"
       aria-label="Recent results"
     >
       <button
@@ -29,7 +29,7 @@ export function WreckLog() {
           audio.click('nav');
           setWreckLogOpen(true);
         }}
-        className="lf-label flex h-9 shrink-0 items-center border-r border-[var(--lf-line)] px-2.5 transition-colors hover:!text-[var(--lf-text)]"
+        className="lf-label flex h-10 min-w-11 shrink-0 items-center justify-center border-r border-[var(--lf-line)] px-3 transition-colors hover:!text-[var(--lf-text)]"
         aria-label="Open round history"
         title="Open round history — recent results and replays"
       >

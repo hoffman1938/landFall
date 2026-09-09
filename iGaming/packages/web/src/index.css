@@ -83,6 +83,50 @@
 
   --lf-control-deck-height: 7.5rem;
   --lf-rail-width: 15.5rem;
+
+  /* ==========================================================================
+     LAYERS — the stacking order of the whole product, in one place
+     ==========================================================================
+     Every `z-*` in the app resolves to one of these. The rule that makes it
+     work is that nothing between the root and a positioned element may create
+     a stacking context: `main` and the board wrapper are `position: relative`
+     with `z-index: auto` on purpose, so all of these numbers compete in the
+     root context and the list below is the literal painting order.
+
+     Read top to bottom as "what covers what". The gaps are deliberate — a new
+     surface slots between two neighbours without renumbering anything, which
+     is what stops the next person reaching for `z-index: 99999`.
+
+       1   BOARD        the Pixi canvas: sea, storm, effects
+       2   BOARD_UI     the six harbor cards drawn over the canvas
+       3   SCENE_HUD    the round clock — reads as part of the scene
+      10   HUD          persistent board chrome (history strip, signal card)
+      20   STAGE        the round's ONE overlay: tide / final order / result
+      30   DECK         the control deck; it outranks the stage so a tall card
+                        on a short screen can never bury the primary action
+      40   NOTICE       transient, self-dismissing: toasts, table intro, offers
+      50   CHROME       the top bar and its dropdowns
+      60   SCRIM        drawer backdrops
+      70   DRAWER       side/bottom drawers
+      80   MODAL        dialogs — always above a drawer that opened them
+      90   GATE         the entry gate; nothing may cover the first-run rules
+
+     Two things are NOT on this list on purpose: `.lf-bay canvas` (z-index 1
+     inside the board wrapper, which is a local concern) and the sticky header
+     inside a scrollable sheet (z-index 1 within that sheet's own context).
+     ========================================================================== */
+  --lf-z-board: 1;
+  --lf-z-board-ui: 2;
+  --lf-z-scene-hud: 3;
+  --lf-z-hud: 10;
+  --lf-z-stage: 20;
+  --lf-z-deck: 30;
+  --lf-z-notice: 40;
+  --lf-z-chrome: 50;
+  --lf-z-scrim: 60;
+  --lf-z-drawer: 70;
+  --lf-z-modal: 80;
+  --lf-z-gate: 90;
 }
 
 html,
@@ -632,6 +676,29 @@ body,
   animation: lf-settle 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/*
+ * The round's stage cards.
+ *
+ * `lf-rise` slides up from `translateY(10px)`, which is right for a panel with
+ * room around it and wrong for a card in a clipped column: the stage column
+ * clips to the board so a card can never escape over the clock, and the slide
+ * pushed the card's bottom 10px outside that clip for the whole 180ms — the
+ * VERIFY row was visibly cut on arrival on a short board. A fade cannot be
+ * clipped, and the card appearing at all is the information; the movement was
+ * decoration.
+ */
+@keyframes lf-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.lf-appear {
+  animation: lf-appear 160ms ease-out both;
+}
+
 /* Sheets and drawers. */
 @keyframes lf-sheet {
   from {
@@ -730,6 +797,7 @@ body,
 
 @media (prefers-reduced-motion: reduce) {
   .lf-rise,
+  .lf-appear,
   .lf-sheet,
   .lf-caption,
   .lf-shake,

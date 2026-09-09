@@ -42,15 +42,6 @@ export interface UiSurfaces {
   showHarborDetail: boolean;
   /** Play style (1 harbor / 2 harbors) and signal flags in the deck. */
   showTacticalControls: boolean;
-  /**
-   * Keep the board's countdown on screen while a result is showing.
-   *
-   * Advanced yes, beginner no. On the advanced board the verdict lives in the
-   * banner above the deck, so the clock still owns the middle. In beginner mode
-   * the result CARD is in the middle, and leaving the clock behind it puts two
-   * large figures in the same place saying different things.
-   */
-  showClockDuringResult: boolean;
 }
 
 export function surfacesFor(mode: UiMode): UiSurfaces {
@@ -61,7 +52,6 @@ export function surfacesFor(mode: UiMode): UiSurfaces {
     showTopBarInstruments: advanced,
     showHarborDetail: advanced,
     showTacticalControls: advanced,
-    showClockDuringResult: advanced,
   };
 }
 

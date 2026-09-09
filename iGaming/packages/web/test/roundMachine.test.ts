@@ -100,7 +100,9 @@ describe('deriveRoundState', () => {
     const endsAt = T0 + RESOLVED_ASSUMED_MS;
     // during the strike beat the sheet does not steal the answer
     expect(
-      deriveRoundState(input({ phase: 'RESOLVED', phaseEndsAt: endsAt, now: T0, verifyOpen: true })),
+      deriveRoundState(
+        input({ phase: 'RESOLVED', phaseEndsAt: endsAt, now: T0, verifyOpen: true }),
+      ),
     ).toBe('IMPACT');
     expect(
       deriveRoundState(

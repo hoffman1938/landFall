@@ -8,7 +8,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <details className="group rounded-md border border-[var(--lf-line)] bg-[var(--lf-bg)] px-3 transition-colors open:border-[var(--lf-line-2)] hover:border-[var(--lf-line-2)]">
       <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 font-bold text-[var(--lf-text)]">
         <span>{title}</span>
-        <span className="ml-auto text-lg text-[var(--lf-mute)] transition-transform group-open:rotate-45" aria-hidden="true">
+        <span
+          className="ml-auto text-lg text-[var(--lf-mute)] transition-transform group-open:rotate-45"
+          aria-hidden="true"
+        >
           +
         </span>
       </summary>
@@ -74,7 +77,7 @@ export function RulesModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4"
+      className="fixed inset-0 z-[var(--lf-z-modal)] flex items-center justify-center bg-black/80 p-3 sm:p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) setRulesOpen(false);
       }}
@@ -128,10 +131,10 @@ export function RulesModal() {
 
         <Section title="Storm Power — the multiplier">
           Every storm has a hidden <b>category</b>, revealed at landfall, that multiplies all
-          survivors' salvage — and it is <b>never less than ×1</b>: a weak storm leaves your
-          salvage untouched. <b>Cat 1 ×1</b> (common) · <b>Cat 2 ×1.25</b> (~1 in 13) ·{' '}
-          <b>Cat 3 ×2</b> (~1 in 131) · <b>Cat 4 ×5</b> (~1 in 950) · <b>Cat 5 ×25</b> (~1 in
-          19,000) · <b>Cat 6 ×100</b> (~1 in 210,000) ·{' '}
+          survivors' salvage — and it is <b>never less than ×1</b>: a weak storm leaves your salvage
+          untouched. <b>Cat 1 ×1</b> (common) · <b>Cat 2 ×1.25</b> (~1 in 13) · <b>Cat 3 ×2</b> (~1
+          in 131) · <b>Cat 4 ×5</b> (~1 in 950) · <b>Cat 5 ×25</b> (~1 in 19,000) ·{' '}
+          <b>Cat 6 ×100</b> (~1 in 210,000) ·{' '}
           <b className="text-[var(--lf-amber)]">PERFECT STORM ×500</b> (~1 in 1,000,000). The bonus
           above ×1 is paid from the <b>Storm Reserve</b>, funded by a share of every round's take,
           and a single round's total salvage is capped at a published multiple of that round's
@@ -150,8 +153,8 @@ export function RulesModal() {
           <p>
             <b>Every table has its own jackpot.</b> It is fed only by the rounds played at that
             table, so money lost at a high-stakes table stays there — it can never pay out to a
-            one-credit bet somewhere else. Switch tables and the jackpot you are playing for
-            changes with you; the top bar always names whose pot it is showing.
+            one-credit bet somewhere else. Switch tables and the jackpot you are playing for changes
+            with you; the top bar always names whose pot it is showing.
           </p>
           <p className="mt-2">
             A fixed share of every round's take feeds it, so it grows every round. Roughly one round
@@ -174,11 +177,10 @@ export function RulesModal() {
           </p>
           <p className="mt-2">
             The reason is the payout itself. Your winnings come out of the hit harbor's pot, so on a
-            quiet table there is very little to win — a 5,000 bet into a near-empty round could
-            only ever return a few credits while still risking the whole 5,000. No single player
-            may hold more than a quarter of a round, which is the rule that stops that bet. It is
-            not the house being careful with your money; it is the game refusing a bet that cannot
-            pay.
+            quiet table there is very little to win — a 5,000 bet into a near-empty round could only
+            ever return a few credits while still risking the whole 5,000. No single player may hold
+            more than a quarter of a round, which is the rule that stops that bet. It is not the
+            house being careful with your money; it is the game refusing a bet that cannot pay.
           </p>
           <p className="mt-2">
             The limit rises as players join and resets every round. If you want to bet the top of a
@@ -190,9 +192,9 @@ export function RulesModal() {
           The storm never chases the money — every zone has exactly a 1-in-6 chance, always. But
           your <b>payout</b> depends on the crowd: standing where others aren't pays relatively
           more. Read the crowd meters, decide whether the crowd will flee or pile in while bets are
-          hidden, choose <b>1 Harbor</b> or <b>2 Harbors</b>, and use <b>Join me</b>, <b>Avoid</b>, or{' '}
-          <b>Staying</b> signals to bait or coordinate. Signals are public talk, not binding orders.
-          Use <b>×2</b> to press your bet and <b>Bet Again</b> to repeat your last bet.
+          hidden, choose <b>1 Harbor</b> or <b>2 Harbors</b>, and use <b>Join me</b>, <b>Avoid</b>,
+          or <b>Staying</b> signals to bait or coordinate. Signals are public talk, not binding
+          orders. Use <b>×2</b> to press your bet and <b>Bet Again</b> to repeat your last bet.
         </Section>
 
         <Section title="Wreck Wake Replay">

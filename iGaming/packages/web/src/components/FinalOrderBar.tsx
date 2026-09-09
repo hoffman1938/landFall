@@ -50,7 +50,7 @@ export function FinalOrderBar({ state }: { state: RoundState }) {
     return (
       <div
         role="status"
-        className="lf-rise pointer-events-none flex w-[min(92vw,26rem)] flex-col items-center gap-1 rounded-lg border border-[var(--lf-line-2)] bg-[var(--lf-surface)] px-5 py-3 text-center"
+        className="lf-appear pointer-events-none flex w-[min(92vw,26rem)] flex-col items-center gap-1 rounded-lg border border-[var(--lf-line-2)] bg-[var(--lf-surface)] px-5 py-3 text-center"
       >
         <span className="lf-display text-[clamp(1.5rem,5vmin,2rem)] leading-none text-[var(--lf-text)]">
           LOCKED
@@ -69,7 +69,7 @@ export function FinalOrderBar({ state }: { state: RoundState }) {
     return (
       <div
         role="status"
-        className="lf-rise lf-overlay pointer-events-none w-[min(92vw,26rem)] rounded-lg px-5 py-3 text-center"
+        className="lf-appear lf-overlay pointer-events-none w-[min(92vw,26rem)] rounded-lg px-5 py-3 text-center"
       >
         <div className="lf-label">Final order</div>
         <p className="mt-1.5 text-[14px] font-semibold text-[var(--lf-text)]">
@@ -82,7 +82,7 @@ export function FinalOrderBar({ state }: { state: RoundState }) {
   return (
     <section
       aria-label="Final order"
-      className="lf-rise lf-overlay pointer-events-auto w-[min(92vw,26rem)] rounded-lg px-4 py-3"
+      className="lf-appear lf-overlay pointer-events-auto w-[min(92vw,26rem)] rounded-lg px-4 py-3"
     >
       <div className="flex items-baseline justify-between">
         <h2 className="lf-label">Final order</h2>

@@ -1,5 +1,5 @@
 /**
- * The stage — one overlay slot above the board, and exactly one thing in it.
+ * The stage — the round's own surface, and exactly one of them.
  *
  * This component exists to enforce a rule the brief states and the shipped
  * client broke: **avoid multiple simultaneous popups**. Before this pass the
@@ -10,43 +10,29 @@
  *
  * Here the round state chooses the surface, and there is only ever one:
  *
- *      TIDE_REPORT              the crowd card
- *      FINAL_ORDER/FINAL_LOCK   keep / change, then LOCKED
+ *      TIDE_REPORT                the crowd card
+ *      FINAL_ORDER/FINAL_LOCK     keep / change, then LOCKED
  *      RESULT/VERIFICATION/RESET  the result card
- *      everything else          nothing — the board is the message
+ *      everything else            nothing — the board is the message
  *
- * The signal-flag card is the single exception, and it is placed in a different
- * corner rather than in this slot, because it is ambient information rather
- * than the round's current question.
+ * It does NOT position itself. The shell owns one bottom column holding this
+ * slot with the notice band beneath it, so a card and a toast stack instead of
+ * landing in the same pixels — which is what happened when three components
+ * each pinned themselves to `bottom: calc(deck + 0.75rem)` independently.
  */
 import { useStore } from '../store';
 import { FinalOrderBar } from './FinalOrderBar';
 import { RoundResultCard } from './RoundResultCard';
-import { SignalFlagCard } from './SignalFlagCard';
 import { TideReportCard } from './TideReportCard';
 import type { RoundState } from '../roundMachine';
 
 export function RoundStage({ state }: { state: RoundState }) {
   const tideReport = useStore((s) => s.tideReport);
 
-  return (
-    <>
-      {/* the one slot, sitting clear of the deck */}
-      <div
-        className="pointer-events-none absolute inset-x-0 z-10 flex justify-center px-3"
-        style={{ bottom: 'calc(var(--lf-control-deck-height, 7.5rem) + 0.75rem)' }}
-      >
-        {state === 'TIDE_REPORT' && <TideReportCard report={tideReport} />}
-        {(state === 'FINAL_ORDER' || state === 'FINAL_LOCK') && <FinalOrderBar state={state} />}
-        {(state === 'RESULT' || state === 'VERIFICATION' || state === 'RESET') && (
-          <RoundResultCard state={state} />
-        )}
-      </div>
-
-      {/* ambient, and deliberately not in the slot above */}
-      <div className="pointer-events-none absolute left-3 top-3 z-[9] hidden lg:block">
-        <SignalFlagCard state={state} />
-      </div>
-    </>
-  );
+  if (state === 'TIDE_REPORT') return <TideReportCard report={tideReport} />;
+  if (state === 'FINAL_ORDER' || state === 'FINAL_LOCK') return <FinalOrderBar state={state} />;
+  if (state === 'RESULT' || state === 'VERIFICATION' || state === 'RESET') {
+    return <RoundResultCard state={state} />;
+  }
+  return null;
 }

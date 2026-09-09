@@ -20,6 +20,8 @@
 import { ShieldCheckIcon, StormIcon, SurgeIcon } from './icons';
 import { fmt, useStore } from '../store';
 import { zoneName } from '../strings';
+import { useSurfaces } from '../uiMode';
+import { useShortViewport } from '../useShortViewport';
 import type { RoundState } from '../roundMachine';
 
 export function RoundResultCard({ state }: { state: RoundState }) {
@@ -28,6 +30,8 @@ export function RoundResultCard({ state }: { state: RoundState }) {
   const openVerify = useStore((s) => s.openVerify);
   const verifyGlow = useStore((s) => s.verifyGlow);
   const phaseEndsAt = useStore((s) => s.phase?.endsAt ?? 0);
+  const surfaces = useSurfaces();
+  const shortBoard = useShortViewport();
 
   if (state !== 'RESULT' && state !== 'VERIFICATION' && state !== 'RESET') return null;
   if (!lastLandfall) return null;
@@ -41,14 +45,34 @@ export function RoundResultCard({ state }: { state: RoundState }) {
   const tier = lastLandfall.eventTier;
   const won = r.outcome !== 'WRECKED' && r.netMinor >= 0;
   const played = r.outcome !== 'SPECTATOR';
+  /*
+   * The advanced board used to run a SECOND result surface (`ResultBanner`)
+   * pinned to the same offset as this card — two verdicts in the same pixels
+   * on every settled round. That component is gone; the two details it had
+   * that this card lacked live here, behind the advanced flag, so there is one
+   * result UI with one layout and one set of rules about how a loss is shown.
+   */
+  const detailed = surfaces.showHarborDetail && !shortBoard;
+  const replay = lastLandfall.replay;
 
   return (
     <section
       aria-label={`Round result. ${struck} was hit.`}
-      className="lf-rise pointer-events-auto flex w-[min(94vw,27rem)] flex-col overflow-hidden rounded-lg border border-[var(--lf-line-2)] bg-[var(--lf-surface)]"
+      /*
+       * `shrink-0` matters: the stage column is a flex column, so without it a
+       * card 4px taller than the space available is silently COMPRESSED and
+       * then clips its own bottom row — which is how the VERIFY button lost its
+       * last four pixels on a 740x360 board. Refusing to shrink makes a card
+       * that does not fit visibly not fit, which is a bug that can be found.
+       */
+      className="lf-appear pointer-events-auto flex w-[min(94vw,27rem)] shrink-0 flex-col overflow-hidden rounded-lg border border-[var(--lf-line-2)] bg-[var(--lf-surface)]"
     >
       {/* 1 — which harbor. The largest thing on the card, always. */}
-      <div className="border-l-2 border-l-[var(--lf-accent)] px-5 pb-2.5 pt-3 sm:pb-3 sm:pt-3.5">
+      <div
+        className={`border-l-2 border-l-[var(--lf-accent)] ${
+          shortBoard ? 'px-4 py-1.5' : 'px-5 pb-2.5 pt-3 sm:pb-3 sm:pt-3.5'
+        }`}
+      >
         <div className="flex items-baseline justify-between gap-3">
           <span className="lf-label">Round result</span>
           {tier && tier.id !== 'CALM' && (
@@ -62,7 +86,11 @@ export function RoundResultCard({ state }: { state: RoundState }) {
             </span>
           )}
         </div>
-        <div className="lf-display lf-settle mt-1 text-[clamp(1.9rem,6vmin,2.6rem)] leading-none text-[var(--lf-accent)]">
+        <div
+          className={`lf-display lf-settle mt-1 leading-none text-[var(--lf-accent)] ${
+            shortBoard ? 'text-[1.35rem]' : 'text-[clamp(1.9rem,6vmin,2.6rem)]'
+          }`}
+        >
           {struck.toUpperCase()}
         </div>
         {/*
@@ -71,13 +99,24 @@ export function RoundResultCard({ state }: { state: RoundState }) {
           is naming — and on a 375px screen the giant harbor name plus the red
           strike frame behind the card already say this sentence.
         */}
-        <div className="mt-1.5 hidden text-[13px] text-[var(--lf-dim)] sm:block">
-          Hit by the storm. The other five harbors shared its pot.
-        </div>
+        {/* Dropped on a phone AND on any short board: the card is anchored
+            above the deck, so every row of prose pushes it further over the
+            harbors it is naming. On a 360px-tall board it covered the top bar
+            and all six of them. The giant harbor name plus the red strike frame
+            already say this sentence. */}
+        {!shortBoard && (
+          <div className="mt-1.5 hidden text-[13px] text-[var(--lf-dim)] sm:block">
+            Hit by the storm. The other five harbors shared its pot.
+          </div>
+        )}
       </div>
 
       {/* 2 — what it did to you. */}
-      <div className="border-t border-[var(--lf-line)] px-5 py-2.5 sm:py-3">
+      <div
+        className={`border-t border-[var(--lf-line)] ${
+          shortBoard ? 'px-4 py-1.5' : 'px-5 py-2.5 sm:py-3'
+        }`}
+      >
         {!played ? (
           <div className="text-[14px] font-medium text-[var(--lf-dim)]">
             You sat this round out.
@@ -85,9 +124,9 @@ export function RoundResultCard({ state }: { state: RoundState }) {
         ) : (
           <div className="flex items-baseline gap-3">
             <span
-              className={`lf-display lf-settle text-[clamp(1.6rem,5vmin,2.1rem)] leading-none ${
-                won ? 'text-[var(--lf-win)]' : 'text-[var(--lf-text)]'
-              }`}
+              className={`lf-display lf-settle leading-none ${
+                shortBoard ? 'text-[1.2rem]' : 'text-[clamp(1.6rem,5vmin,2.1rem)]'
+              } ${won ? 'text-[var(--lf-win)]' : 'text-[var(--lf-text)]'}`}
             >
               {r.netMinor >= 0 ? '+' : '−'}
               {fmt(Math.abs(r.netMinor))}
@@ -125,10 +164,37 @@ export function RoundResultCard({ state }: { state: RoundState }) {
             Maximum round payout reached — the multiplier was capped.
           </div>
         )}
+
+        {/* Advanced only: the multiplier this round paid at, and the round in
+            one line. Both were the old banner's; neither is a beginner's
+            question at the moment a result lands. */}
+        {detailed && powerMult >= 2 && (
+          <div
+            className={`mt-2 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.12em] ${
+              powerMult >= 25
+                ? 'border-[var(--lf-warn)] bg-[var(--lf-warn)] text-black'
+                : 'border-[var(--lf-warn)]/60 text-[var(--lf-warn)]'
+            }`}
+          >
+            <StormIcon size={12} />
+            {power?.label === 'PERFECT STORM'
+              ? `Perfect storm — payouts ×${powerMult}`
+              : `×${powerMult} round`}
+          </div>
+        )}
+        {detailed && replay && (
+          <p className="mt-2 line-clamp-2 text-[12px] leading-snug text-[var(--lf-mute)]">
+            {replay.headline}
+          </p>
+        )}
       </div>
 
       {/* 3 — the receipt, and 4 — the two things you can do. */}
-      <div className="flex items-center gap-2 border-t border-[var(--lf-line)] bg-[var(--lf-bg-2)] px-3 py-2">
+      <div
+        className={`flex items-center gap-2 border-t border-[var(--lf-line)] bg-[var(--lf-bg-2)] px-3 ${
+          shortBoard ? 'py-1' : 'py-2'
+        }`}
+      >
         <span className="lf-label-soft shrink-0">#{lastLandfall.roundId}</span>
         <span className="flex shrink-0 items-center gap-1 text-[12px] font-bold text-[var(--lf-win)]">
           <ShieldCheckIcon size={13} />
@@ -137,13 +203,13 @@ export function RoundResultCard({ state }: { state: RoundState }) {
         <button
           type="button"
           onClick={() => openVerify(lastLandfall.roundId)}
-          className={`ml-auto min-h-[44px] shrink-0 rounded-md border border-[var(--lf-line)] px-3 text-[13px] font-bold uppercase tracking-[0.1em] text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)] ${
-            verifyGlow ? 'lf-verify-glow' : ''
-          }`}
+          className={`ml-auto shrink-0 rounded-md border border-[var(--lf-line)] px-3 text-[13px] font-bold uppercase tracking-[0.1em] text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)] ${
+            shortBoard ? 'min-h-[40px]' : 'min-h-[44px]'
+          } ${verifyGlow ? 'lf-verify-glow' : ''}`}
         >
           Verify
         </button>
-        <NextRoundPill endsAt={phaseEndsAt} state={state} />
+        <NextRoundPill endsAt={phaseEndsAt} state={state} short={shortBoard} />
       </div>
     </section>
   );
@@ -158,13 +224,23 @@ export function RoundResultCard({ state }: { state: RoundState }) {
  * was written to eliminate. So it reports instead: the number of seconds until
  * harbors are live again.
  */
-function NextRoundPill({ endsAt, state }: { endsAt: number; state: RoundState }) {
+function NextRoundPill({
+  endsAt,
+  state,
+  short,
+}: {
+  endsAt: number;
+  state: RoundState;
+  short: boolean;
+}) {
   const seconds = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
   return (
     <span
       role="timer"
       aria-label={`Next round in about ${seconds} seconds`}
-      className="flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-md bg-[var(--lf-surface-2)] px-3 text-[13px] font-bold uppercase tracking-[0.1em] text-[var(--lf-text)]"
+      className={`flex shrink-0 items-center gap-1.5 rounded-md bg-[var(--lf-surface-2)] px-3 text-[13px] font-bold uppercase tracking-[0.1em] text-[var(--lf-text)] ${
+        short ? 'min-h-[40px]' : 'min-h-[44px]'
+      }`}
     >
       Next
       <span className="lf-num text-[15px] tabular-nums text-[var(--lf-dim)]">

@@ -203,9 +203,7 @@ export function renderReplayCard(card: ReplayCard): HTMLCanvasElement {
   // was hit, it is already in the payload, and it kept the card from looking
   // half-empty on a quiet round with no fog movement and no flags.
   const safeTop =
-    card.replay.mostCrowdedSafeZone !== null
-      ? `${fmt(card.replay.mostCrowdedSafePoolMinor)}`
-      : '—';
+    card.replay.mostCrowdedSafeZone !== null ? `${fmt(card.replay.mostCrowdedSafePoolMinor)}` : '—';
   const metrics: [string, string, string][] = [
     ['Hit pot', fmt(card.replay.struckPoolMinor), TEXT],
     ['Biggest safe pot', safeTop, TEXT],
@@ -270,7 +268,12 @@ export function renderReplayCard(card: ReplayCard): HTMLCanvasElement {
   };
 
   if (card.replay.biggestSalvage) {
-    moneyRow('Biggest win', card.replay.biggestSalvage.name, card.replay.biggestSalvage.amountMinor, WIN);
+    moneyRow(
+      'Biggest win',
+      card.replay.biggestSalvage.name,
+      card.replay.biggestSalvage.amountMinor,
+      WIN,
+    );
   }
   if (card.surge?.winnerName) {
     moneyRow('Jackpot', card.surge.winnerName, card.surge.potMinor, WARN);

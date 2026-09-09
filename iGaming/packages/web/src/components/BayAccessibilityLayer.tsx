@@ -7,7 +7,8 @@ import {
   type TideBand,
   type TideReportEntry,
 } from '@landfall/core';
-import { getCoveLayouts, type CoveLayout } from '../coveLayout';
+import { boardInsets, getCoveLayouts, type CoveLayout } from '../coveLayout';
+import { useDeckHeight } from '../deckHeight';
 import { useStore, type LandfallInfo } from '../store';
 import { crowdLabel, zoneName } from '../strings';
 import { MUTABLE_STATES } from '../roundMachine';
@@ -88,9 +89,7 @@ function CrowdMeter({ band }: { band: TideBand | null }) {
       {Array.from({ length: CROWD_SEGMENTS }, (_, i) => (
         <span
           key={i}
-          className={`h-2.5 w-[3px] ${
-            i < lit ? 'bg-[var(--lf-dim)]' : 'bg-[var(--lf-line)]'
-          }`}
+          className={`h-2.5 w-[3px] ${i < lit ? 'bg-[var(--lf-dim)]' : 'bg-[var(--lf-line)]'}`}
           style={i < lit ? { opacity: 0.55 + (i / CROWD_SEGMENTS) * 0.45 } : undefined}
         />
       ))}
@@ -194,6 +193,19 @@ function CoveStatusCard({
   // The size lives in coveLayout so the Pixi scene can frame this exact box
   // rather than guess at it — a marker drawn inside it would be invisible.
   const markerWidth = layout.markerWidth;
+  /*
+   * The card's height is the layout's, not its content's.
+   *
+   * `getCoveLayouts` shrinks `markerHeight` when the board is too short for
+   * three full rows — that is how a phone held sideways stops stacking harbors
+   * on top of each other. The card ignored it and kept growing to whatever its
+   * three rows of type wanted, so the Pixi frames shrank and the DOM cards did
+   * not, and they overlapped anyway. Taking the height from the layout makes
+   * the two halves of the map agree by construction; below 72px the money row
+   * is the one that goes, because it is the row with the least to say.
+   */
+  const markerHeight = layout.markerHeight;
+  const showMoneyRow = markerHeight >= 72;
   const cardDescription = [
     `${zoneName(zone)}.`,
     struck
@@ -242,7 +254,7 @@ function CoveStatusCard({
     <button
       type="button"
       data-cove={zone + 1}
-      className={`lf-glass pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-md border px-3 py-2 text-left text-[var(--lf-text)] transition-[border-color,background-color] duration-150 ${
+      className={`lf-glass pointer-events-auto absolute flex -translate-x-1/2 -translate-y-1/2 flex-col justify-center overflow-hidden rounded-md border px-3 py-1.5 text-left text-[var(--lf-text)] transition-[border-color,background-color] duration-150 ${
         struck
           ? '!border-[var(--lf-accent)]'
           : mine
@@ -253,7 +265,12 @@ function CoveStatusCard({
                 ? ''
                 : 'hover:!border-[var(--lf-line-2)]'
       } ${canPick ? 'cursor-pointer' : 'cursor-default'}`}
-      style={{ left: layout.markerX, top: layout.markerY, width: markerWidth }}
+      style={{
+        left: layout.markerX,
+        top: layout.markerY,
+        width: markerWidth,
+        height: markerHeight,
+      }}
       aria-label={cardDescription}
       aria-keyshortcuts={`${zone + 1}`}
       aria-pressed={!!mine || selected}
@@ -343,42 +360,45 @@ function CoveStatusCard({
         </span>
       </span>
 
-      {/* Money row. Always rendered so the marker never changes height between
-          phases — the exact pot only exists after the lock snapshot, and a
-          card that grows at lock reads as the table twitching. Your own stake
-          on this zone sits left of the pot, so the two are never confused.
+      {/* Money row. Rendered at every phase so the marker never changes height
+          as the round moves — the exact pot only exists after the lock
+          snapshot, and a card that grows at lock reads as the table twitching.
+          Your own stake sits left of the pot, so the two are never confused.
 
           In beginner mode the pot column is dropped and the row carries only
           your own stake: a player choosing between six harbors for the first
           time is not choosing on pool size, and six pot figures is six numbers
-          to read before making a decision that needs none of them. */}
-      <span className="relative mt-1.5 flex items-baseline gap-2 border-t border-[var(--lf-line)] pt-1.5 leading-none">
-        {mine ? (
-          <span className="flex min-w-0 shrink items-baseline gap-1 text-white">
-            <span className="lf-label-soft shrink-0 !text-white/70">{mine.label}</span>
-            <span className="lf-num truncate text-[16px]">
-              {formatCredits(mine.mineMinor)}
+          to read before making a decision that needs none of them.
+
+          On a board too short for a three-row card the row is dropped whole —
+          decided by the LAYOUT, not by the round, so it is still stable. */}
+      {showMoneyRow && (
+        <span className="relative mt-1.5 flex items-baseline gap-2 border-t border-[var(--lf-line)] pt-1.5 leading-none">
+          {mine ? (
+            <span className="flex min-w-0 shrink items-baseline gap-1 text-white">
+              <span className="lf-label-soft shrink-0 !text-white/70">{mine.label}</span>
+              <span className="lf-num truncate text-[16px]">{formatCredits(mine.mineMinor)}</span>
             </span>
-          </span>
-        ) : showDetail ? (
-          <span className="lf-label-soft shrink-0">Pot</span>
-        ) : (
-          // Beginner mode: the row keeps its height (so a card never grows when
-          // a bet lands) but says nothing. Six cards each announcing that they
-          // hold no bet is six labels reporting the absence of news.
-          <span aria-hidden="true">&nbsp;</span>
-        )}
-        {showDetail && (
-          <span
-            className={`ml-auto flex shrink-0 items-baseline gap-1 ${
-              detail ? 'text-[var(--lf-text)]' : 'text-[var(--lf-mute)]/60'
-            }`}
-          >
-            {mine && <span className="lf-label-soft">Pot</span>}
-            <span className="lf-num text-[16px]">{detail ?? '—'}</span>
-          </span>
-        )}
-      </span>
+          ) : showDetail ? (
+            <span className="lf-label-soft shrink-0">Pot</span>
+          ) : (
+            // Beginner mode: the row keeps its height (so a card never grows when
+            // a bet lands) but says nothing. Six cards each announcing that they
+            // hold no bet is six labels reporting the absence of news.
+            <span aria-hidden="true">&nbsp;</span>
+          )}
+          {showDetail && (
+            <span
+              className={`ml-auto flex shrink-0 items-baseline gap-1 ${
+                detail ? 'text-[var(--lf-text)]' : 'text-[var(--lf-mute)]/60'
+              }`}
+            >
+              {mine && <span className="lf-label-soft">Pot</span>}
+              <span className="lf-num text-[16px]">{detail ?? '—'}</span>
+            </span>
+          )}
+        </span>
+      )}
     </button>
   );
 }
@@ -408,9 +428,12 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
    * player-scoped fact the machine folds into FINAL_LOCK — belt and braces on
    * the one control that spends money.
    */
-  const canPick =
-    connected && MUTABLE_STATES.has(roundState) && !finalOrderUsed && !dialogOpen;
-  const layouts = getCoveLayouts(size.width, size.height);
+  const canPick = connected && MUTABLE_STATES.has(roundState) && !finalOrderUsed && !dialogOpen;
+  // Same insets the Pixi scene uses, so the cards and the marks agree. The
+  // deck height is subscribed rather than read, so a deck that grows a row
+  // re-lays the board instead of leaving the cards where they were.
+  useDeckHeight();
+  const layouts = getCoveLayouts(size.width, size.height, boardInsets(size.width, size.height));
 
   useEffect(() => {
     const layer = layerRef.current;
@@ -480,7 +503,7 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
     <>
       <div
         ref={layerRef}
-        className="pointer-events-none absolute inset-0 z-[2]"
+        className="pointer-events-none absolute inset-0 z-[var(--lf-z-board-ui)]"
         role="group"
         aria-label="Harbors. Use Tab or press number keys 1 through 6."
       >

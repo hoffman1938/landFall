@@ -110,7 +110,10 @@ describe('stormRouteStop', () => {
   });
 
   it('moves at least once inside a 5s locked window, feints colliding or not', () => {
-    for (const feints of [[1, 4], [3, 3]] as const) {
+    for (const feints of [
+      [1, 4],
+      [3, 3],
+    ] as const) {
       const route = stormRoute(feints, zoneStop, ZONE_COUNT);
       const seen = new Set<string>();
       for (let t = 0; t < 5_000; t += 100) {

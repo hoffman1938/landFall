@@ -19,12 +19,33 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { audio } from '../audio/engine';
+import { setDeckHeight } from '../deckHeight';
+import { useShortViewport } from '../useShortViewport';
 import { resolveStakeLimit } from '../stakeLimits';
 import { fmt, useStore } from '../store';
 import { STR, zoneName } from '../strings';
 import { LockIcon } from './icons';
 import type { RoundState } from '../roundMachine';
 import { MUTABLE_STATES } from '../roundMachine';
+
+/**
+ * Compact preset label.
+ *
+ * `fmt` renders 10000.00, and three of those side by side overflowed the
+ * document at 390px on the Leviathan table — a horizontal scrollbar on the
+ * whole page, found by sweeping a high-stakes room rather than the 1–50 one.
+ * Chips are glanced at, not read to the cent, so they get k-notation; the exact
+ * figure lives in the "Your bet" field beside them and in each chip's
+ * aria-label, so nothing is lost to a screen reader.
+ */
+function presetLabel(minor: number): string {
+  const units = minor / 100;
+  if (units >= 1000) {
+    const k = units / 1000;
+    return `${Number.isInteger(k) ? k : k.toFixed(1)}k`;
+  }
+  return units.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
 
 /** Three presets, spanning the table. Four was already one too many to scan. */
 function presetsFor(minMinor: number, maxMinor: number): number[] {
@@ -56,18 +77,21 @@ export function BeginnerDeck({ state }: { state: RoundState }) {
 
   const deckRef = useRef<HTMLDivElement>(null);
   const [shake, setShake] = useState(false);
+  /*
+   * On a short board the deck must be small enough to fit the band the layout
+   * reserves for it, or it covers the bottom row of harbors — measured at
+   * 740x360, where a 200px deck ate a 127px reservation and cut the last three
+   * cards in half. Everything here keeps a >=40px touch target.
+   */
+  const shortBoard = useShortViewport();
 
-  // The deck's own height is published so overlays can sit clear of it — the
-  // same contract the advanced deck already publishes under the same name.
+  // The deck's own height is published so overlays can sit clear of it AND so
+  // the board can reserve its band (see ../deckHeight.ts for why a CSS
+  // variable alone was not enough).
   useEffect(() => {
     const el = deckRef.current;
     if (!el) return;
-    const publish = () => {
-      document.documentElement.style.setProperty(
-        '--lf-control-deck-height',
-        `${el.offsetHeight}px`,
-      );
-    };
+    const publish = () => setDeckHeight(el.offsetHeight);
     publish();
     const observer = new ResizeObserver(publish);
     observer.observe(el);
@@ -141,53 +165,78 @@ export function BeginnerDeck({ state }: { state: RoundState }) {
   return (
     <div
       ref={deckRef}
-      className="pointer-events-auto absolute inset-x-0 bottom-0 z-20 border-t border-[var(--lf-line)] bg-[var(--lf-bg-2)] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3"
+      className={`pointer-events-auto absolute inset-x-0 bottom-0 z-[var(--lf-z-deck)] border-t border-[var(--lf-line)] bg-[var(--lf-bg-2)] px-3 ${
+        shortBoard
+          ? 'pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-2'
+          : 'pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3'
+      }`}
     >
-      <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-2.5">
-        {/* stake */}
-        <div className={`flex items-stretch gap-2 ${shake ? 'lf-shake' : ''}`}>
-          <button
-            type="button"
-            aria-label="Lower bet"
-            disabled={!canStake}
-            onClick={() => setStake(stakeInputMinor - step)}
-            className="min-h-[48px] w-12 shrink-0 rounded-md border border-[var(--lf-line)] text-[20px] font-bold text-[var(--lf-text)] transition-colors hover:border-[var(--lf-line-2)] disabled:opacity-40"
-          >
-            −
-          </button>
+      <div
+        className={`mx-auto flex w-full max-w-[34rem] flex-col ${shortBoard ? 'gap-1.5' : 'gap-2.5'}`}
+      >
+        {/*
+          Stake row, in two groups that REFLOW rather than shrink.
 
-          <div className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface)] px-2 py-1">
-            <span className="lf-label-soft">Your bet</span>
-            <span className="lf-num text-[20px] leading-tight text-[var(--lf-text)]">
-              {fmt(stakeInputMinor)}
-            </span>
-          </div>
-
-          <button
-            type="button"
-            aria-label="Raise bet"
-            disabled={!canStake}
-            onClick={() => setStake(stakeInputMinor + step)}
-            className="min-h-[48px] w-12 shrink-0 rounded-md border border-[var(--lf-line)] text-[20px] font-bold text-[var(--lf-text)] transition-colors hover:border-[var(--lf-line-2)] disabled:opacity-40"
-          >
-            +
-          </button>
-
-          {presets.map((preset) => (
+          As one row of six `shrink-0` controls this overflowed the document at
+          320px and gave the whole page a horizontal scrollbar. Wrapping puts
+          the stepper on one line and the presets on the next below ~24rem, and
+          keeps them on a single line above it — the layout changes shape
+          instead of everything getting smaller.
+        */}
+        <div className={`flex flex-wrap items-stretch gap-2 ${shake ? 'lf-shake' : ''}`}>
+          <div className="flex min-w-0 flex-1 basis-full items-stretch gap-2 min-[24rem]:basis-0">
             <button
-              key={preset}
               type="button"
+              aria-label="Lower bet"
               disabled={!canStake}
-              onClick={() => setStake(preset)}
-              className={`min-h-[48px] min-w-[3.25rem] shrink-0 rounded-md border px-2 text-[14px] font-bold tabular-nums transition-colors disabled:opacity-40 ${
-                stakeInputMinor === preset
-                  ? 'border-white bg-white text-black'
-                  : 'border-[var(--lf-line)] text-[var(--lf-dim)] hover:border-[var(--lf-line-2)]'
+              onClick={() => setStake(stakeInputMinor - step)}
+              className={`w-12 shrink-0 rounded-md border border-[var(--lf-line)] text-[20px] font-bold text-[var(--lf-text)] transition-colors hover:border-[var(--lf-line-2)] disabled:opacity-40 ${
+                shortBoard ? 'min-h-[42px]' : 'min-h-[48px]'
               }`}
             >
-              {fmt(preset)}
+              −
             </button>
-          ))}
+
+            <div className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface)] px-2 py-1">
+              <span className="lf-label-soft">Your bet</span>
+              <span className="lf-num text-[20px] leading-tight text-[var(--lf-text)]">
+                {fmt(stakeInputMinor)}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              aria-label="Raise bet"
+              disabled={!canStake}
+              onClick={() => setStake(stakeInputMinor + step)}
+              className={`w-12 shrink-0 rounded-md border border-[var(--lf-line)] text-[20px] font-bold text-[var(--lf-text)] transition-colors hover:border-[var(--lf-line-2)] disabled:opacity-40 ${
+                shortBoard ? 'min-h-[42px]' : 'min-h-[48px]'
+              }`}
+            >
+              +
+            </button>
+          </div>
+
+          <div className="flex min-w-0 flex-1 basis-full items-stretch gap-2 min-[24rem]:basis-0">
+            {presets.map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                disabled={!canStake}
+                onClick={() => setStake(preset)}
+                aria-label={`Bet ${fmt(preset)}`}
+                className={`flex min-w-0 flex-1 items-center justify-center overflow-hidden rounded-md border px-1 text-[14px] font-bold tabular-nums transition-colors disabled:opacity-40 ${
+                  shortBoard ? 'min-h-[42px]' : 'min-h-[48px]'
+                } ${
+                  stakeInputMinor === preset
+                    ? 'border-white bg-white text-black'
+                    : 'border-[var(--lf-line)] text-[var(--lf-dim)] hover:border-[var(--lf-line-2)]'
+                }`}
+              >
+                <span className="truncate">{presetLabel(preset)}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* the one action */}
@@ -198,7 +247,9 @@ export function BeginnerDeck({ state }: { state: RoundState }) {
             audio.click('down');
             primaryAction?.();
           }}
-          className={`flex min-h-[60px] w-full flex-col items-center justify-center rounded-md border text-center transition-colors ${
+          className={`flex w-full flex-col items-center justify-center rounded-md border text-center transition-colors ${
+            shortBoard ? 'min-h-[46px]' : 'min-h-[60px]'
+          } ${
             primaryTone === 'action'
               ? 'lf-armed border-[var(--lf-win)] bg-[var(--lf-win)] text-black'
               : primaryTone === 'confirmed'
@@ -206,7 +257,11 @@ export function BeginnerDeck({ state }: { state: RoundState }) {
                 : 'border-[var(--lf-line)] bg-[var(--lf-surface)] text-[var(--lf-mute)]'
           }`}
         >
-          <span className="flex items-center gap-2 text-[17px] font-black uppercase tracking-[0.12em]">
+          <span
+            className={`flex items-center gap-2 font-black uppercase tracking-[0.12em] ${
+              shortBoard ? 'text-[15px]' : 'text-[17px]'
+            }`}
+          >
             {primaryTone === 'confirmed' && <LockIcon size={15} />}
             {primaryLabel}
           </span>

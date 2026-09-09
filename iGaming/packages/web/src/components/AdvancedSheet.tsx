@@ -10,7 +10,8 @@
  * a phone and because a modal in the middle of a 20-second round would hide the
  * board. It closes on Escape, on the scrim, and on the handle.
  */
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
+import { useDialog } from '../useDialog';
 import { SPLIT_PRIMARY_PERCENT } from '@landfall/core';
 import { useStore } from '../store';
 import { STR, zoneName } from '../strings';
@@ -33,24 +34,15 @@ export function AdvancedSheet({ open, onClose }: { open: boolean; onClose(): voi
   const setFleetMode = useStore((s) => s.setFleetMode);
   const uiMode = useUiMode();
 
-  useEffect(() => {
-    if (!open) return;
-    closeRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  // Escape, focus-in AND focus-restore — the last of which this sheet did not
+  // do, so closing it left focus on <body> and Tab restarted from the top.
+  useDialog({ open, onClose, initialFocus: closeRef });
 
   if (!open) return null;
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-end justify-center bg-black/70 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[var(--lf-z-modal)] flex items-end justify-center bg-black/70 sm:items-center sm:p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -61,7 +53,9 @@ export function AdvancedSheet({ open, onClose }: { open: boolean; onClose(): voi
         aria-label="Advanced"
         className="lf-sheet lf-overlay flex max-h-[86vh] w-full max-w-[30rem] flex-col overflow-y-auto rounded-t-xl sm:rounded-xl"
       >
-        <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--lf-line)] bg-[var(--lf-surface)] px-4 py-3">
+        {/* Local only: this stacks inside the sheet's own scroll context and is
+            not part of the global layer scale (see index.css). */}
+        <header className="sticky top-0 z-[1] flex items-center gap-3 border-b border-[var(--lf-line)] bg-[var(--lf-surface)] px-4 py-3">
           <h2 className="lf-label !text-[var(--lf-text)]">Advanced</h2>
           <button
             ref={closeRef}

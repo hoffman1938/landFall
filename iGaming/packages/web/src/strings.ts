@@ -154,9 +154,7 @@ export const LIVE_MAX_HINT =
   'The most this round can pay you back is capped by the pot, so your bet is capped with it. It rises as players join and resets each round.';
 
 /** Crowd level from a tide band (v3 §4). */
-export function crowdLabel(
-  band: 'seed' | 'light' | 'medium' | 'heavy' | 'packed',
-): string {
+export function crowdLabel(band: 'seed' | 'light' | 'medium' | 'heavy' | 'packed'): string {
   switch (band) {
     case 'seed':
       return STR.crowdSeed;

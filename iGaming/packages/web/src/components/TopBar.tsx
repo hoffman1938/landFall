@@ -12,20 +12,9 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { audio } from '../audio/engine';
-import {
-  getDeckProgress,
-  updateDeckProgress,
-  useDeckProgress,
-  withExpert,
-} from '../deckProgress';
+import { getDeckProgress, updateDeckProgress, useDeckProgress, withExpert } from '../deckProgress';
 import { fmt, useStore } from '../store';
-import {
-  QuestionIcon,
-  SlidersIcon,
-  SoundOffIcon,
-  SoundOnIcon,
-  SurgeIcon,
-} from './icons';
+import { QuestionIcon, SlidersIcon, SoundOffIcon, SoundOnIcon, SurgeIcon } from './icons';
 
 export function TopBar() {
   const connected = useStore((s) => s.connected);
@@ -80,7 +69,7 @@ export function TopBar() {
     'flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-[var(--lf-dim)] transition-colors hover:bg-[var(--lf-surface-2)] hover:text-[var(--lf-text)]';
 
   return (
-    <header className="relative z-30 flex h-12 shrink-0 items-center gap-2 border-b border-[var(--lf-line)] bg-[var(--lf-bg-2)] px-2 sm:px-3">
+    <header className="relative z-[var(--lf-z-chrome)] flex h-12 shrink-0 items-center gap-2 border-b border-[var(--lf-line)] bg-[var(--lf-bg-2)] px-2 sm:px-3">
       {/* The mark: one red square and the word. That is all the brand this
           interface gets — a dashboard is not a poster. */}
       <div className="flex shrink-0 items-center gap-2" aria-label="Landfall">
@@ -191,7 +180,7 @@ export function TopBar() {
           >
             {muted ? <SoundOffIcon size={16} /> : <SoundOnIcon size={16} />}
           </button>
-          <div className="lf-overlay absolute right-0 top-full z-30 mt-1 hidden rounded-md p-2 group-hover:block group-focus-within:block">
+          <div className="lf-overlay absolute right-0 top-full z-[2] mt-1 hidden rounded-md p-2 group-hover:block group-focus-within:block">
             <input
               type="range"
               min={0}
@@ -227,13 +216,13 @@ export function TopBar() {
           {settingsOpen && (
             <>
               <div
-                className="fixed inset-0 z-20"
+                className="fixed inset-0 z-[1]"
                 aria-hidden="true"
                 onMouseDown={() => setSettingsOpen(false)}
               />
               {/* Scrolls: the table list grows with the tier ladder, and the
                   rows under it must stay reachable on a short phone screen. */}
-              <div className="lf-overlay absolute right-0 top-full z-30 mt-1 max-h-[calc(100dvh-4.5rem)] w-64 overflow-y-auto rounded-md p-1.5">
+              <div className="lf-overlay absolute right-0 top-full z-[2] mt-1 max-h-[calc(100dvh-4.5rem)] w-64 overflow-y-auto rounded-md p-1.5">
                 {rooms.length > 0 && (
                   <div className="px-1.5 py-1.5">
                     <div className="flex items-baseline justify-between px-0.5">
@@ -244,11 +233,7 @@ export function TopBar() {
                         </span>
                       )}
                     </div>
-                    <div
-                      role="radiogroup"
-                      aria-label="Table"
-                      className="mt-2 flex flex-col gap-1"
-                    >
+                    <div role="radiogroup" aria-label="Table" className="mt-2 flex flex-col gap-1">
                       {rooms.map((r) => {
                         const active = r.roomId === roomId;
                         return (

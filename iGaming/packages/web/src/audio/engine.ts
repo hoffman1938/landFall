@@ -46,10 +46,70 @@ const A4 = 440;
 const C5 = 523.25;
 const D5 = 587.33;
 const LEAD: (number | null)[] = [
-  D4, N, N, G4, N, A4, N, N, C5, N, A4, N, G4, N, F4, N,
-  F4, N, N, D4, N, F4, N, N, G4, N, N, N, N, N, D4, N,
-  A4, N, N, C5, N, D5, N, N, C5, N, A4, N, G4, N, N, N,
-  C5, N, N, G4, N, A4, N, N, G4, N, F4, N, D4, N, N, N,
+  D4,
+  N,
+  N,
+  G4,
+  N,
+  A4,
+  N,
+  N,
+  C5,
+  N,
+  A4,
+  N,
+  G4,
+  N,
+  F4,
+  N,
+  F4,
+  N,
+  N,
+  D4,
+  N,
+  F4,
+  N,
+  N,
+  G4,
+  N,
+  N,
+  N,
+  N,
+  N,
+  D4,
+  N,
+  A4,
+  N,
+  N,
+  C5,
+  N,
+  D5,
+  N,
+  N,
+  C5,
+  N,
+  A4,
+  N,
+  G4,
+  N,
+  N,
+  N,
+  C5,
+  N,
+  N,
+  G4,
+  N,
+  A4,
+  N,
+  N,
+  G4,
+  N,
+  F4,
+  N,
+  D4,
+  N,
+  N,
+  N,
 ];
 const BASS_ROOTS = [73.42, 58.27, 87.31, 65.41]; // D2, Bb1, F2, C2
 const PAD_CHORDS = [
@@ -259,7 +319,10 @@ class AudioEngine {
     envelope.gain.setValueAtTime(0.0001, at);
     envelope.gain.linearRampToValueAtTime(gain, at + Math.min(0.025, dur * 0.2));
     envelope.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    source.connect(toneFilter).connect(envelope).connect(bus ?? this.master!);
+    source
+      .connect(toneFilter)
+      .connect(envelope)
+      .connect(bus ?? this.master!);
     if (this.roomBus && room > 0) {
       const send = ctx.createGain();
       send.gain.value = room;
@@ -371,11 +434,29 @@ class AudioEngine {
     const t = ctx.currentTime;
     const scale = Math.min(1.65, 1 + Math.log10(Math.max(1, powerMult)) * 0.24);
     this.setMusicLevel(0.16, 0.03);
-    this.noiseHit(t, 0.78 * scale, 0.27, { type: 'lowpass', freq: 2100, slideTo: 85, q: 0.5 }, undefined, 0.22);
+    this.noiseHit(
+      t,
+      0.78 * scale,
+      0.27,
+      { type: 'lowpass', freq: 2100, slideTo: 85, q: 0.5 },
+      undefined,
+      0.22,
+    );
     this.tone('sine', 92, t, 0.62 * scale, 0.24, { slideTo: 36, attack: 0.008, room: 0.28 });
-    this.tone('triangle', 148, t + 0.015, 0.48 * scale, 0.1, { slideTo: 48, attack: 0.006, room: 0.25 });
+    this.tone('triangle', 148, t + 0.015, 0.48 * scale, 0.1, {
+      slideTo: 48,
+      attack: 0.006,
+      room: 0.25,
+    });
     if (powerMult >= 25) {
-      this.noiseHit(t + 0.3, 0.92, 0.2, { type: 'lowpass', freq: 1150, slideTo: 60 }, undefined, 0.26);
+      this.noiseHit(
+        t + 0.3,
+        0.92,
+        0.2,
+        { type: 'lowpass', freq: 1150, slideTo: 60 },
+        undefined,
+        0.26,
+      );
       this.tone('sine', 66, t + 0.3, 0.76, 0.18, { slideTo: 30, room: 0.32 });
     }
     if (this.musicBus) {
@@ -448,7 +529,14 @@ class AudioEngine {
     const ctx = this.ensure();
     if (!ctx) return;
     const t = ctx.currentTime;
-    this.noiseHit(t, 0.15, 0.045, { type: 'bandpass', freq: 1750, slideTo: 720, q: 0.8 }, undefined, 0.18);
+    this.noiseHit(
+      t,
+      0.15,
+      0.045,
+      { type: 'bandpass', freq: 1750, slideTo: 720, q: 0.8 },
+      undefined,
+      0.18,
+    );
     this.tone('sine', 420, t + 0.015, 0.16, 0.065, { slideTo: 190, attack: 0.006, room: 0.24 });
   }
 

@@ -329,8 +329,7 @@ export const useStore = create<State>((set, get) => {
           const roomScopedReset =
             tableSwitchReset({
               previousRoomId,
-              previousRoomName:
-                get().rooms.find((r) => r.roomId === previousRoomId)?.name ?? null,
+              previousRoomName: get().rooms.find((r) => r.roomId === previousRoomId)?.name ?? null,
               nextRoomId: msg.roomId,
               nextRoomName:
                 (msg.rooms as RoomInfo[]).find((r) => r.roomId === msg.roomId)?.name ?? null,
@@ -594,9 +593,7 @@ export const useStore = create<State>((set, get) => {
             // (Only signal-specific codes: generic codes may belong to anchors.)
             ...(msg.code.startsWith('SIGNAL') || msg.code === 'FLAG_COOLDOWN'
               ? {
-                  myFlagRounds: get().myFlagRounds.filter(
-                    (r) => r !== get().round?.roundId,
-                  ),
+                  myFlagRounds: get().myFlagRounds.filter((r) => r !== get().round?.roundId),
                 }
               : {}),
           });
@@ -669,12 +666,7 @@ export const useStore = create<State>((set, get) => {
 
     sendAnchor(zone) {
       const s = get();
-      if (
-        !s.connected ||
-        s.phase?.phase !== 'ANCHOR_OPEN' ||
-        s.finalOrderUsed ||
-        s.orderPending
-      ) {
+      if (!s.connected || s.phase?.phase !== 'ANCHOR_OPEN' || s.finalOrderUsed || s.orderPending) {
         return;
       }
       // B5 pre-check, derived exactly as the server derives it (./stakeLimits).
@@ -810,12 +802,7 @@ export const useStore = create<State>((set, get) => {
     /** Repeat last round's anchor (roulette-style rebet). */
     rebet() {
       const s = get();
-      if (
-        !s.connected ||
-        s.phase?.phase !== 'ANCHOR_OPEN' ||
-        s.finalOrderUsed ||
-        s.orderPending
-      ) {
+      if (!s.connected || s.phase?.phase !== 'ANCHOR_OPEN' || s.finalOrderUsed || s.orderPending) {
         return;
       }
       const fallback = s.lastAnchor;

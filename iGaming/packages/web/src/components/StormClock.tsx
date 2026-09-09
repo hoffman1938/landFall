@@ -18,12 +18,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { WeatherId } from '@landfall/core';
 import { fogSegmentFraction } from '../clockMath';
+import { useShortViewport } from '../useShortViewport';
 import { FogIcon, LockIcon, StormIcon, TimerIcon } from './icons';
 import { useStore } from '../store';
 import { STR, zoneName } from '../strings';
 import { useRoundState } from '../useRoundState';
-import { RESULT_STATES, type RoundState } from '../roundMachine';
-import { useSurfaces } from '../uiMode';
+import type { RoundState } from '../roundMachine';
 
 type ClockMode = 'open' | 'fog' | 'storm' | 'landfall' | 'next';
 
@@ -40,7 +40,9 @@ const WEATHER_SEEN_KEY = 'landfall.weather-seen.v1';
 function readSeenWeather(): WeatherId[] {
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(WEATHER_SEEN_KEY) ?? '[]');
-    return Array.isArray(parsed) ? (parsed.filter((v) => typeof v === 'string') as WeatherId[]) : [];
+    return Array.isArray(parsed)
+      ? (parsed.filter((v) => typeof v === 'string') as WeatherId[])
+      : [];
   } catch {
     return [];
   }
@@ -150,8 +152,8 @@ export function StormClock() {
   const fleetMode = useStore((s) => s.fleetMode);
   const lastLandfall = useStore((s) => s.lastLandfall);
   const roundState = useRoundState();
-  const surfaces = useSurfaces();
   const centred = useCentred();
+  const shortBoard = useShortViewport();
   const [now, setNow] = useState(Date.now());
   const [captionFor, setCaptionFor] = useState<WeatherId | null>(null);
   const phaseStart = useRef<{ key: string; at: number }>({ key: '', at: Date.now() });
@@ -176,13 +178,20 @@ export function StormClock() {
 
   if (!phase) return null;
   /*
-   * Once the result card is up it owns the middle of the board: it names the
-   * harbor that was hit, the round, and the countdown to the next one. Leaving
-   * the clock's own display figure behind it put two large numbers in the same
-   * place saying different things — the exact "one number leads" violation the
-   * design rules open with. See `showClockDuringResult` in ../uiMode.ts.
+   * The clock stands down once the result CARD is up — RESULT onward, in both
+   * layouts. The card names the harbor that was hit, the round and the
+   * countdown to the next one, so leaving the clock's display figure behind it
+   * puts two large numbers in the same place saying different things: the
+   * "one number leads" rule the design opens with.
+   *
+   * IMPACT is deliberately excluded. The card has not arrived yet, and during
+   * that beat the clock IS the answer — its leading figure switches to the
+   * struck harbor. Hiding it there would blank the middle of the board for
+   * ~900ms and read as a flicker rather than as choreography.
    */
-  if (!surfaces.showClockDuringResult && RESULT_STATES.has(roundState)) return null;
+  if (roundState === 'RESULT' || roundState === 'VERIFICATION' || roundState === 'RESET') {
+    return null;
+  }
 
   const phaseKey = `${phase.phase}:${phase.endsAt}`;
   if (phaseStart.current.key !== phaseKey) {
@@ -231,16 +240,14 @@ export function StormClock() {
    */
   const struck = lastLandfall?.struckZone ?? null;
   const figure =
-    mode === 'landfall' && struck !== null
-      ? String(struck + 1)
-      : String(seconds).padStart(2, '0');
+    mode === 'landfall' && struck !== null ? String(struck + 1) : String(seconds).padStart(2, '0');
   const figureLabel = mode === 'landfall' && struck !== null ? 'Harbor hit' : meta.label;
 
   /* ------------------------------------------------------------- centred */
 
   if (centred) {
     return (
-      <div className="pointer-events-none absolute inset-0 z-[3] flex flex-col items-center justify-center">
+      <div className="pointer-events-none absolute inset-0 z-[var(--lf-z-scene-hud)] flex flex-col items-center justify-center">
         <section
           role="timer"
           aria-label={label}
@@ -286,9 +293,7 @@ export function StormClock() {
             )}
           </div>
 
-          <p className="mt-3 text-center text-[14px] font-medium text-[var(--lf-text)]">
-            {text}
-          </p>
+          <p className="mt-3 text-center text-[14px] font-medium text-[var(--lf-text)]">{text}</p>
 
           {surge && (
             <p className="mt-2.5 rounded-md border border-[var(--lf-warn)]/50 px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-[var(--lf-warn)]">
@@ -297,7 +302,10 @@ export function StormClock() {
           )}
 
           {captionFor && round && (
-            <p role="status" className="lf-caption mt-2 text-center text-[12px] text-[var(--lf-mute)]">
+            <p
+              role="status"
+              className="lf-caption mt-2 text-center text-[12px] text-[var(--lf-mute)]"
+            >
               <span className="font-bold text-[var(--lf-dim)]">{round.weather.label}</span> ·{' '}
               {WEATHER_CAPTIONS[captionFor]}
             </p>
@@ -307,10 +315,53 @@ export function StormClock() {
     );
   }
 
+  /* ----------------------------------------------------------------- chip */
+
+  /*
+   * A phone held sideways. One row: round, phase, seconds, instruction — the
+   * same four facts, at a height the board can actually spare. The drain moves
+   * to the chip's own bottom edge so it still reads as a timer.
+   */
+  if (shortBoard) {
+    return (
+      <div className="pointer-events-none absolute inset-x-0 top-2 z-[var(--lf-z-scene-hud)] flex justify-center px-3">
+        <section
+          role="timer"
+          aria-label={label}
+          className={`lf-glass relative flex h-[34px] max-w-[min(96vw,30rem)] items-center gap-2 overflow-hidden rounded-md px-2.5 ${
+            surge ? '!border-[var(--lf-warn)]/60' : ''
+          }`}
+        >
+          <span className="lf-label-soft shrink-0">{round ? `#${round.roundId}` : '—'}</span>
+          <span
+            className="flex shrink-0 items-center gap-1 text-[11px] font-extrabold uppercase tracking-[0.12em]"
+            style={{ color }}
+          >
+            <Icon size={11} />
+            {figureLabel}
+          </span>
+          <span className="lf-num shrink-0 text-[17px] leading-none" style={{ color }}>
+            {figure}
+          </span>
+          <span className="truncate text-[12px] font-medium text-[var(--lf-text)]">{text}</span>
+          <span
+            className="absolute inset-x-0 bottom-0 h-[2px] bg-[var(--lf-surface-2)]"
+            aria-hidden="true"
+          >
+            <span
+              className="absolute inset-y-0 left-0 transition-[width] duration-100 ease-linear"
+              style={{ width: `${progress * 100}%`, backgroundColor: color }}
+            />
+          </span>
+        </section>
+      </div>
+    );
+  }
+
   /* -------------------------------------------------------------- compact */
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-12 z-[3] flex flex-col items-center px-3">
+    <div className="pointer-events-none absolute inset-x-0 top-12 z-[var(--lf-z-scene-hud)] flex flex-col items-center px-3">
       <section
         role="timer"
         aria-label={label}
@@ -338,7 +389,10 @@ export function StormClock() {
           </span>
         </div>
 
-        <div className="absolute inset-x-0 bottom-0 h-[3px] bg-[var(--lf-surface-2)]" aria-hidden="true">
+        <div
+          className="absolute inset-x-0 bottom-0 h-[3px] bg-[var(--lf-surface-2)]"
+          aria-hidden="true"
+        >
           <span
             className="absolute inset-y-0 left-0 transition-[width] duration-100 ease-linear"
             style={{ width: `${progress * 100}%`, backgroundColor: color }}
