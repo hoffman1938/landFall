@@ -44,8 +44,6 @@ import {
   updateDeckProgress,
   useDeckProgress,
   withModesUnlockedByTap,
-  withRivalFlagSeen,
-  withRoundCompleted,
   withStakeEdited,
 } from '../deckProgress';
 import { formatPayoutStrip, resolveDeckState, type PrimaryId } from '../deckState';
@@ -145,10 +143,6 @@ export function ControlDeck() {
   // B4 flag cooldown mirror: dimmed flag + round counter, no prose.
   const myFlagRounds = useStore((s) => s.myFlagRounds);
   const roundId = useStore((s) => s.round?.roundId);
-  // D5 progressive disclosure inputs.
-  const landfallRoundId = useStore((s) => s.lastLandfall?.roundId);
-  const signals = useStore((s) => s.signals);
-  const myName = useStore((s) => s.name);
   const progress = useDeckProgress();
   const disclosure = resolveDisclosure(progress);
 
@@ -156,17 +150,9 @@ export function ControlDeck() {
   const [draft, setDraft] = useState<string | null>(null);
   const [stakeError, setStakeError] = useState<string | null>(null);
 
-  // D5 unlock triggers: completed rounds and the first rival flag seen.
-  useEffect(() => {
-    if (landfallRoundId === undefined) return;
-    updateDeckProgress(withRoundCompleted(getDeckProgress(), landfallRoundId));
-  }, [landfallRoundId]);
-  useEffect(() => {
-    if (myName === null) return;
-    if (signals.some((s) => s.name !== myName)) {
-      updateDeckProgress(withRivalFlagSeen(getDeckProgress()));
-    }
-  }, [signals, myName]);
+  // D5 unlock triggers now live in ../useDeckProgressTriggers.ts, mounted by
+  // App — beginner mode never renders this deck, and the counters have to keep
+  // running for the player those unlocks are actually for.
 
   const open = phase?.phase === 'ANCHOR_OPEN';
   const canOrder = connected && open && !finalOrderUsed && !orderPending;

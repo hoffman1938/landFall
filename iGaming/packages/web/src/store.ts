@@ -9,6 +9,9 @@ import { MAX_STAKE_MINOR, MIN_STAKE_MINOR, ZONE_COUNT } from '@landfall/core';
 import type {
   ActionReceipt,
   ChatEntry,
+  CosmeticDraw,
+  EnvironmentSpec,
+  EventTierSpec,
   FleetMode,
   FleetPlanPublic,
   LimitsState,
@@ -41,6 +44,9 @@ export interface LandfallInfo {
   stormPower?: { label: string; mNum: number; mDen: number };
   /** True when the per-round liability cap clamped the Storm Power payout. */
   powerCapped?: boolean;
+  /** v4 presentation draws, echoed so the result card can name the round. */
+  eventTier?: EventTierSpec;
+  environment?: EnvironmentSpec;
 }
 
 /**
@@ -61,6 +67,15 @@ export interface ReplayCard {
 export interface StormInfo {
   feints: [number, number];
   endsAt: number;
+  /**
+   * How loud this reveal is (v4). Drawn server-side from its own HMAC domain
+   * and published with the storm; the client only ever READS it to choose how
+   * many sweeps to play and how hard the board shakes. Undefined on a server
+   * that predates the field, in which case the reveal runs its calm form.
+   */
+  eventTier?: EventTierSpec;
+  /** Deterministic visual jitter. Touches the canvas and nothing else. */
+  cosmetic?: CosmeticDraw;
 }
 
 /**
@@ -128,6 +143,12 @@ interface State {
   /** Wins & events feed (salvage, Golden Anchor, surge announcements) — separate panel. */
   events: { text: string; at: number; kind: 'salvage' | 'golden' | 'surge' | 'info' }[];
   storm: StormInfo | null;
+  /**
+   * This round's cosmetic board skin (v4), from `landfall:environment:<round>`.
+   * Independent of the harbor draw, of `round.weather` (the MECHANICAL
+   * modifier) and of everything the player does.
+   */
+  environment: EnvironmentSpec | null;
   lastLandfall: LandfallInfo | null;
   toast: string | null;
   /**
@@ -339,6 +360,7 @@ export const useStore = create<State>((set, get) => {
             roomLiquidityFloorMinor: msg.liquidityFloorMinor ?? 0,
             round: msg.round,
             phase: msg.phase,
+            environment: msg.round?.environment ?? null,
             pools: msg.pools ?? null,
             tideReport: msg.tideReport,
             anchors: msg.anchors,
@@ -362,6 +384,7 @@ export const useStore = create<State>((set, get) => {
           set({
             round: msg.round,
             phase: msg.phase,
+            environment: msg.round?.environment ?? null,
             pools: null,
             tideReport: msg.tideReport,
             anchors: [],
@@ -428,7 +451,15 @@ export const useStore = create<State>((set, get) => {
           set({ rooms: msg.rooms });
           break;
         case 'STORM_PATH':
-          set({ storm: { feints: msg.feints, endsAt: msg.phase.endsAt }, phase: msg.phase });
+          set({
+            storm: {
+              feints: msg.feints,
+              endsAt: msg.phase.endsAt,
+              ...(msg.eventTier ? { eventTier: msg.eventTier } : {}),
+              ...(msg.cosmetic ? { cosmetic: msg.cosmetic } : {}),
+            },
+            phase: msg.phase,
+          });
           audio.wind(Math.max(500, msg.phase.endsAt - Date.now()));
           break;
         case 'LANDFALL': {
@@ -484,6 +515,8 @@ export const useStore = create<State>((set, get) => {
               replay: msg.replay,
               ...(msg.surge ? { surge: msg.surge } : {}),
               ...(msg.stormPower ? { stormPower: msg.stormPower } : {}),
+              ...(msg.eventTier ? { eventTier: msg.eventTier } : {}),
+              ...(msg.environment ? { environment: msg.environment } : {}),
               powerCapped: msg.powerCapped ?? false,
             },
           });
@@ -582,6 +615,7 @@ export const useStore = create<State>((set, get) => {
     chainCommitment: null,
     round: null,
     phase: null,
+    environment: null,
     pools: null,
     tideReport: null,
     anchors: [],

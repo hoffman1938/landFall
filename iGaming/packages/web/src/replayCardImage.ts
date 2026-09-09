@@ -177,7 +177,7 @@ export function renderReplayCard(card: ReplayCard): HTMLCanvasElement {
 
   /* ---------- the round in one number ------------------------------------- */
 
-  label(ctx, 'Zone hit', PAD, 80);
+  label(ctx, 'Harbor hit', PAD, 80);
 
   ctx.fillStyle = ACCENT;
   ctx.font = font(800, 80);

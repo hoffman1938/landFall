@@ -51,7 +51,7 @@ function markWelcomeSeen(): void {
  */
 function PitchStrip() {
   const frames: [React.ComponentType<{ size?: number }>, string, string][] = [
-    [AnchorIcon, '#ffffff', 'You pick a zone'],
+    [AnchorIcon, '#ffffff', 'You pick a harbor'],
     [StormIcon, 'var(--lf-accent)', 'The storm hits one'],
     [CrateIcon, 'var(--lf-win)', 'Its pot pays the rest'],
     [SurgeIcon, 'var(--lf-warn)', 'Jackpot builds'],

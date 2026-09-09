@@ -6,6 +6,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import {
   verifyRound,
+  type EnvironmentSpec,
+  type EventTierSpec,
   type RoundVerificationResult,
   type StakeEntry,
   type WeatherPattern,
@@ -28,6 +30,9 @@ interface RoundRecord {
   surge: { winnerStakeId: string | null; amountMinor: number; flatOdds?: boolean } | null;
   stormPower: { label: string; mNum: number; mDen: number };
   weather: WeatherPattern;
+  /** v4 presentation domains, present on rounds settled since the redesign. */
+  eventTier?: EventTierSpec;
+  environment?: EnvironmentSpec;
 }
 
 function Check({ ok, label }: { ok: boolean; label: string }) {
@@ -79,6 +84,8 @@ export function VerifyModal() {
             surgeFlatOdds: data.surge?.flatOdds ?? false,
             announcedPowerLabel: data.stormPower.label,
             announcedWeatherId: data.weather.id,
+            ...(data.eventTier ? { announcedEventTierId: data.eventTier.id } : {}),
+            ...(data.environment ? { announcedEnvironmentId: data.environment.id } : {}),
           }),
         );
       })
@@ -149,6 +156,42 @@ export function VerifyModal() {
 
         {rec && result && (
           <div className="space-y-3">
+            {/*
+              The receipt, first and in plain words. A player who opens this
+              sheet wants one thing answered before any hexadecimal appears:
+              did the round I just watched actually happen the way it was
+              announced? Everything below this block is the working.
+            */}
+            <div
+              className={`rounded-md border px-4 py-3 ${
+                result.allOk
+                  ? 'border-[var(--lf-win)]/50 bg-[var(--lf-win-soft)]'
+                  : 'border-[var(--lf-accent)] bg-[var(--lf-accent-soft)]'
+              }`}
+            >
+              <div className="lf-label">Round #{rec.roundId}</div>
+              <div className="lf-display mt-1 text-[26px] text-[var(--lf-text)]">
+                HARBOR {rec.struckZone + 1}
+              </div>
+              <div
+                className={`mt-1.5 text-[13px] font-bold uppercase tracking-[0.1em] ${
+                  result.allOk ? 'text-[var(--lf-win)]' : 'text-[var(--lf-accent)]'
+                }`}
+              >
+                {result.allOk ? 'Verified ✓' : 'Verification failed'}
+              </div>
+              <p className="mt-1.5 text-[12px] leading-snug text-[var(--lf-dim)]">
+                {result.allOk
+                  ? 'Recomputed in your browser from the revealed seed. Every harbor had exactly the same 1-in-6 chance, and the result was fixed before betting opened.'
+                  : 'The recomputation disagrees with what was announced. This would indicate a real integrity breach.'}
+              </p>
+            </div>
+
+            <details className="group">
+              <summary className="min-h-[44px] cursor-pointer list-none rounded-md border border-[var(--lf-line)] px-3 py-2.5 text-[13px] font-bold uppercase tracking-[0.1em] text-[var(--lf-dim)] hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]">
+                Show the working
+              </summary>
+              <div className="mt-3 space-y-3">
             <div className="space-y-1 break-all text-xs text-[var(--lf-dim)]">
               <div>Revealed seed: {rec.seedHex}</div>
               <div>Prior chain value: {rec.prevChainValue}</div>
@@ -161,7 +204,7 @@ export function VerifyModal() {
                 label={`HMAC → u=${result.u.toFixed(6)} → Zone ${result.recomputedZone + 1} struck (matches announcement)`}
               />
               <div className="text-[var(--lf-dim)]">
-                Storm feints derived from the same digest: Zones{' '}
+                Storm feints derived from the same digest: harbors{' '}
                 {result.feints.map((f) => f + 1).join(', ')}
               </div>
               {result.powerOk !== null && (
@@ -182,6 +225,25 @@ export function VerifyModal() {
                 <Check
                   ok={result.weatherOk}
                   label={`Weather Pattern recomputed: ${result.recomputedWeather.label} — matches announcement`}
+                />
+              )}
+              {/*
+                The presentation domains. They are worth verifying for exactly
+                one reason: they are recomputed from DIFFERENT HMAC messages
+                over the same seed, so a passing check here is the evidence that
+                the reveal's drama and the board's weather are drawn separately
+                from the harbor — not merely asserted to be.
+              */}
+              {result.eventTierOk !== null && (
+                <Check
+                  ok={result.eventTierOk}
+                  label={`Reveal tier from HMAC(seed, "landfall:event:${rec.roundId}"): ${result.recomputedEventTier.label} — matches announcement`}
+                />
+              )}
+              {result.environmentOk !== null && (
+                <Check
+                  ok={result.environmentOk}
+                  label={`Sea from HMAC(seed, "landfall:environment:${rec.roundId}"): ${result.recomputedEnvironment.label} — matches announcement`}
                 />
               )}
               {result.surgeOk !== null && (
@@ -229,15 +291,8 @@ export function VerifyModal() {
                 return `Z${z + 1} ${(total / 100).toFixed(0)}`;
               }).join(' · ')}
             </div>
-            <div
-              className={`rounded-md px-3 py-2 font-semibold ${
-                result.allOk ? 'bg-emerald-950 text-emerald-300' : 'bg-red-950 text-red-300'
-              }`}
-            >
-              {result.allOk
-                ? 'All checks passed — this outcome was fixed before betting opened, and every zone had exactly the same 1-in-6 chance.'
-                : 'VERIFICATION FAILED — this would indicate a real integrity breach.'}
-            </div>
+              </div>
+            </details>
           </div>
         )}
       </div>

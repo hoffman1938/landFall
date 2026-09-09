@@ -115,7 +115,7 @@ export function TableIntro() {
                   <b className="text-[var(--lf-warn)]">{fmt(intro.liveMaxMinor)}</b>
                 </>
               )}{' '}
-              — payouts come out of the hit zone's pot, so there is little for a bigger bet to win.
+              — payouts come out of the hit harbor's pot, so there is little for a bigger bet to win.
               The deck shows the live number as <b className="text-[var(--lf-text)]">Max now</b>,
               and it rises as players join.
             </span>

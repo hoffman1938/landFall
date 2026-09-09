@@ -10,6 +10,9 @@ import {
 import { getCoveLayouts, type CoveLayout } from '../coveLayout';
 import { useStore, type LandfallInfo } from '../store';
 import { crowdLabel, zoneName } from '../strings';
+import { MUTABLE_STATES } from '../roundMachine';
+import { useRoundState } from '../useRoundState';
+import { useSurfaces } from '../uiMode';
 import { BoatIcon, LockIcon, StormIcon } from './icons';
 
 interface BayAccessibilityLayerProps {
@@ -29,6 +32,12 @@ interface CoveStatusCardProps {
   /** v3 P0-1 — tapped but not yet committed (Place Bet will commit it). */
   selected: boolean;
   canPick: boolean;
+  /**
+   * Beginner mode drops the crowd meter and the exact pot from the card.
+   * Neither is needed to make the only decision on screen — pick a harbor —
+   * and both are one tap away in the Advanced sheet's tide report.
+   */
+  showDetail: boolean;
   actionDescription: string;
   onPick(zone: number): void;
   onFlag(zone: number, clientX: number, clientY: number): void;
@@ -103,14 +112,14 @@ function ownership(fleet: FleetPlanPublic | null, zone: number) {
       ? Math.round((fleet.stakeMinor * SPLIT_PRIMARY_PERCENT) / 100)
       : fleet.stakeMinor;
     return split
-      ? { label: `Yours · ${SPLIT_PRIMARY_PERCENT}%`, mineMinor, description: 'your main zone' }
+      ? { label: `Yours · ${SPLIT_PRIMARY_PERCENT}%`, mineMinor, description: 'your main harbor' }
       : { label: 'Your bet', mineMinor, description: 'your bet is here' };
   }
   if (split && fleet.secondaryZone === zone) {
     return {
       label: `Yours · ${100 - SPLIT_PRIMARY_PERCENT}%`,
       mineMinor: fleet.stakeMinor - Math.round((fleet.stakeMinor * SPLIT_PRIMARY_PERCENT) / 100),
-      description: 'your second zone',
+      description: 'your second harbor',
     };
   }
   return null;
@@ -166,6 +175,7 @@ function CoveStatusCard({
   struck,
   selected,
   canPick,
+  showDetail,
   actionDescription,
   onPick,
   onFlag,
@@ -186,10 +196,18 @@ function CoveStatusCard({
   const markerWidth = layout.markerWidth;
   const cardDescription = [
     `${zoneName(zone)}.`,
-    struck ? 'Hit by the storm.' : locked ? 'Bets locked.' : safe ? 'Safe.' : `${band} crowd.`,
-    trend ? `Trend ${trend.label}.` : '',
+    struck
+      ? 'Hit by the storm.'
+      : locked
+        ? 'Bets locked.'
+        : safe
+          ? 'Safe.'
+          : showDetail
+            ? `${band} crowd.`
+            : '',
+    showDetail && trend ? `Trend ${trend.label}.` : '',
     `${boatCount} ${boatCount === 1 ? 'player' : 'players'}.`,
-    detail ? `Pot ${detail} credits.` : 'Exact pot hidden until bets lock.',
+    showDetail ? (detail ? `Pot ${detail} credits.` : 'Exact pot hidden until bets lock.') : '',
     mine
       ? `${formatCredits(mine.mineMinor)} credits of yours are here — ${mine.description}.`
       : selected
@@ -286,17 +304,27 @@ function CoveStatusCard({
          * there is room for one of them, and the word wins: "MEDIUM" is
          * unambiguous where a half-lit bar has to be learned.
          */}
-        {markerWidth >= 150 && (
+        {showDetail && markerWidth >= 150 && (
           <CrowdMeter band={tide && !struck && !locked && !safe ? tide.band : null} />
         )}
-        <span
-          className={`truncate text-[12px] font-semibold uppercase ${
-            struck ? 'text-[var(--lf-accent)]' : 'text-[var(--lf-dim)]'
-          }`}
-        >
-          {status}
-        </span>
-        {trend && !struck && !locked && (
+        {/*
+         * Beginner mode shows the PHASE words (Hit / Locked / Safe) and drops
+         * the crowd band. The band is a ratio against this round's average, so
+         * on a quiet table "FULL" can sit next to the figure 2 — true, and
+         * unreadable as anything but a contradiction to someone meeting the
+         * game for the first time. The advanced board keeps it, next to the
+         * meter and the tide report that give it its scale.
+         */}
+        {(showDetail || struck || locked || safe) && (
+          <span
+            className={`truncate text-[12px] font-semibold uppercase ${
+              struck ? 'text-[var(--lf-accent)]' : 'text-[var(--lf-dim)]'
+            }`}
+          >
+            {status}
+          </span>
+        )}
+        {showDetail && trend && !struck && !locked && (
           <span
             aria-label={`${trend.label} trend`}
             className="shrink-0 text-[12px] font-extrabold text-[var(--lf-dim)]"
@@ -318,7 +346,12 @@ function CoveStatusCard({
       {/* Money row. Always rendered so the marker never changes height between
           phases — the exact pot only exists after the lock snapshot, and a
           card that grows at lock reads as the table twitching. Your own stake
-          on this zone sits left of the pot, so the two are never confused. */}
+          on this zone sits left of the pot, so the two are never confused.
+
+          In beginner mode the pot column is dropped and the row carries only
+          your own stake: a player choosing between six harbors for the first
+          time is not choosing on pool size, and six pot figures is six numbers
+          to read before making a decision that needs none of them. */}
       <span className="relative mt-1.5 flex items-baseline gap-2 border-t border-[var(--lf-line)] pt-1.5 leading-none">
         {mine ? (
           <span className="flex min-w-0 shrink items-baseline gap-1 text-white">
@@ -327,17 +360,24 @@ function CoveStatusCard({
               {formatCredits(mine.mineMinor)}
             </span>
           </span>
-        ) : (
+        ) : showDetail ? (
           <span className="lf-label-soft shrink-0">Pot</span>
+        ) : (
+          // Beginner mode: the row keeps its height (so a card never grows when
+          // a bet lands) but says nothing. Six cards each announcing that they
+          // hold no bet is six labels reporting the absence of news.
+          <span aria-hidden="true">&nbsp;</span>
         )}
-        <span
-          className={`ml-auto flex shrink-0 items-baseline gap-1 ${
-            detail ? 'text-[var(--lf-text)]' : 'text-[var(--lf-mute)]/60'
-          }`}
-        >
-          {mine && <span className="lf-label-soft">Pot</span>}
-          <span className="lf-num text-[16px]">{detail ?? '—'}</span>
-        </span>
+        {showDetail && (
+          <span
+            className={`ml-auto flex shrink-0 items-baseline gap-1 ${
+              detail ? 'text-[var(--lf-text)]' : 'text-[var(--lf-mute)]/60'
+            }`}
+          >
+            {mine && <span className="lf-label-soft">Pot</span>}
+            <span className="lf-num text-[16px]">{detail ?? '—'}</span>
+          </span>
+        )}
       </span>
     </button>
   );
@@ -358,9 +398,18 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
   const verifyRoundId = useStore((state) => state.verifyRoundId);
   const flagPickerAt = useStore((state) => state.flagPickerAt);
   const welcomeOpen = useStore((state) => state.welcomeOpen);
+  const roundState = useRoundState();
+  const surfaces = useSurfaces();
   const fogActive = phase === 'ANCHOR_OPEN' && (tideReport?.frozen ?? false);
   const dialogOpen = rulesOpen || welcomeOpen || verifyRoundId !== null || flagPickerAt !== null;
-  const canPick = connected && phase === 'ANCHOR_OPEN' && !finalOrderUsed && !dialogOpen;
+  /*
+   * One source for "can this harbor be tapped": the round machine's mutable
+   * set. `finalOrderUsed` still appears because spending the hidden order is a
+   * player-scoped fact the machine folds into FINAL_LOCK — belt and braces on
+   * the one control that spends money.
+   */
+  const canPick =
+    connected && MUTABLE_STATES.has(roundState) && !finalOrderUsed && !dialogOpen;
   const layouts = getCoveLayouts(size.width, size.height);
 
   useEffect(() => {
@@ -409,7 +458,7 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
           ? 'Your last move is submitted. No more moves this round.'
           : fogActive
             ? 'Bets hidden. Activate to make your one last move here.'
-            : 'Betting is open. Activate to select this zone.';
+            : 'Betting is open. Activate to select this harbor.';
 
   const politeAnnouncement = !connected
     ? 'Connection lost. Reconnecting.'
@@ -418,7 +467,7 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
         ? finalOrderUsed
           ? 'Last move accepted. Your bet is committed.'
           : 'Bets hidden. One last move remains.'
-        : 'Betting open. Pick a zone. Press 1 through 6 to select.'
+        : 'Betting open. Pick a harbor. Press 1 through 6 to select.'
       : phase === 'LOCKED_STORM'
         ? 'Bets locked. Storm approaching. No more moves.'
         : phase === 'RESOLVED'
@@ -433,7 +482,7 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
         ref={layerRef}
         className="pointer-events-none absolute inset-0 z-[2]"
         role="group"
-        aria-label="Zones. Use Tab or press number keys 1 through 6."
+        aria-label="Harbors. Use Tab or press number keys 1 through 6."
       >
         {layouts.map((layout, zone) => {
           const resolved = phase === 'RESOLVED' || phase === 'COOLDOWN';
@@ -454,6 +503,7 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
               struck={resolved && lastLandfall?.struckZone === zone}
               selected={myFleet === null && selectedZone === zone}
               canPick={canPick}
+              showDetail={surfaces.showHarborDetail}
               actionDescription={actionDescription}
               onPick={onPick}
               onFlag={onFlag}

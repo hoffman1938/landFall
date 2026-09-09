@@ -10,6 +10,14 @@ import {
   type WeatherId,
   type WeatherPattern,
 } from './constants.js';
+import {
+  drawEnvironment,
+  drawEventTier,
+  type EnvironmentId,
+  type EnvironmentSpec,
+  type EventTierId,
+  type EventTierSpec,
+} from './presentation.js';
 import { drawZone, verifyChainLink } from './rng.js';
 import {
   pickGoldenAnchor,
@@ -45,6 +53,14 @@ export interface RoundVerificationInput {
   announcedPowerLabel?: string;
   /** Optional Weather Pattern check: the round pattern the server claims applied. */
   announcedWeatherId?: WeatherId;
+  /**
+   * Optional v4 presentation checks. These live in their own HMAC domains and
+   * touch nothing but the screen, but the server ANNOUNCES them before the seed
+   * is revealed — so they get verified for the same reason the surge
+   * announcement does: an announcement nobody can check is not a commitment.
+   */
+  announcedEventTierId?: EventTierId;
+  announcedEnvironmentId?: EnvironmentId;
 }
 
 export interface RoundVerificationResult {
@@ -67,6 +83,11 @@ export interface RoundVerificationResult {
   /** Weather Pattern always recomputed; weatherOk null unless an announced id was provided. */
   recomputedWeather: WeatherPattern;
   weatherOk: boolean | null;
+  /** v4 presentation domains — always recomputed; *Ok null unless announced. */
+  recomputedEventTier: EventTierSpec;
+  eventTierOk: boolean | null;
+  recomputedEnvironment: EnvironmentSpec;
+  environmentOk: boolean | null;
   allOk: boolean;
 }
 
@@ -87,6 +108,20 @@ export function verifyRound(input: RoundVerificationInput): RoundVerificationRes
     input.announcedWeatherId === undefined
       ? null
       : recomputedWeather.id === input.announcedWeatherId;
+
+  // v4: separate HMAC domains over the same revealed seed. Recomputing them here
+  // is what makes "the event tier cannot touch the harbor" checkable rather
+  // than merely claimed — the harbor above came from a different message.
+  const recomputedEventTier = drawEventTier(input.seedHex, input.roundId);
+  const eventTierOk =
+    input.announcedEventTierId === undefined
+      ? null
+      : recomputedEventTier.id === input.announcedEventTierId;
+  const recomputedEnvironment = drawEnvironment(input.seedHex, input.roundId);
+  const environmentOk =
+    input.announcedEnvironmentId === undefined
+      ? null
+      : recomputedEnvironment.id === input.announcedEnvironmentId;
 
   // Liability cap in force (A3): recompute from the public snapshot's handle so
   // capped rounds verify exactly as settled.
@@ -147,12 +182,18 @@ export function verifyRound(input: RoundVerificationInput): RoundVerificationRes
     powerOk,
     recomputedWeather,
     weatherOk,
+    recomputedEventTier,
+    eventTierOk,
+    recomputedEnvironment,
+    environmentOk,
     allOk:
       chainOk &&
       drawOk &&
       payoutOk !== false &&
       surgeOk !== false &&
       powerOk !== false &&
-      weatherOk !== false,
+      weatherOk !== false &&
+      eventTierOk !== false &&
+      environmentOk !== false,
   };
 }

@@ -2,7 +2,7 @@
  * The storm reticle must only ever be on a zone, and must never park.
  *
  * Two reported defects, one file:
- *   - it froze on a single harbour for the whole locked window (the two
+ *   - it froze on a single harbor for the whole locked window (the two
  *     published feints are independent mod-6 picks and collide ~16.6% of
  *     rounds, and the scene alternated between them unconditionally);
  *   - the first fix parked it on a neutral point above the board on those

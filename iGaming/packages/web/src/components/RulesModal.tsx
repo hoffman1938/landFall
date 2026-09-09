@@ -20,10 +20,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 /** The whole game in six pictures (ux-redesign-v2.md §6.2) — read this, skip the prose. */
 function PictogramStrip() {
   const frames: [React.ComponentType<{ size?: number }>, string, string][] = [
-    [AnchorIcon, 'var(--lf-focus)', 'Pick a zone'],
+    [AnchorIcon, 'var(--lf-focus)', 'Pick a harbor'],
     [FogIcon, 'var(--lf-warn)', 'Bets hide: one last move'],
     [LockIcon, 'var(--lf-mute)', 'Bets lock'],
-    [StormIcon, 'var(--lf-danger)', 'Storm hits one zone'],
+    [StormIcon, 'var(--lf-danger)', 'Storm hits one harbor'],
     [XIcon, 'var(--lf-danger)', 'That zone loses'],
     [CrateIcon, 'var(--lf-win)', 'Its money pays the rest'],
   ];
@@ -119,10 +119,10 @@ export function RulesModal() {
 
         <Section title="Winning">
           If your zone is hit, you lose your bet. If you're safe (a 5-in-6 chance), you keep your
-          bet <b>plus a share of the hit zone's money</b>, split among all safe players in
+          bet <b>plus a share of the hit harbor's money</b>, split among all safe players in
           proportion to bet size. The big wins come when a <b>crowded, full zone is hit</b> — the
           fewer people you share with and the bigger the pool, the bigger your payout.{' '}
-          <b>Safe players receive 88% of the hit zone's pool</b>; the rest funds the game fee, the
+          <b>Safe players receive 88% of the hit harbor's pool</b>; the rest funds the game fee, the
           jackpot, and the multiplier reserve.
         </Section>
 
@@ -173,7 +173,7 @@ export function RulesModal() {
             number as <b>Max now</b>.
           </p>
           <p className="mt-2">
-            The reason is the payout itself. Your winnings come out of the hit zone's pot, so on a
+            The reason is the payout itself. Your winnings come out of the hit harbor's pot, so on a
             quiet table there is very little to win — a 5,000 bet into a near-empty round could
             only ever return a few credits while still risking the whole 5,000. No single player
             may hold more than a quarter of a round, which is the rule that stops that bet. It is
@@ -190,7 +190,7 @@ export function RulesModal() {
           The storm never chases the money — every zone has exactly a 1-in-6 chance, always. But
           your <b>payout</b> depends on the crowd: standing where others aren't pays relatively
           more. Read the crowd meters, decide whether the crowd will flee or pile in while bets are
-          hidden, choose <b>1 Zone</b> or <b>2 Zones</b>, and use <b>Join me</b>, <b>Avoid</b>, or{' '}
+          hidden, choose <b>1 Harbor</b> or <b>2 Harbors</b>, and use <b>Join me</b>, <b>Avoid</b>, or{' '}
           <b>Staying</b> signals to bait or coordinate. Signals are public talk, not binding orders.
           Use <b>×2</b> to press your bet and <b>Bet Again</b> to repeat your last bet.
         </Section>

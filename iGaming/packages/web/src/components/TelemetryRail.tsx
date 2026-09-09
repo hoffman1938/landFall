@@ -31,7 +31,7 @@ import { fmt, useStore, type SessionPoint } from '../store';
 import { LIVE_MAX_HINT, crowdLabel, zoneName } from '../strings';
 import { ChartIcon, LockIcon, StormIcon, XIcon } from './icons';
 
-/** How full a zone's crowd bar reads. Mirrors BAND_FILL in the bay layer. */
+/** How full a harbor's crowd bar reads. Mirrors BAND_FILL in the bay layer. */
 const BAND_FILL: Record<TideBand, number> = {
   seed: 0.12,
   light: 0.34,
@@ -476,7 +476,7 @@ function RailBody() {
           tone={myFleet ? 'mine' : 'muted'}
         />
         <Row
-          label="Your zone"
+          label="Your harbor"
           value={
             myFleet
               ? myFleet.mode === 'SPLIT' && myFleet.secondaryZone !== null
@@ -522,7 +522,7 @@ function RailBody() {
         )}
       </Block>
 
-      <Block label="Zone flow">
+      <Block label="Harbor flow">
         <ZoneFlow />
       </Block>
 

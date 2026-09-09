@@ -5,24 +5,32 @@
  * word or drop in a Russian/Georgian locale later.
  *
  * Rules enforced by using this module instead of inline copy:
- *   - the bet unit is always "Zone N" (never Cove/Harbor/proper names — those
- *     stay as internal code names in @landfall/core, unseen by players);
+ *   - the bet unit is always "Harbor N".
+ *
+ *     v3 chose "Zone" here, to end a three-way split between Harbor, Cove and
+ *     six proper names. That fixed the split; it also spent the game's own
+ *     identity to do it, and left a product called LANDFALL whose six harbors
+ *     were labelled like map sectors. v4 keeps v3's actual law — ONE term per
+ *     concept, everywhere, including aria-labels — and spends it on the word
+ *     the game is named for. Cove and the proper names stay where v3 put them:
+ *     internal code names in @landfall/core, never shown;
  *   - the theme keeps exactly two words in the main UI: "storm" and "safe";
  *   - the action word is the money word: "Place Bet", not "Drop Anchor".
  */
 
 /** The bet unit. `HARBOR_NAMES` stays in core as a code name; players see this. */
 export function zoneName(zone: number): string {
-  return `Zone ${zone + 1}`;
+  return `Harbor ${zone + 1}`;
 }
 
 /** The one-sentence explanation (v3 §5) — reused verbatim wherever the rule is stated. */
-export const ONE_LINER = 'Pick a zone. One of six is hit — everyone else splits its money.';
+export const ONE_LINER =
+  'Pick a harbor. The storm hits one of six — everyone else splits its money.';
 
 export const STR = {
   // Primary action / deck (v3 §12)
-  pickZone: 'PICK A ZONE',
-  pickZoneSub: 'Tap a zone to start',
+  pickZone: 'PICK A HARBOR',
+  pickZoneSub: 'Tap a harbor to start',
   placeBet: 'PLACE BET',
   betPlaced: 'BET PLACED',
   betAgain: 'BET AGAIN',
@@ -32,7 +40,7 @@ export const STR = {
   keepZone: 'KEEP',
   lastMoveSet: 'LAST MOVE SET',
   locked: 'LOCKED',
-  lockedSub: 'The storm is choosing a zone',
+  lockedSub: 'The storm is choosing a harbor',
   result: 'RESULT',
   resultSub: 'Settling…',
   nextRoundSoon: 'NEXT ROUND SOON',
@@ -41,10 +49,10 @@ export const STR = {
   reconnecting: 'RECONNECTING…',
 
   // Bet modes (v3 §4) — Focus/Split become self-labeling
-  oneZone: '1 Zone',
-  twoZones: '2 Zones',
-  oneZoneHint: 'Whole bet on one zone',
-  twoZonesHint: '70% on one zone, 30% on another',
+  oneZone: '1 Harbor',
+  twoZones: '2 Harbors',
+  oneZoneHint: 'Whole bet on one harbor',
+  twoZonesHint: '70% on one harbor, 30% on another',
 
   // Phase / status line (Storm Clock, v3 §8/§10)
   phaseBetting: 'BETTING',
@@ -54,8 +62,8 @@ export const STR = {
   phaseNext: 'NEXT',
 
   // Round-state hints (Storm Clock instruction line)
-  hintPickZone: 'Pick a zone',
-  hintPickTwoZones: 'Pick two zones',
+  hintPickZone: 'Pick a harbor',
+  hintPickTwoZones: 'Pick two harbors',
   hintCanMove: 'You can still move',
   hintOneLastMove: 'One last move',
   hintLastMoveSet: 'Last move locked in',
@@ -94,7 +102,7 @@ export const STR = {
   welcomeChooseTable: 'Choose your table',
   welcomePlayAt: 'Play at',
   welcomeTableHint:
-    'The range is your own bet per round. On a quiet table the live limit is lower — payouts come out of the hit zone’s pot, so a bigger bet would have little to win. The deck always shows the live number as “Max now”, and each table has its own jackpot. You can switch tables any time from Settings.',
+    'The range is your own bet per round. On a quiet table the live limit is lower — payouts come out of the hit harbor’s pot, so a bigger bet would have little to win. The deck always shows the live number as “Max now”, and each table has its own jackpot. You can switch tables any time from Settings.',
   welcomeDisclaimer: 'Virtual credits — no real money. Every round is verifiable.',
 } as const;
 
@@ -108,16 +116,16 @@ export const STR = {
  */
 export const WELCOME_POINTS: readonly { title: string; body: string }[] = [
   {
-    title: 'Pick 1 of 6 zones',
-    body: 'Put your bet on the zone you think the storm will miss.',
+    title: 'Pick 1 of 6 harbors',
+    body: 'Put your bet on the harbor you think the storm will miss.',
   },
   {
     title: '5 of the 6 survive',
-    body: 'The storm hits exactly one zone. Every other zone is safe.',
+    body: 'The storm hits exactly one harbor. Every other harbor is safe.',
   },
   {
     title: 'Safe players split the wreck',
-    body: "You keep your bet and take a share of the hit zone's pot. The more crowded that zone was, the bigger the share.",
+    body: "You keep your bet and take a share of the hit harbor's pot. The more crowded that harbor was, the bigger the share.",
   },
   {
     title: 'One click proves it was fair',
@@ -132,7 +140,7 @@ export const WELCOME_POINTS: readonly { title: string; body: string }[] = [
  * is the rule, not the reason, and quoting a percentage at someone who just
  * wanted to bet the number printed on the table is why this felt arbitrary.
  *
- * The reason is worth more: payouts come out of the struck zone's pot, so on a
+ * The reason is worth more: payouts come out of the struck harbor's pot, so on a
  * quiet table there is nothing for a bigger bet to win. The cap is the game
  * refusing to let you risk 5,000 to win 12. Said that way it stops being a
  * refusal and becomes information — and it names the thing that lifts it.

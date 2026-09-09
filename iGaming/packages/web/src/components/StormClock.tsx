@@ -21,6 +21,9 @@ import { fogSegmentFraction } from '../clockMath';
 import { FogIcon, LockIcon, StormIcon, TimerIcon } from './icons';
 import { useStore } from '../store';
 import { STR, zoneName } from '../strings';
+import { useRoundState } from '../useRoundState';
+import { RESULT_STATES, type RoundState } from '../roundMachine';
+import { useSurfaces } from '../uiMode';
 
 type ClockMode = 'open' | 'fog' | 'storm' | 'landfall' | 'next';
 
@@ -67,25 +70,60 @@ const MODE_META: Record<ClockMode, { label: string; color: string }> = {
   next: { label: STR.phaseNext, color: 'var(--lf-dim)' },
 };
 
+/**
+ * The clock's five readouts, mapped from the round machine's twelve states.
+ *
+ * This used to be re-derived here from `phase`, `tideReport.frozen` and
+ * `round.fogStartsAt` — the same derivation the deck and the board each did
+ * separately, with slightly different tie-breaks. There is now one machine, and
+ * every surface reads it (../roundMachine.ts explains why it is derived rather
+ * than authoritative).
+ */
+function modeFor(state: RoundState): ClockMode {
+  switch (state) {
+    case 'SELECTING':
+    case 'LOCKED':
+      return 'open';
+    case 'FOG':
+    case 'TIDE_REPORT':
+    case 'FINAL_ORDER':
+    case 'FINAL_LOCK':
+      return 'fog';
+    case 'REVEAL':
+      return 'storm';
+    case 'IMPACT':
+    case 'RESULT':
+    case 'VERIFICATION':
+      return 'landfall';
+    default:
+      return 'next';
+  }
+}
+
 function instruction(
-  mode: ClockMode,
+  state: RoundState,
   hasFleet: boolean,
-  finalOrderUsed: boolean,
   splitMode: boolean,
   struckZone: number | null,
 ): string {
-  switch (mode) {
-    case 'open':
-      if (!hasFleet) return splitMode ? STR.hintPickTwoZones : STR.hintPickZone;
+  switch (state) {
+    case 'SELECTING':
+      return splitMode ? STR.hintPickTwoZones : STR.hintPickZone;
+    case 'LOCKED':
       return STR.hintCanMove;
-    case 'fog':
-      if (!hasFleet) return STR.hintOneLastMove;
-      return finalOrderUsed ? STR.hintLastMoveSet : STR.hintOneLastMove;
-    case 'storm':
+    case 'FOG':
+    case 'TIDE_REPORT':
+    case 'FINAL_ORDER':
+      return STR.hintOneLastMove;
+    case 'FINAL_LOCK':
+      return hasFleet ? STR.hintLastMoveSet : STR.hintLocked;
+    case 'REVEAL':
       return STR.hintLocked;
-    case 'landfall':
+    case 'IMPACT':
+    case 'RESULT':
+    case 'VERIFICATION':
       return struckZone === null ? STR.hintResult : `${zoneName(struckZone)} was hit`;
-    case 'next':
+    default:
       return STR.hintNext;
   }
 }
@@ -108,11 +146,11 @@ function useCentred(): boolean {
 export function StormClock() {
   const phase = useStore((s) => s.phase);
   const round = useStore((s) => s.round);
-  const tideReport = useStore((s) => s.tideReport);
   const myFleet = useStore((s) => s.myFleet);
-  const finalOrderUsed = useStore((s) => s.finalOrderUsed);
   const fleetMode = useStore((s) => s.fleetMode);
   const lastLandfall = useStore((s) => s.lastLandfall);
+  const roundState = useRoundState();
+  const surfaces = useSurfaces();
   const centred = useCentred();
   const [now, setNow] = useState(Date.now());
   const [captionFor, setCaptionFor] = useState<WeatherId | null>(null);
@@ -137,25 +175,21 @@ export function StormClock() {
   }, [roundId, weatherId, anchorOpen]);
 
   if (!phase) return null;
+  /*
+   * Once the result card is up it owns the middle of the board: it names the
+   * harbor that was hit, the round, and the countdown to the next one. Leaving
+   * the clock's own display figure behind it put two large numbers in the same
+   * place saying different things — the exact "one number leads" violation the
+   * design rules open with. See `showClockDuringResult` in ../uiMode.ts.
+   */
+  if (!surfaces.showClockDuringResult && RESULT_STATES.has(roundState)) return null;
 
   const phaseKey = `${phase.phase}:${phase.endsAt}`;
   if (phaseStart.current.key !== phaseKey) {
     phaseStart.current = { key: phaseKey, at: now };
   }
 
-  const fogActive =
-    phase.phase === 'ANCHOR_OPEN' &&
-    (tideReport?.frozen === true || (round?.fogStartsAt != null && now >= round.fogStartsAt));
-  const mode: ClockMode =
-    phase.phase === 'ANCHOR_OPEN'
-      ? fogActive
-        ? 'fog'
-        : 'open'
-      : phase.phase === 'LOCKED_STORM'
-        ? 'storm'
-        : phase.phase === 'RESOLVED'
-          ? 'landfall'
-          : 'next';
+  const mode = modeFor(roundState);
 
   const remaining = Math.max(0, phase.endsAt - now);
   const total = Math.max(1, phase.endsAt - phaseStart.current.at);
@@ -174,9 +208,8 @@ export function StormClock() {
   const meta = MODE_META[mode];
   const color = finalSeconds ? 'var(--lf-accent)' : meta.color;
   const text = instruction(
-    mode,
+    roundState,
     !!myFleet,
-    finalOrderUsed,
     fleetMode === 'SPLIT',
     lastLandfall?.struckZone ?? null,
   );
@@ -201,7 +234,7 @@ export function StormClock() {
     mode === 'landfall' && struck !== null
       ? String(struck + 1)
       : String(seconds).padStart(2, '0');
-  const figureLabel = mode === 'landfall' && struck !== null ? 'Zone hit' : meta.label;
+  const figureLabel = mode === 'landfall' && struck !== null ? 'Harbor hit' : meta.label;
 
   /* ------------------------------------------------------------- centred */
 

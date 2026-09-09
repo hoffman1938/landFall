@@ -78,3 +78,43 @@ export function drawZone(seedHex: string, roundId: number, zoneCount: number): D
   const weatherRoll = parseInt(digest.slice(40, 42), 16); // cosmetic/info layer
   return { digestHex: digest, u, struckZone, feints, uSurge, uWinner, stormPowerRoll, weatherRoll };
 }
+
+/**
+ * The domain string the AUTHORITATIVE harbor draw uses.
+ *
+ * The redesign brief names this domain `harbor:`; this codebase has always
+ * written `landfall:round:`. They are the same construction — one HMAC over one
+ * fixed message — and renaming it would invalidate every round already settled
+ * in the database, which is a fairness regression rather than a fairness
+ * improvement. So the label stays and is named here instead, and every OTHER
+ * domain is a genuinely separate HMAC over a genuinely different message
+ * (see presentation.ts). Nothing drawn from another domain can shift this one.
+ */
+export const HARBOR_DOMAIN = 'round';
+
+/**
+ * `HMAC(seed, "landfall:<domain>:<roundId>")`, hex.
+ *
+ * The one primitive every RNG domain is built from. Distinct `domain` strings
+ * produce independent digests under HMAC's PRF assumption, which is the
+ * property "separate RNG domains" actually needs — disjoint spans of ONE digest
+ * (how the harbor draw carries its feints, surge and power rolls) are also
+ * independent, but only presentation layers added after the fact get their own
+ * message here, so a cosmetic change can never perturb the harbor bytes.
+ */
+export function domainDigest(seedHex: string, domain: string, roundId: number): string {
+  return bytesToHex(
+    hmac(sha256, hexToBytes(seedHex), new TextEncoder().encode(`landfall:${domain}:${roundId}`)),
+  );
+}
+
+/**
+ * A uniform integer in [0, 1_000_000) from 13 hex characters (52 bits) of a
+ * digest — parts per million, the unit every presentation table below is
+ * written in. 52 bits over a 10^6 range leaves a bucket bias below 2^-32, which
+ * is exact for any purpose that never touches money (and these never do).
+ */
+export function ppmFrom(digestHex: string, offset = 0): number {
+  const u = parseInt(digestHex.slice(offset, offset + 13), 16) / 2 ** 52;
+  return Math.floor(u * 1_000_000);
+}
