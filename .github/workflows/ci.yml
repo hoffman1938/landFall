@@ -29,9 +29,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `version:` here on purpose. The action reads the root
+      # package.json's `packageManager` field, and specifying both is a hard
+      # error (ERR_PNPM_BAD_PM_VERSION) — which is what had been failing every
+      # job in this file since the deploy wrapper's package.json was added.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
@@ -68,9 +70,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # No `version:` here on purpose. The action reads the root
+      # package.json's `packageManager` field, and specifying both is a hard
+      # error (ERR_PNPM_BAD_PM_VERSION) — which is what had been failing every
+      # job in this file since the deploy wrapper's package.json was added.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -101,9 +105,11 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      # No `version:` here on purpose. The action reads the root
+      # package.json's `packageManager` field, and specifying both is a hard
+      # error (ERR_PNPM_BAD_PM_VERSION) — which is what had been failing every
+      # job in this file since the deploy wrapper's package.json was added.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 22

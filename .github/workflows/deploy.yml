@@ -43,9 +43,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No `version:` here on purpose. The action reads the root package.json's
+      # `packageManager` field, and specifying both is a hard error
+      # (ERR_PNPM_BAD_PM_VERSION) — the first run of this workflow died on it.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
@@ -65,17 +66,15 @@ jobs:
         working-directory: iGaming
         run: pnpm test
 
-      # Builds the client into iGaming/packages/web/dist, which wrangler.jsonc
-      # points `assets.directory` at. The Worker itself is bundled by wrangler
-      # from packages/edge/src/worker.ts and needs the workspace links above.
-      - name: Build client
-        working-directory: iGaming
-        run: pnpm --filter @landfall/web build
+      # No explicit client build here: `wrangler.jsonc` carries a `build` hook
+      # that runs the root `build` script, so the assets are produced by the
+      # same command whether this runs on the Cloudflare builder, here, or a
+      # laptop. One definition, one build path.
 
       # Proves the Worker bundles and the bindings resolve before we touch
       # production. Catches a missing workspace link (which is exactly how this
       # deploy failed the first time) without shipping a broken version.
-      - name: Verify Worker bundles
+      - name: Verify build and Worker bundle
         run: npx --yes wrangler@4 deploy --dry-run
 
       - name: Deploy

@@ -19,6 +19,20 @@
   "preview_urls": true,
   "observability": { "enabled": true },
 
+  // Build the client before bundling the Worker.
+  //
+  // Cloudflare's Git integration installs the ROOT dependencies and then runs
+  // the deploy command directly — it never ran a build, so `assets.directory`
+  // did not exist and the deploy failed with "the directory specified by the
+  // assets.directory field does not exist". Putting the build here rather than
+  // in a dashboard field makes a bare `wrangler deploy` correct from anywhere:
+  // the Cloudflare builder, CI, or a laptop. `pnpm run build` is the root
+  // script, so there is still exactly one definition of how to build.
+  "build": {
+    "command": "pnpm run build",
+    "cwd": "."
+  },
+
   "assets": {
     "directory": "iGaming/packages/web/dist",
     "binding": "ASSETS",
