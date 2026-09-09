@@ -34,6 +34,7 @@ import {
   WHALE_CAP_FRACTION,
   ZONE_COUNT,
   computeTideBands,
+  drawPresentation,
   drawZone,
   pickGoldenAnchorFlat,
   validateRakeConfig,
@@ -45,6 +46,7 @@ import {
   weatherFromRoll,
   type DrawResult,
   type FlagReveal,
+  type RoundPresentation,
   type FleetMode,
   type FleetPlanPublic,
   type PhaseInfo,
@@ -226,6 +228,16 @@ export class RoundCoordinator {
   private seedHex = '';
   private prevChainValue = '';
   private draw: DrawResult | null = null;
+  /**
+   * v4 presentation draws — event tier, board environment, cosmetic stream.
+   *
+   * Drawn from three HMAC domains of their own (core/presentation.ts), in the
+   * same breath as the harbor draw and from the same already-committed seed,
+   * so the whole round exists before a single frame is broadcast. Nothing here
+   * is ever read by settlement, the tide report, the pools, or the payout: it
+   * decides how the round looks and nothing else.
+   */
+  private presentation: RoundPresentation | null = null;
   private weather: WeatherPattern = weatherFromRoll(0);
   private surgeRound = false;
   private surgeFlatOdds = false;
@@ -409,6 +421,7 @@ export class RoundCoordinator {
       houseSeedMinor: this.seedMinor,
       fogStartsAt: this.fogStartsAt,
       weather: this.weather,
+      ...(this.presentation ? { environment: this.presentation.environment } : {}),
       surgeRound: this.surgeRound,
       surgePotMinor: this.surgePotMinor,
       surgeFlatOdds: this.surgeFlatOdds,
@@ -836,6 +849,10 @@ export class RoundCoordinator {
     // (docs/04-architecture/rng-provably-fair-spec.md; core surge tests assert
     // trigger/zone independence).
     this.draw = drawZone(this.seedHex, this.roundId, ZONE_COUNT);
+    // Presentation domains, drawn here for the same reason the harbor is: the
+    // WHOLE round is decided before anything is announced, so no animation, no
+    // click and no reconnect can be an input to any of it.
+    this.presentation = drawPresentation(this.seedHex, this.roundId);
     this.weather = weatherFromRoll(this.draw.weatherRoll);
     this.surgeRound = this.draw.uSurge < this.surgeProb;
     // Flat-odds Golden Anchor (A4, flag-gated): every Nth surge round, counted
@@ -938,7 +955,17 @@ export class RoundCoordinator {
     });
 
     const draw = this.draw!;
-    this.events.broadcast({ type: 'STORM_PATH', feints: draw.feints, phase: this.phaseInfo() });
+    // The reveal's choreography ships with the reveal. The tier was drawn at
+    // beginRound from its own domain; publishing it here rather than in the
+    // header simply means the storm arrives with its own weather.
+    this.events.broadcast({
+      type: 'STORM_PATH',
+      feints: draw.feints,
+      phase: this.phaseInfo(),
+      ...(this.presentation
+        ? { eventTier: this.presentation.eventTier, cosmetic: this.presentation.cosmetic }
+        : {}),
+    });
 
     this.timer = setTimeout(() => this.resolve(draw.struckZone), this.timings.stormMs);
   }
@@ -1131,6 +1158,12 @@ export class RoundCoordinator {
       replay,
       stormPower: { label: power.label, mNum: power.mNum, mDen: power.mDen },
       powerCapped: settlement.powerCapped,
+      ...(this.presentation
+        ? {
+            eventTier: this.presentation.eventTier,
+            environment: this.presentation.environment,
+          }
+        : {}),
       ...(surgeResult ? { surge: surgeResult } : {}),
     };
     this.events.broadcastLandfall((playerId) => {

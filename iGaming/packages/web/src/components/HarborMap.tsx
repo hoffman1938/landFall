@@ -53,6 +53,12 @@ function selectBayState(): BayState {
     resolvedRoundId: resolved ? (s.lastLandfall?.roundId ?? null) : null,
     signals: s.signals,
     surgeRound: s.round?.surgeRound ?? false,
+    // v4 presentation draws. All three are server-drawn from their own HMAC
+    // domains and read-only here — the scene renders them and never derives
+    // anything from them.
+    environment: s.environment,
+    eventTier: s.storm?.eventTier ?? null,
+    cosmetic: s.storm?.cosmetic ?? null,
   };
 }
 

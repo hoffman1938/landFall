@@ -5,7 +5,8 @@
  * service). Built from public round data only. History players expect, paired
  * with verification — never a pattern oracle.
  */
-import { useEffect } from 'react';
+import { useCallback, useRef } from 'react';
+import { useDialog } from '../useDialog';
 import { audio } from '../audio/engine';
 import { fmt, useStore, type ReplayCard } from '../store';
 import { STR, zoneName } from '../strings';
@@ -126,20 +127,16 @@ export function WreckLogSheet() {
   const setWreckLogOpen = useStore((s) => s.setWreckLogOpen);
   const replayCards = useStore((s) => s.replayCards);
 
-  useEffect(() => {
-    if (!wreckLogOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setWreckLogOpen(false);
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [wreckLogOpen, setWreckLogOpen]);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setWreckLogOpen(false), [setWreckLogOpen]);
+  // Escape, focus-in and focus-restore, from the one shared contract.
+  useDialog({ open: wreckLogOpen, onClose: close, initialFocus: closeRef });
 
   if (!wreckLogOpen) return null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      className="fixed inset-0 z-[var(--lf-z-modal)] flex items-center justify-center bg-black/80 p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) setWreckLogOpen(false);
       }}
@@ -157,6 +154,7 @@ export function WreckLogSheet() {
             last {replayCards.length} round{replayCards.length === 1 ? '' : 's'}
           </span>
           <button
+            ref={closeRef}
             type="button"
             onClick={() => {
               audio.click('nav');

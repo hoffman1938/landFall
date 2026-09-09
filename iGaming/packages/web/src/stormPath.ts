@@ -5,7 +5,7 @@
  * RULE 1 — THE RETICLE IS ONLY EVER ON A ZONE. It has six possible positions
  * and no others: it locks onto a zone, holds, and re-acquires the next one.
  * The scene snaps between stops rather than sliding, so there is no frame in
- * which the reticle sits between harbours or off the board. An earlier version
+ * which the reticle sits between harbors or off the board. An earlier version
  * parked it on a neutral point above the board when the published feints
  * collided; that read as the storm wandering out of the game.
  *
@@ -39,10 +39,7 @@ export const FEINT_ACQUIRE_MS = 160;
  * The zones the reticle will visit this window, in order. Always two distinct
  * zones, always real zones.
  */
-export function stormRouteZones(
-  feints: readonly [number, number],
-  zoneCount: number,
-): number[] {
+export function stormRouteZones(feints: readonly [number, number], zoneCount: number): number[] {
   if (zoneCount <= 0) return [];
   const first = ((feints[0] % zoneCount) + zoneCount) % zoneCount;
   const second = ((feints[1] % zoneCount) + zoneCount) % zoneCount;

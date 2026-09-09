@@ -18,9 +18,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { WeatherId } from '@landfall/core';
 import { fogSegmentFraction } from '../clockMath';
+import { useShortViewport } from '../useShortViewport';
 import { FogIcon, LockIcon, StormIcon, TimerIcon } from './icons';
 import { useStore } from '../store';
 import { STR, zoneName } from '../strings';
+import { useRoundState } from '../useRoundState';
+import type { RoundState } from '../roundMachine';
 
 type ClockMode = 'open' | 'fog' | 'storm' | 'landfall' | 'next';
 
@@ -37,7 +40,9 @@ const WEATHER_SEEN_KEY = 'landfall.weather-seen.v1';
 function readSeenWeather(): WeatherId[] {
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(WEATHER_SEEN_KEY) ?? '[]');
-    return Array.isArray(parsed) ? (parsed.filter((v) => typeof v === 'string') as WeatherId[]) : [];
+    return Array.isArray(parsed)
+      ? (parsed.filter((v) => typeof v === 'string') as WeatherId[])
+      : [];
   } catch {
     return [];
   }
@@ -67,25 +72,60 @@ const MODE_META: Record<ClockMode, { label: string; color: string }> = {
   next: { label: STR.phaseNext, color: 'var(--lf-dim)' },
 };
 
+/**
+ * The clock's five readouts, mapped from the round machine's twelve states.
+ *
+ * This used to be re-derived here from `phase`, `tideReport.frozen` and
+ * `round.fogStartsAt` — the same derivation the deck and the board each did
+ * separately, with slightly different tie-breaks. There is now one machine, and
+ * every surface reads it (../roundMachine.ts explains why it is derived rather
+ * than authoritative).
+ */
+function modeFor(state: RoundState): ClockMode {
+  switch (state) {
+    case 'SELECTING':
+    case 'LOCKED':
+      return 'open';
+    case 'FOG':
+    case 'TIDE_REPORT':
+    case 'FINAL_ORDER':
+    case 'FINAL_LOCK':
+      return 'fog';
+    case 'REVEAL':
+      return 'storm';
+    case 'IMPACT':
+    case 'RESULT':
+    case 'VERIFICATION':
+      return 'landfall';
+    default:
+      return 'next';
+  }
+}
+
 function instruction(
-  mode: ClockMode,
+  state: RoundState,
   hasFleet: boolean,
-  finalOrderUsed: boolean,
   splitMode: boolean,
   struckZone: number | null,
 ): string {
-  switch (mode) {
-    case 'open':
-      if (!hasFleet) return splitMode ? STR.hintPickTwoZones : STR.hintPickZone;
+  switch (state) {
+    case 'SELECTING':
+      return splitMode ? STR.hintPickTwoZones : STR.hintPickZone;
+    case 'LOCKED':
       return STR.hintCanMove;
-    case 'fog':
-      if (!hasFleet) return STR.hintOneLastMove;
-      return finalOrderUsed ? STR.hintLastMoveSet : STR.hintOneLastMove;
-    case 'storm':
+    case 'FOG':
+    case 'TIDE_REPORT':
+    case 'FINAL_ORDER':
+      return STR.hintOneLastMove;
+    case 'FINAL_LOCK':
+      return hasFleet ? STR.hintLastMoveSet : STR.hintLocked;
+    case 'REVEAL':
       return STR.hintLocked;
-    case 'landfall':
+    case 'IMPACT':
+    case 'RESULT':
+    case 'VERIFICATION':
       return struckZone === null ? STR.hintResult : `${zoneName(struckZone)} was hit`;
-    case 'next':
+    default:
       return STR.hintNext;
   }
 }
@@ -108,12 +148,12 @@ function useCentred(): boolean {
 export function StormClock() {
   const phase = useStore((s) => s.phase);
   const round = useStore((s) => s.round);
-  const tideReport = useStore((s) => s.tideReport);
   const myFleet = useStore((s) => s.myFleet);
-  const finalOrderUsed = useStore((s) => s.finalOrderUsed);
   const fleetMode = useStore((s) => s.fleetMode);
   const lastLandfall = useStore((s) => s.lastLandfall);
+  const roundState = useRoundState();
   const centred = useCentred();
+  const shortBoard = useShortViewport();
   const [now, setNow] = useState(Date.now());
   const [captionFor, setCaptionFor] = useState<WeatherId | null>(null);
   const phaseStart = useRef<{ key: string; at: number }>({ key: '', at: Date.now() });
@@ -137,25 +177,28 @@ export function StormClock() {
   }, [roundId, weatherId, anchorOpen]);
 
   if (!phase) return null;
+  /*
+   * The clock stands down once the result CARD is up — RESULT onward, in both
+   * layouts. The card names the harbor that was hit, the round and the
+   * countdown to the next one, so leaving the clock's display figure behind it
+   * puts two large numbers in the same place saying different things: the
+   * "one number leads" rule the design opens with.
+   *
+   * IMPACT is deliberately excluded. The card has not arrived yet, and during
+   * that beat the clock IS the answer — its leading figure switches to the
+   * struck harbor. Hiding it there would blank the middle of the board for
+   * ~900ms and read as a flicker rather than as choreography.
+   */
+  if (roundState === 'RESULT' || roundState === 'VERIFICATION' || roundState === 'RESET') {
+    return null;
+  }
 
   const phaseKey = `${phase.phase}:${phase.endsAt}`;
   if (phaseStart.current.key !== phaseKey) {
     phaseStart.current = { key: phaseKey, at: now };
   }
 
-  const fogActive =
-    phase.phase === 'ANCHOR_OPEN' &&
-    (tideReport?.frozen === true || (round?.fogStartsAt != null && now >= round.fogStartsAt));
-  const mode: ClockMode =
-    phase.phase === 'ANCHOR_OPEN'
-      ? fogActive
-        ? 'fog'
-        : 'open'
-      : phase.phase === 'LOCKED_STORM'
-        ? 'storm'
-        : phase.phase === 'RESOLVED'
-          ? 'landfall'
-          : 'next';
+  const mode = modeFor(roundState);
 
   const remaining = Math.max(0, phase.endsAt - now);
   const total = Math.max(1, phase.endsAt - phaseStart.current.at);
@@ -174,9 +217,8 @@ export function StormClock() {
   const meta = MODE_META[mode];
   const color = finalSeconds ? 'var(--lf-accent)' : meta.color;
   const text = instruction(
-    mode,
+    roundState,
     !!myFleet,
-    finalOrderUsed,
     fleetMode === 'SPLIT',
     lastLandfall?.struckZone ?? null,
   );
@@ -198,16 +240,14 @@ export function StormClock() {
    */
   const struck = lastLandfall?.struckZone ?? null;
   const figure =
-    mode === 'landfall' && struck !== null
-      ? String(struck + 1)
-      : String(seconds).padStart(2, '0');
-  const figureLabel = mode === 'landfall' && struck !== null ? 'Zone hit' : meta.label;
+    mode === 'landfall' && struck !== null ? String(struck + 1) : String(seconds).padStart(2, '0');
+  const figureLabel = mode === 'landfall' && struck !== null ? 'Harbor hit' : meta.label;
 
   /* ------------------------------------------------------------- centred */
 
   if (centred) {
     return (
-      <div className="pointer-events-none absolute inset-0 z-[3] flex flex-col items-center justify-center">
+      <div className="pointer-events-none absolute inset-0 z-[var(--lf-z-scene-hud)] flex flex-col items-center justify-center">
         <section
           role="timer"
           aria-label={label}
@@ -253,9 +293,7 @@ export function StormClock() {
             )}
           </div>
 
-          <p className="mt-3 text-center text-[14px] font-medium text-[var(--lf-text)]">
-            {text}
-          </p>
+          <p className="mt-3 text-center text-[14px] font-medium text-[var(--lf-text)]">{text}</p>
 
           {surge && (
             <p className="mt-2.5 rounded-md border border-[var(--lf-warn)]/50 px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.14em] text-[var(--lf-warn)]">
@@ -264,7 +302,10 @@ export function StormClock() {
           )}
 
           {captionFor && round && (
-            <p role="status" className="lf-caption mt-2 text-center text-[12px] text-[var(--lf-mute)]">
+            <p
+              role="status"
+              className="lf-caption mt-2 text-center text-[12px] text-[var(--lf-mute)]"
+            >
               <span className="font-bold text-[var(--lf-dim)]">{round.weather.label}</span> ·{' '}
               {WEATHER_CAPTIONS[captionFor]}
             </p>
@@ -274,10 +315,53 @@ export function StormClock() {
     );
   }
 
+  /* ----------------------------------------------------------------- chip */
+
+  /*
+   * A phone held sideways. One row: round, phase, seconds, instruction — the
+   * same four facts, at a height the board can actually spare. The drain moves
+   * to the chip's own bottom edge so it still reads as a timer.
+   */
+  if (shortBoard) {
+    return (
+      <div className="pointer-events-none absolute inset-x-0 top-2 z-[var(--lf-z-scene-hud)] flex justify-center px-3">
+        <section
+          role="timer"
+          aria-label={label}
+          className={`lf-glass relative flex h-[34px] max-w-[min(96vw,30rem)] items-center gap-2 overflow-hidden rounded-md px-2.5 ${
+            surge ? '!border-[var(--lf-warn)]/60' : ''
+          }`}
+        >
+          <span className="lf-label-soft shrink-0">{round ? `#${round.roundId}` : '—'}</span>
+          <span
+            className="flex shrink-0 items-center gap-1 text-[11px] font-extrabold uppercase tracking-[0.12em]"
+            style={{ color }}
+          >
+            <Icon size={11} />
+            {figureLabel}
+          </span>
+          <span className="lf-num shrink-0 text-[17px] leading-none" style={{ color }}>
+            {figure}
+          </span>
+          <span className="truncate text-[12px] font-medium text-[var(--lf-text)]">{text}</span>
+          <span
+            className="absolute inset-x-0 bottom-0 h-[2px] bg-[var(--lf-surface-2)]"
+            aria-hidden="true"
+          >
+            <span
+              className="absolute inset-y-0 left-0 transition-[width] duration-100 ease-linear"
+              style={{ width: `${progress * 100}%`, backgroundColor: color }}
+            />
+          </span>
+        </section>
+      </div>
+    );
+  }
+
   /* -------------------------------------------------------------- compact */
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-12 z-[3] flex flex-col items-center px-3">
+    <div className="pointer-events-none absolute inset-x-0 top-12 z-[var(--lf-z-scene-hud)] flex flex-col items-center px-3">
       <section
         role="timer"
         aria-label={label}
@@ -305,7 +389,10 @@ export function StormClock() {
           </span>
         </div>
 
-        <div className="absolute inset-x-0 bottom-0 h-[3px] bg-[var(--lf-surface-2)]" aria-hidden="true">
+        <div
+          className="absolute inset-x-0 bottom-0 h-[3px] bg-[var(--lf-surface-2)]"
+          aria-hidden="true"
+        >
           <span
             className="absolute inset-y-0 left-0 transition-[width] duration-100 ease-linear"
             style={{ width: `${progress * 100}%`, backgroundColor: color }}

@@ -5,6 +5,7 @@
  */
 import { z } from 'zod';
 import type { LiquidityLevel } from './liquidity.js';
+import type { EnvironmentSpec, EventTierSpec } from './presentation.js';
 import {
   CHAT_MAX_LEN,
   EXCLUSION_MAX_MINUTES,
@@ -329,7 +330,20 @@ export type ServerMessage =
     }
   | { type: 'SIGNAL_UPDATE'; signals: SignalPublic[] }
   | { type: 'LOCK_SNAPSHOT'; pools: PoolsState; anchors: PlayerPublic[]; phase: PhaseInfo }
-  | { type: 'STORM_PATH'; feints: [number, number]; phase: PhaseInfo }
+  | {
+      type: 'STORM_PATH';
+      feints: [number, number];
+      phase: PhaseInfo;
+      /**
+       * How loud this round's reveal is (v4). Drawn from its OWN HMAC domain
+       * (`landfall:event:<roundId>`), so it is independent of the harbor draw
+       * by construction and verifiable from the revealed seed like everything
+       * else. Optional so an older client keeps parsing (§3 law).
+       */
+      eventTier?: EventTierSpec;
+      /** Deterministic visual jitter for the reveal. Never an input to anything. */
+      cosmetic?: { seed: number; variant: number };
+    }
   | {
       type: 'LANDFALL';
       roundId: number;
@@ -349,6 +363,9 @@ export type ServerMessage =
       stormPower: { label: string; mNum: number; mDen: number };
       /** True when the per-round liability cap clamped the Storm Power payout (disclosed, never silent). */
       powerCapped: boolean;
+      /** v4 presentation draws, echoed so the result card and Verify agree. */
+      eventTier?: EventTierSpec;
+      environment?: EnvironmentSpec;
     }
   | { type: 'PHASE'; phase: PhaseInfo }
   | { type: 'ROOM_LIST'; rooms: RoomInfo[] }
@@ -378,6 +395,14 @@ export interface RoundHeader {
   /** Epoch ms when Blind Fog begins during ANCHOR_OPEN. */
   fogStartsAt: number;
   weather: WeatherPattern;
+  /**
+   * v4 cosmetic board skin, drawn from `landfall:environment:<roundId>` — its
+   * own HMAC domain, independent of the harbor draw and of `weather` (which is
+   * the MECHANICAL modifier and keeps its own meaning). Announced at round start
+   * because the board has to wear it from the first frame; verifiable after the
+   * seed is revealed, exactly like the surge announcement.
+   */
+  environment?: EnvironmentSpec;
   /** Storm Surge: is THIS round a surge round (announced before anchoring), and the live pot. */
   surgeRound: boolean;
   surgePotMinor: number;

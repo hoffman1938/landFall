@@ -3,7 +3,8 @@
  * Identity, not Skinner box: no XP, no rewards, nothing here touches odds.
  * Opens from chat names and from Settings → "My skipper record".
  */
-import { useEffect } from 'react';
+import { useRef } from 'react';
+import { useDialog } from '../useDialog';
 import { audio } from '../audio/engine';
 import { fmt, useStore } from '../store';
 import { AnchorIcon, BoatIcon, CrateIcon, RallyFlagIcon, SurgeIcon, XIcon } from './icons';
@@ -13,14 +14,8 @@ export function SkipperCard() {
   const closeSkipper = useStore((s) => s.closeSkipper);
   const myName = useStore((s) => s.name);
 
-  useEffect(() => {
-    if (!skipperCard) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeSkipper();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [skipperCard, closeSkipper]);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useDialog({ open: skipperCard !== null, onClose: closeSkipper, initialFocus: closeRef });
 
   if (!skipperCard) return null;
   const { name, record, loading } = skipperCard;
@@ -68,7 +63,7 @@ export function SkipperCard() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      className="fixed inset-0 z-[var(--lf-z-modal)] flex items-center justify-center bg-black/80 p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) closeSkipper();
       }}
@@ -91,6 +86,7 @@ export function SkipperCard() {
             <p className="text-xs font-semibold text-[var(--lf-dim)]">Player stats</p>
           </div>
           <button
+            ref={closeRef}
             type="button"
             onClick={() => {
               audio.click('nav');
@@ -106,13 +102,9 @@ export function SkipperCard() {
         {loading ? (
           <p className="py-6 text-center text-sm text-[var(--lf-dim)]">Loading…</p>
         ) : record === null ? (
-          <p className="py-6 text-center text-sm text-[var(--lf-dim)]">
-            No player by that name.
-          </p>
+          <p className="py-6 text-center text-sm text-[var(--lf-dim)]">No player by that name.</p>
         ) : record.roundsSailed === 0 ? (
-          <p className="py-6 text-center text-sm text-[var(--lf-dim)]">
-            No rounds played yet.
-          </p>
+          <p className="py-6 text-center text-sm text-[var(--lf-dim)]">No rounds played yet.</p>
         ) : (
           <ul className="mt-3 grid grid-cols-2 gap-2">
             {stats.map((stat) => (

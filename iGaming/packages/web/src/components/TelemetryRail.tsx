@@ -31,7 +31,7 @@ import { fmt, useStore, type SessionPoint } from '../store';
 import { LIVE_MAX_HINT, crowdLabel, zoneName } from '../strings';
 import { ChartIcon, LockIcon, StormIcon, XIcon } from './icons';
 
-/** How full a zone's crowd bar reads. Mirrors BAND_FILL in the bay layer. */
+/** How full a harbor's crowd bar reads. Mirrors BAND_FILL in the bay layer. */
 const BAND_FILL: Record<TideBand, number> = {
   seed: 0.12,
   light: 0.34,
@@ -120,8 +120,8 @@ function Row({
           : tone === 'warn'
             ? 'text-[var(--lf-warn)]'
             : tone === 'muted'
-            ? 'text-[var(--lf-mute)]'
-            : 'text-[var(--lf-dim)]';
+              ? 'text-[var(--lf-mute)]'
+              : 'text-[var(--lf-dim)]';
   return (
     <div className="flex items-baseline justify-between gap-2 py-[3px]" title={title}>
       <span className="truncate text-[12px] font-medium text-[var(--lf-dim)]">{label}</span>
@@ -241,8 +241,7 @@ function ZoneFlow() {
         const hit = struck === zone;
         // Bar length: the banded crowd while bets are open, the exact pool
         // relative to the heaviest zone once the lock has published them.
-        const fill =
-          total !== null ? total / peakTotal : tide ? BAND_FILL[tide.band] : 0;
+        const fill = total !== null ? total / peakTotal : tide ? BAND_FILL[tide.band] : 0;
 
         return (
           <button
@@ -259,7 +258,7 @@ function ZoneFlow() {
             } ${boats} ${boats === 1 ? 'player' : 'players'}.${
               mine ? ' Your bet is here.' : selected ? ' Selected.' : ''
             }`}
-            className={`group flex items-center gap-2 rounded-r-md border-l-2 py-1.5 pl-2 pr-1 text-left transition-colors ${
+            className={`group flex min-h-10 items-center gap-2 rounded-r-md border-l-2 py-1.5 pl-2 pr-1 text-left transition-colors ${
               hit
                 ? 'border-[var(--lf-accent)] bg-[var(--lf-accent-soft)]'
                 : mine
@@ -330,16 +329,14 @@ function StrikeFrequency() {
 
   return (
     <>
-      <div className="flex items-end gap-1.5" role="img"
-        aria-label={counts
-          .map((c, z) => `${zoneName(z)} hit ${c} times`)
-          .join(', ')}
+      <div
+        className="flex items-end gap-1.5"
+        role="img"
+        aria-label={counts.map((c, z) => `${zoneName(z)} hit ${c} times`).join(', ')}
       >
         {counts.map((count, zone) => (
           <div key={zone} className="flex min-w-0 flex-1 flex-col items-center gap-1">
-            <span className="text-[11px] font-bold tabular-nums text-[var(--lf-dim)]">
-              {count}
-            </span>
+            <span className="text-[11px] font-bold tabular-nums text-[var(--lf-dim)]">{count}</span>
             <span
               className="w-full bg-[var(--lf-line-2)]"
               style={{ height: `${6 + (count / peak) * 26}px` }}
@@ -390,8 +387,7 @@ function RailBody() {
     phase === 'ANCHOR_OPEN'
       ? (tideReport?.entries.reduce((a, e) => a + e.boatCount, 0) ?? 0)
       : (pools?.boatCounts.reduce((a, n) => a + n, 0) ?? 0);
-  const myShare =
-    handle && handle > 0 && myFleet ? (myFleet.stakeMinor / handle) * 100 : null;
+  const myShare = handle && handle > 0 && myFleet ? (myFleet.stakeMinor / handle) * 100 : null;
   const tableName = rooms.find((r) => r.roomId === roomId)?.name ?? '—';
 
   /*
@@ -476,7 +472,7 @@ function RailBody() {
           tone={myFleet ? 'mine' : 'muted'}
         />
         <Row
-          label="Your zone"
+          label="Your harbor"
           value={
             myFleet
               ? myFleet.mode === 'SPLIT' && myFleet.secondaryZone !== null
@@ -522,7 +518,7 @@ function RailBody() {
         )}
       </Block>
 
-      <Block label="Zone flow">
+      <Block label="Harbor flow">
         <ZoneFlow />
       </Block>
 
@@ -573,7 +569,7 @@ export function TelemetryRail() {
   if (wide) {
     return (
       <aside
-        className="relative z-20 flex h-full w-[var(--lf-rail-width)] shrink-0 flex-col border-r border-[var(--lf-line)] bg-[var(--lf-bg-2)]"
+        className="relative z-[var(--lf-z-hud)] flex h-full w-[var(--lf-rail-width)] shrink-0 flex-col border-r border-[var(--lf-line)] bg-[var(--lf-bg-2)]"
         aria-label="Session and table telemetry"
       >
         <RailBody />
@@ -591,7 +587,7 @@ export function TelemetryRail() {
             audio.click('nav');
             setDrawerOpen(true);
           }}
-          className="lf-surface absolute right-2 top-14 z-20 flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-md px-2.5 text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
+          className="lf-surface absolute right-2 top-14 z-[var(--lf-z-hud)] flex h-11 min-w-11 items-center justify-center gap-1.5 rounded-md px-2.5 text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
           aria-label={`Open session and table telemetry. Session ${signed(net)} credits.`}
           aria-expanded="false"
           aria-haspopup="dialog"
@@ -617,7 +613,7 @@ export function TelemetryRail() {
       {drawerOpen && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/70"
+            className="fixed inset-0 z-[var(--lf-z-scrim)] bg-black/70"
             aria-hidden="true"
             onMouseDown={() => setDrawerOpen(false)}
           />
@@ -625,7 +621,7 @@ export function TelemetryRail() {
             role="dialog"
             aria-modal="true"
             aria-label="Session and table telemetry"
-            className="lf-sheet fixed bottom-0 left-0 top-12 z-50 flex w-[min(20rem,calc(100vw-2rem))] flex-col border-r border-[var(--lf-line-2)] bg-[var(--lf-bg-2)]"
+            className="lf-sheet fixed bottom-0 left-0 top-12 z-[var(--lf-z-drawer)] flex w-[min(20rem,calc(100vw-2rem))] flex-col border-r border-[var(--lf-line-2)] bg-[var(--lf-bg-2)]"
           >
             <div className="flex min-h-12 shrink-0 items-center gap-2 border-b border-[var(--lf-line)] px-3">
               <ChartIcon size={16} />

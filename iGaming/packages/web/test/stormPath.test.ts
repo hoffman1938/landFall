@@ -2,7 +2,7 @@
  * The storm reticle must only ever be on a zone, and must never park.
  *
  * Two reported defects, one file:
- *   - it froze on a single harbour for the whole locked window (the two
+ *   - it froze on a single harbor for the whole locked window (the two
  *     published feints are independent mod-6 picks and collide ~16.6% of
  *     rounds, and the scene alternated between them unconditionally);
  *   - the first fix parked it on a neutral point above the board on those
@@ -110,7 +110,10 @@ describe('stormRouteStop', () => {
   });
 
   it('moves at least once inside a 5s locked window, feints colliding or not', () => {
-    for (const feints of [[1, 4], [3, 3]] as const) {
+    for (const feints of [
+      [1, 4],
+      [3, 3],
+    ] as const) {
       const route = stormRoute(feints, zoneStop, ZONE_COUNT);
       const seen = new Set<string>();
       for (let t = 0; t < 5_000; t += 100) {

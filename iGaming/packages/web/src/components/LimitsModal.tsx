@@ -5,7 +5,8 @@
  * behind the 24h cooldown (shown as "pending"). Self-exclusion only extends.
  * Demo build: credits are play money, but the plumbing is the real one.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useDialog } from '../useDialog';
 import type { LimitsPending } from '@landfall/core';
 import { audio } from '../audio/engine';
 import { fmt, useStore } from '../store';
@@ -88,18 +89,15 @@ export function LimitsModal() {
   const [now, setNow] = useState(Date.now());
   const [confirmExclusion, setConfirmExclusion] = useState<number | null>(null);
 
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setLimitsOpen(false), [setLimitsOpen]);
+  useDialog({ open: limitsOpen, onClose: close, initialFocus: closeRef });
+
   useEffect(() => {
     if (!limitsOpen) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setLimitsOpen(false);
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [limitsOpen, setLimitsOpen]);
+    return () => window.clearInterval(timer);
+  }, [limitsOpen]);
 
   useEffect(() => {
     if (!limitsOpen) setConfirmExclusion(null);
@@ -113,7 +111,7 @@ export function LimitsModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      className="fixed inset-0 z-[var(--lf-z-modal)] flex items-center justify-center bg-black/80 p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) setLimitsOpen(false);
       }}
@@ -130,6 +128,7 @@ export function LimitsModal() {
             PLAY LIMITS & SESSION
           </h2>
           <button
+            ref={closeRef}
             type="button"
             onClick={() => {
               audio.click('nav');
@@ -157,8 +156,8 @@ export function LimitsModal() {
               className="rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/70 px-3 py-2.5 text-sm text-[var(--lf-text)]"
             >
               You're on a break until{' '}
-              <strong>{new Date(limits.excludedUntil!).toLocaleString()}</strong>. Watching is
-              fine; betting is off.
+              <strong>{new Date(limits.excludedUntil!).toLocaleString()}</strong>. Watching is fine;
+              betting is off.
             </div>
           ) : null}
 
@@ -183,10 +182,7 @@ export function LimitsModal() {
 
           {/* Reality check cadence (F1). */}
           <div className="rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface-2)]/50 p-3">
-            <label
-              htmlFor="lf-reality-cadence"
-              className="text-sm font-bold text-[var(--lf-text)]"
-            >
+            <label htmlFor="lf-reality-cadence" className="text-sm font-bold text-[var(--lf-text)]">
               Reality check
             </label>
             <p className="mt-0.5 text-[11px] leading-snug text-[var(--lf-dim)]">
@@ -216,9 +212,8 @@ export function LimitsModal() {
               <ul className="mt-1 space-y-1">
                 {limits.pending.map((p) => (
                   <li key={p.field} className="text-[11px] leading-snug text-[var(--lf-dim)]">
-                    {FIELD_LABELS[p.field]} →{' '}
-                    {p.value !== null ? `${fmt(p.value)} cr` : 'off'} · applies{' '}
-                    {new Date(p.effectiveAt).toLocaleString()} (raises wait 24h)
+                    {FIELD_LABELS[p.field]} → {p.value !== null ? `${fmt(p.value)} cr` : 'off'} ·
+                    applies {new Date(p.effectiveAt).toLocaleString()} (raises wait 24h)
                   </li>
                 ))}
               </ul>

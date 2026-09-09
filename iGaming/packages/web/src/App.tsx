@@ -1,34 +1,52 @@
 /**
- * Dashboard shell. Five zones, and nothing else competes for the screen:
+ * The shell — two layouts over one game.
  *
- *   TOP BAR      identity, table, jackpot, balance, settings — one hairline row
- *   LEFT RAIL    telemetry: session curve, this round, zone flow, the record
- *   BOARD        the plot area — zones, storm, and the round's leading figure
- *   RIGHT PANEL  chat / activity, collapsed by default
- *   DECK         stake, mode and the single primary action, always visible
+ * BEGINNER (the default for a new profile)
  *
- * The rails are chrome (bg-2) and the board is the darkest surface on screen,
- * so the eye falls into the middle of the layout without a single shadow or
- * gradient doing the work. Below 1280px the rails become launcher-opened
- * drawers and the board takes the whole width — on a phone the board IS the
- * product, and a dashboard that cannot collapse is not a dashboard.
+ *   ┌──────────────────────────────────────┐
+ *   │ LANDFALL          12.50   ADVANCED   │  three items
+ *   ├──────────────────────────────────────┤
+ *   │                                      │
+ *   │        the board: six harbors,      │  everything
+ *   │        the storm, one overlay        │
+ *   │                                      │
+ *   ├──────────────────────────────────────┤
+ *   │  − 5.00 +   [ LOCK IN ]              │  one action
+ *   └──────────────────────────────────────┘
+ *
+ * ADVANCED — the shipped dashboard, unchanged: telemetry rail, chat column,
+ * full top bar, full control deck, plus the same round overlays.
+ *
+ * Both render from `useRoundState()`, so the two layouts can never disagree
+ * about what phase the round is in. The mode is a persisted per-profile choice
+ * (uiMode.ts), offered after five rounds and reversible from the Advanced
+ * sheet. Nothing is deleted in beginner mode — everything advanced is one tap
+ * away, which is the whole difference between hiding and removing.
  */
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { BeginnerDeck } from './components/BeginnerDeck';
+import { BeginnerTopBar } from './components/BeginnerTopBar';
+import { AdvancedSheet } from './components/AdvancedSheet';
+import { BoardNotices } from './components/BoardNotices';
 import { ControlDeck } from './components/ControlDeck';
 import { LimitsModal } from './components/LimitsModal';
 import { RealityCheck } from './components/RealityCheck';
-import { ResultBanner } from './components/ResultBanner';
+import { RoundStage } from './components/RoundStage';
 import { RulesModal } from './components/RulesModal';
 import { SecondaryPanel } from './components/SecondaryPanel';
 import { SkipperCard } from './components/SkipperCard';
+import { SignalFlagCard } from './components/SignalFlagCard';
 import { StormClock } from './components/StormClock';
-import { TableIntro } from './components/TableIntro';
 import { TelemetryRail } from './components/TelemetryRail';
 import { TopBar } from './components/TopBar';
 import { VerifyModal } from './components/VerifyModal';
 import { WelcomeGate } from './components/WelcomeGate';
 import { WreckLog } from './components/WreckLog';
 import { WreckLogSheet } from './components/WreckLogSheet';
+import { useDeckProgressTriggers } from './useDeckProgressTriggers';
+import { useRoundState } from './useRoundState';
+import { useBoardTopBand } from './useShortViewport';
+import { useUiMode } from './uiMode';
 import { useStore } from './store';
 
 const HarborMap = lazy(() =>
@@ -37,8 +55,15 @@ const HarborMap = lazy(() =>
 
 export default function App() {
   const toast = useStore((s) => s.toast);
-  const toastTone = useStore((s) => s.toastTone);
   const dismissToast = useStore((s) => s.dismissToast);
+  const roundState = useRoundState();
+  const uiMode = useUiMode();
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const beginner = uiMode.mode === 'beginner';
+  const topBand = useBoardTopBand();
+
+  // Counts rounds and first-flag sightings for BOTH layouts (see the module).
+  useDeckProgressTriggers();
 
   useEffect(() => {
     if (!toast) return;
@@ -48,11 +73,12 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col bg-[var(--lf-bg)]">
-      <TopBar />
-      <main className="relative flex min-h-0 flex-1">
-        <TelemetryRail />
+      {beginner ? <BeginnerTopBar onOpenAdvanced={() => setAdvancedOpen(true)} /> : <TopBar />}
 
-        {/* the board: plot area + overlays + control deck */}
+      <main className="relative flex min-h-0 flex-1">
+        {!beginner && <TelemetryRail />}
+
+        {/* the board — in beginner mode it is the entire window */}
         <div className="relative min-w-0 flex-1">
           <div className="absolute inset-0">
             <Suspense
@@ -66,32 +92,44 @@ export default function App() {
             </Suspense>
           </div>
 
-          <WreckLog />
+          {!beginner && <WreckLog />}
           <StormClock />
-          <TableIntro />
-          <ResultBanner />
-          <ControlDeck />
 
-          {/* error toast — above the deck, never a modal */}
-          {toast && (
-            <div
-              role={toastTone === 'error' ? 'alert' : 'status'}
-              aria-live={toastTone === 'error' ? 'assertive' : 'polite'}
-              className={`lf-rise absolute left-1/2 z-30 max-w-[min(92vw,34rem)] -translate-x-1/2 rounded-md border bg-[var(--lf-surface)] px-4 py-2 text-center text-sm font-semibold text-[var(--lf-text)] ${
-                toastTone === 'error'
-                  ? 'border-[var(--lf-accent-line)]'
-                  : 'border-[var(--lf-line-2)]'
-              }`}
-              style={{ bottom: 'calc(var(--lf-control-deck-height, 7.5rem) + 0.75rem)' }}
-            >
-              {toast}
-            </div>
-          )}
+          {/*
+            Ambient signal card. `top-14` clears the history strip (`top-2`,
+            36px tall) that the advanced board puts in the same corner — at
+            `top-3` the two drew straight through each other. It keeps the
+            offset in beginner mode too: one geometry beats two.
+          */}
+          <div className="pointer-events-none absolute left-3 top-14 z-[var(--lf-z-hud)] hidden lg:block">
+            <SignalFlagCard state={roundState} />
+          </div>
+
+          {/*
+            ONE bottom column. The round's surface and the notice band are
+            siblings in a flex column anchored above the deck, so they stack
+            rather than overlap; previously three components pinned themselves
+            to this same offset independently and any two could collide.
+          */}
+          <div
+            className="pointer-events-none absolute inset-x-0 z-[var(--lf-z-stage)] flex flex-col items-center justify-end gap-2 overflow-hidden px-3"
+            style={{
+              top: topBand,
+              bottom: 'calc(var(--lf-control-deck-height, 7.5rem) + 0.75rem)',
+            }}
+          >
+            <RoundStage state={roundState} />
+            <BoardNotices state={roundState} />
+          </div>
+
+          {beginner ? <BeginnerDeck state={roundState} /> : <ControlDeck />}
         </div>
 
-        {/* chat / activity */}
-        <SecondaryPanel />
+        {!beginner && <SecondaryPanel />}
       </main>
+
+      <AdvancedSheet open={advancedOpen} onClose={() => setAdvancedOpen(false)} />
+
       <VerifyModal />
       <RulesModal />
       {/* E1/E2: cosmetic skipper cards + replay-card Wreck Log. */}

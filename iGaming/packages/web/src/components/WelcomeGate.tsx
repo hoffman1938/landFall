@@ -51,7 +51,7 @@ function markWelcomeSeen(): void {
  */
 function PitchStrip() {
   const frames: [React.ComponentType<{ size?: number }>, string, string][] = [
-    [AnchorIcon, '#ffffff', 'You pick a zone'],
+    [AnchorIcon, '#ffffff', 'You pick a harbor'],
     [StormIcon, 'var(--lf-accent)', 'The storm hits one'],
     [CrateIcon, 'var(--lf-win)', 'Its pot pays the rest'],
     [SurgeIcon, 'var(--lf-warn)', 'Jackpot builds'],
@@ -170,131 +170,143 @@ export function WelcomeGate() {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-3 sm:p-4"
+      className="fixed inset-0 z-[var(--lf-z-gate)] flex items-center justify-center bg-black/85 p-3 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
     >
-      <div className="lf-rise lf-overlay flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-y-auto p-4 sm:p-5">
-        <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className="flex h-5 w-5 items-center justify-center bg-[var(--lf-accent)] text-[11px] font-black leading-none text-black"
-          >
-            L
-          </span>
-          <span className="text-[13px] font-extrabold tracking-[0.24em] text-[var(--lf-text)]">
-            LANDFALL
-          </span>
-        </div>
-
-        <h2
-          id={titleId}
-          className="mt-3 text-[20px] font-extrabold leading-snug tracking-[-0.01em] text-[var(--lf-text)]"
-        >
-          {ONE_LINER}
-        </h2>
-
-        {showRules ? (
-          <>
-            <div className="mt-3">
-              <PitchStrip />
-            </div>
-
-            <ol className="mt-3 space-y-2">
-              {WELCOME_POINTS.map((point, i) => (
-                <li key={point.title} className="flex gap-2.5">
-                  <span
-                    aria-hidden="true"
-                    className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-[var(--lf-line)] text-[11px] font-black text-[var(--lf-mute)]"
-                  >
-                    {i + 1}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-[13px] font-extrabold text-[var(--lf-text)]">
-                      {point.title}
-                    </span>
-                    <span className="block text-[12px] leading-snug text-[var(--lf-dim)]">
-                      {point.body}
-                    </span>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              audio.click('nav');
-              setShowRules(true);
-            }}
-            className="mt-3 flex min-h-11 items-center gap-2 self-start rounded-md border border-dashed border-[var(--lf-line)] px-3 text-[13px] font-bold text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
-          >
-            <ShieldCheckIcon size={15} />
-            {STR.welcomeRulesToggle}
-          </button>
-        )}
-
-        <div
-          className="mt-4 mb-2 flex items-center gap-2"
-          role="separator"
-          aria-hidden="true"
-        >
-          <span className="h-px flex-1 bg-[var(--lf-line)]" />
-          <span className="lf-label">{STR.welcomeChooseTable}</span>
-          <span className="h-px flex-1 bg-[var(--lf-line)]" />
-        </div>
-
-        <div role="radiogroup" aria-label={STR.welcomeChooseTable} className="flex flex-col gap-1.5">
-          {rooms.map((room) => (
-            <TableCard
-              key={room.roomId}
-              room={room}
-              selected={room.roomId === selected}
-              onSelect={() => {
-                audio.click('tap');
-                setPicked(room.roomId);
-              }}
-            />
-          ))}
-        </div>
-
-        <p className="mt-2 text-[11px] font-semibold leading-snug text-[var(--lf-mute)]">
-          {STR.welcomeTableHint}
-        </p>
-
-        <button
-          ref={playRef}
-          type="button"
-          onClick={confirm}
-          disabled={!selectedRoom}
-          className="lf-armed mt-3 flex min-h-14 w-full flex-col items-center justify-center rounded-md bg-[var(--lf-win)] px-4 text-[#04180e] transition-colors duration-150 hover:bg-[#2af08c] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <span className="text-[17px] font-black uppercase leading-tight tracking-[0.05em]">
-            {STR.welcomePlayAt} {selectedRoom?.name ?? '—'}
-          </span>
-          {selectedRoom && (
-            <span className="text-[11px] font-semibold leading-tight tabular-nums text-black/60">
-              Bet {fmt(selectedRoom.minStakeMinor)}–{fmt(selectedRoom.maxStakeMinor)} per round
+      {/*
+        The panel is a column with ONE scrolling region, not a single scroll
+        box. As a single box the primary action sat at the bottom of the
+        scrolled content, so on a 640px-tall phone a first-time player had to
+        scroll an explanation they had not read yet to find the only button on
+        the screen. The commit action and its disclaimer are now a pinned
+        footer; everything above them scrolls behind it.
+      */}
+      <div className="lf-rise lf-overlay flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 pb-3 sm:p-5 sm:pb-3">
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="flex h-5 w-5 items-center justify-center bg-[var(--lf-accent)] text-[11px] font-black leading-none text-black"
+            >
+              L
             </span>
-          )}
-        </button>
+            <span className="text-[13px] font-extrabold tracking-[0.24em] text-[var(--lf-text)]">
+              LANDFALL
+            </span>
+          </div>
 
-        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[11px] font-semibold text-[var(--lf-mute)]">
-            {STR.welcomeDisclaimer}
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              audio.click('nav');
-              setRulesOpen(true);
-            }}
-            className="min-h-11 px-1 text-[12px] font-bold text-[var(--lf-text)] underline decoration-[var(--lf-line-2)] underline-offset-4 hover:decoration-white"
+          <h2
+            id={titleId}
+            className="mt-3 text-[20px] font-extrabold leading-snug tracking-[-0.01em] text-[var(--lf-text)]"
           >
-            Full rules & fairness →
+            {ONE_LINER}
+          </h2>
+
+          {showRules ? (
+            <>
+              <div className="mt-3">
+                <PitchStrip />
+              </div>
+
+              <ol className="mt-3 space-y-2">
+                {WELCOME_POINTS.map((point, i) => (
+                  <li key={point.title} className="flex gap-2.5">
+                    <span
+                      aria-hidden="true"
+                      className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-[var(--lf-line)] text-[11px] font-black text-[var(--lf-mute)]"
+                    >
+                      {i + 1}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-extrabold text-[var(--lf-text)]">
+                        {point.title}
+                      </span>
+                      <span className="block text-[12px] leading-snug text-[var(--lf-dim)]">
+                        {point.body}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                audio.click('nav');
+                setShowRules(true);
+              }}
+              className="mt-3 flex min-h-11 items-center gap-2 self-start rounded-md border border-dashed border-[var(--lf-line)] px-3 text-[13px] font-bold text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
+            >
+              <ShieldCheckIcon size={15} />
+              {STR.welcomeRulesToggle}
+            </button>
+          )}
+
+          <div className="mt-4 mb-2 flex items-center gap-2" role="separator" aria-hidden="true">
+            <span className="h-px flex-1 bg-[var(--lf-line)]" />
+            <span className="lf-label">{STR.welcomeChooseTable}</span>
+            <span className="h-px flex-1 bg-[var(--lf-line)]" />
+          </div>
+
+          <div
+            role="radiogroup"
+            aria-label={STR.welcomeChooseTable}
+            className="flex flex-col gap-1.5"
+          >
+            {rooms.map((room) => (
+              <TableCard
+                key={room.roomId}
+                room={room}
+                selected={room.roomId === selected}
+                onSelect={() => {
+                  audio.click('tap');
+                  setPicked(room.roomId);
+                }}
+              />
+            ))}
+          </div>
+
+          <p className="mt-2 text-[11px] font-semibold leading-snug text-[var(--lf-mute)]">
+            {STR.welcomeTableHint}
+          </p>
+        </div>
+
+        <div className="shrink-0 border-t border-[var(--lf-line)] bg-[var(--lf-surface)] p-4 pt-3 sm:p-5 sm:pt-3">
+          <button
+            ref={playRef}
+            type="button"
+            onClick={confirm}
+            disabled={!selectedRoom}
+            className="lf-armed flex min-h-14 w-full flex-col items-center justify-center rounded-md bg-[var(--lf-win)] px-4 text-[#04180e] transition-colors duration-150 hover:bg-[#2af08c] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="text-[17px] font-black uppercase leading-tight tracking-[0.05em]">
+              {STR.welcomePlayAt} {selectedRoom?.name ?? '—'}
+            </span>
+            {selectedRoom && (
+              <span className="text-[11px] font-semibold leading-tight tabular-nums text-black/60">
+                Bet {fmt(selectedRoom.minStakeMinor)}–{fmt(selectedRoom.maxStakeMinor)} per round
+              </span>
+            )}
           </button>
+
+          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold text-[var(--lf-mute)]">
+              {STR.welcomeDisclaimer}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                audio.click('nav');
+                setRulesOpen(true);
+              }}
+              className="min-h-11 px-1 text-[12px] font-bold text-[var(--lf-text)] underline decoration-[var(--lf-line-2)] underline-offset-4 hover:decoration-white"
+            >
+              Full rules & fairness →
+            </button>
+          </div>
         </div>
       </div>
     </div>

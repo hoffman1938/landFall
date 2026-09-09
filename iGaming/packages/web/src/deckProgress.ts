@@ -109,7 +109,9 @@ const STORAGE_KEY = 'landfall.deck-progress.v1';
  */
 const HAD_PLAYER_ID_AT_BOOT = (() => {
   try {
-    return typeof window !== 'undefined' && window.localStorage.getItem('landfall.playerId') !== null;
+    return (
+      typeof window !== 'undefined' && window.localStorage.getItem('landfall.playerId') !== null
+    );
   } catch {
     return false;
   }

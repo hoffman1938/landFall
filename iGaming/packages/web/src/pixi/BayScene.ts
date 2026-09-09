@@ -17,17 +17,17 @@
 import { Application, Container, Graphics, Rectangle, Text } from 'pixi.js';
 import {
   ZONE_COUNT,
+  type CosmeticDraw,
+  type EnvironmentSpec,
+  type EventTierSpec,
   type SignalPublic,
   type TideBand,
   type TideReport,
   type WeatherId,
 } from '@landfall/core';
-import { getCoveLayouts } from '../coveLayout';
-import {
-  FEINT_ACQUIRE_MS,
-  stormRouteLeg,
-  stormRouteZones,
-} from '../stormPath';
+import { boardInsets, getCoveLayouts } from '../coveLayout';
+import { subscribeDeckHeight } from '../deckHeight';
+import { FEINT_ACQUIRE_MS, stormRouteLeg, stormRouteZones } from '../stormPath';
 
 export interface BayState {
   phase: 'ANCHOR_OPEN' | 'LOCKED_STORM' | 'RESOLVED' | 'COOLDOWN' | null;
@@ -43,6 +43,17 @@ export interface BayState {
   resolvedRoundId: number | null;
   signals: SignalPublic[];
   surgeRound: boolean;
+  /**
+   * v4 cosmetic board skin. Drawn from its own HMAC domain server-side; the
+   * scene only ever reads it. It changes the sky and the ambient layer and
+   * touches nothing else — a Black Fog round and an Open Sea round play the
+   * same game with the same odds.
+   */
+  environment: EnvironmentSpec | null;
+  /** How loud the reveal is: sweeps, shake, sky, lightning. Presentation only. */
+  eventTier: EventTierSpec | null;
+  /** Deterministic visual jitter, so every client draws the round identically. */
+  cosmetic: CosmeticDraw | null;
 }
 
 export interface BayHandlers {
@@ -199,6 +210,12 @@ export class BayScene {
   private app = new Application();
   private coves: Cove[] = [];
   private skyG = new Graphics();
+  /** Environment ambience BEHIND the harbors: stars, aurora, horizon glow. */
+  private envBackG = new Graphics();
+  /** Environment ambience IN FRONT: rain, fog density, lightning forks. */
+  private envFrontG = new Graphics();
+  /** The reveal's own layer: radar sweeps and the closing frame. */
+  private revealG = new Graphics();
   private chartG = new Graphics(); // static sonar rings
   private wavesG = new Graphics();
   private fogC = new Container();
@@ -227,6 +244,9 @@ export class BayScene {
     resolvedRoundId: null,
     signals: [],
     surgeRound: false,
+    environment: null,
+    eventTier: null,
+    cosmetic: null,
   };
   private handlers: BayHandlers = { onPick: () => {}, onFlag: () => {} };
   private sky = MOOD.night;
@@ -245,24 +265,54 @@ export class BayScene {
   private flashUntil = 0;
   /** Expanding red shockwave centered on the struck zone (the "which zone?" answer). */
   private strikeImpact: { x: number; y: number; start: number } | null = null;
+  /**
+   * Camera shake, in board pixels, decaying to zero. Amplitude comes from the
+   * event tier and nothing else; on a CALM round it is exactly 0, so the great
+   * majority of rounds have a perfectly still board.
+   */
+  private shake = { amplitude: 0, until: 0 };
+  /** Scheduled lightning forks: when to draw one, and for how long. */
+  private bolts: { at: number; x: number; seed: number }[] = [];
+  /** Reveal window identity, so its progress is measured against THIS window. */
+  private revealWindow = { endsAt: 0, startedAt: 0 };
   private longPress: { timer: number; zone: number } | null = null;
   private suppressTap = false;
   private hoveredZone: number | null = null;
   private reduced = false;
   private destroyed = false;
   private hostObserver: ResizeObserver | null = null;
+  private unsubscribeDeck: (() => void) | null = null;
 
   async init(host: HTMLElement, handlers: BayHandlers): Promise<void> {
     this.handlers = handlers;
     this.reduced =
       typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    await this.app.init({ backgroundAlpha: 0, resizeTo: host, antialias: true });
+    /*
+     * The canvas is sized EXPLICITLY, never by `resizeTo`.
+     *
+     * `resizeTo: host` looked right and failed in one specific, common case: if
+     * the host measures 0x0 at init — which is exactly what happens when this
+     * lazy chunk resolves while the board is not being composited (a
+     * backgrounded tab, a hidden pane, a `display:none` ancestor) — Pixi keeps
+     * its 800x600 default, and no later host resize recovers it. The board then
+     * draws every bracket, reticle, token and strike frame in an 800x600
+     * coordinate space while the DOM harbor cards reflow to the real viewport:
+     * the two halves of the same map, permanently out of register. Measured
+     * live at a 390px viewport with the canvas still at 800x600.
+     *
+     * Driving `renderer.resize(w, h)` from the ResizeObserver instead removes
+     * the plugin from the path entirely and is self-healing: the observer fires
+     * again the moment the host has a real size, whenever that turns out to be.
+     */
+    await this.app.init({ backgroundAlpha: 0, antialias: true });
     if (this.destroyed) return;
     host.appendChild(this.app.canvas);
     host.addEventListener('contextmenu', (e) => e.preventDefault());
 
     const stage = this.app.stage;
-    stage.addChild(this.skyG, this.chartG, this.wavesG);
+    // Order is the whole z-index policy: sky, ambience behind, the chart, then
+    // the harbors (added below), then the reveal layer, then the storm.
+    stage.addChild(this.skyG, this.envBackG, this.chartG, this.wavesG);
 
     for (let z = 0; z < ZONE_COUNT; z++) {
       const land = new Graphics();
@@ -376,7 +426,7 @@ export class BayScene {
     this.stormBolt.visible = false;
     this.stormC.addChild(this.stormRain, this.stormReticle, this.stormBolt);
     this.stormC.visible = false;
-    stage.addChild(this.stormC, this.cargoC, this.ripples);
+    stage.addChild(this.revealG, this.stormC, this.cargoC, this.ripples, this.envFrontG);
 
     this.flashG.rect(0, 0, 4, 4).fill(0xffffff);
     this.flashG.alpha = 0;
@@ -385,19 +435,33 @@ export class BayScene {
     this.layout();
     this.app.renderer.on('resize', () => this.layout());
 
-    // `resizeTo` only reacts to WINDOW resizes, so the bay kept its old size
-    // whenever the host box changed on its own — opening or closing the docked
-    // chat column, for instance. The canvas then drew every anchorage, boat and
-    // pier at the previous width while the DOM cove cards had already moved:
-    // the two halves of the same map, visibly out of register. Observe the host.
-    this.hostObserver = new ResizeObserver(() => {
+    /*
+     * The single source of the canvas's size. It runs on `observe()` too, so
+     * the first real measurement arrives here rather than depending on whatever
+     * the host happened to be during `init()`.
+     */
+    const syncSize = () => {
       if (this.destroyed || !this.app.renderer) return;
-      const { clientWidth, clientHeight } = host;
-      if (clientWidth <= 0 || clientHeight <= 0) return;
-      if (clientWidth === this.app.screen.width && clientHeight === this.app.screen.height) return;
-      this.app.resize();
-    });
+      const width = host.clientWidth;
+      const height = host.clientHeight;
+      // A zero box means the board is not laid out yet (hidden pane, lazy chunk
+      // landing early). Keep the last good size and wait — the observer will
+      // fire again with real numbers.
+      if (width <= 0 || height <= 0) return;
+      if (width === this.app.screen.width && height === this.app.screen.height) return;
+      this.app.renderer.resize(width, height); // emits 'resize' -> this.layout()
+    };
+
+    this.hostObserver = new ResizeObserver(syncSize);
     this.hostObserver.observe(host);
+    syncSize();
+
+    // The board reserves the deck's band, so a deck that changes height (mode
+    // switch, stake row wrapping on a narrow screen) has to re-lay the harbors
+    // — otherwise the canvas marks and the DOM cards drift apart.
+    this.unsubscribeDeck = subscribeDeckHeight(() => {
+      if (!this.destroyed && this.app.renderer) this.layout();
+    });
 
     this.app.ticker.add(() => this.tick());
   }
@@ -421,6 +485,8 @@ export class BayScene {
     this.clearLongPress();
     this.hostObserver?.disconnect();
     this.hostObserver = null;
+    this.unsubscribeDeck?.();
+    this.unsubscribeDeck = null;
     if (this.app.renderer) this.app.destroy(true, { children: true });
   }
 
@@ -441,7 +507,7 @@ export class BayScene {
     // also read. This used to be a second hardcoded copy of the centers, which
     // silently drifted: the cards sat in one arrangement and the boats, piers
     // and anchorages in another.
-    const layouts = getCoveLayouts(W, H);
+    const layouts = getCoveLayouts(W, H, boardInsets(W, H));
 
     this.coves.forEach((cove, z) => {
       const l = layouts[z];
@@ -585,7 +651,10 @@ export class BayScene {
     }
 
     // axes, interrupted at the origin
-    this.chartG.moveTo(m, cy).lineTo(cx - gap, cy).stroke({ color: CHART, width: 1, alpha: 0.7 });
+    this.chartG
+      .moveTo(m, cy)
+      .lineTo(cx - gap, cy)
+      .stroke({ color: CHART, width: 1, alpha: 0.7 });
     this.chartG
       .moveTo(cx + gap, cy)
       .lineTo(W - m, cy)
@@ -604,7 +673,10 @@ export class BayScene {
       const x = m + ((W - 2 * m) * i) / 12;
       const long = i % 3 === 0;
       const len = long ? 9 : 5;
-      this.chartG.moveTo(x, m).lineTo(x, m + len).stroke({ color: CHART, width: 1, alpha: long ? 0.9 : 0.45 });
+      this.chartG
+        .moveTo(x, m)
+        .lineTo(x, m + len)
+        .stroke({ color: CHART, width: 1, alpha: long ? 0.9 : 0.45 });
       this.chartG
         .moveTo(x, H - m)
         .lineTo(x, H - m - len)
@@ -614,7 +686,10 @@ export class BayScene {
       const y = m + ((H - 2 * m) * i) / 8;
       const long = i % 2 === 0;
       const len = long ? 9 : 5;
-      this.chartG.moveTo(m, y).lineTo(m + len, y).stroke({ color: CHART, width: 1, alpha: long ? 0.9 : 0.45 });
+      this.chartG
+        .moveTo(m, y)
+        .lineTo(m + len, y)
+        .stroke({ color: CHART, width: 1, alpha: long ? 0.9 : 0.45 });
       this.chartG
         .moveTo(W - m, y)
         .lineTo(W - m - len, y)
@@ -631,8 +706,7 @@ export class BayScene {
 
     this.coves.forEach((cove, z) => {
       const report = tideByZone.get(z);
-      const struck =
-        st.struckZone === z && (st.phase === 'RESOLVED' || st.phase === 'COOLDOWN');
+      const struck = st.struckZone === z && (st.phase === 'RESOLVED' || st.phase === 'COOLDOWN');
 
       // Selection uses ring + boat + the DOM card so it never relies on color alone.
       const mine = st.myZones.find((m) => m.zone === z);
@@ -736,11 +810,239 @@ export class BayScene {
       st.phase === 'LOCKED_STORM' || st.phase === 'RESOLVED' || st.phase === 'COOLDOWN';
   }
 
+  /* ---------- environment (cosmetic, independent of everything) ---------- */
+
+  /**
+   * A tiny deterministic PRNG seeded from the round's cosmetic draw.
+   *
+   * Deterministic because every client should see the SAME rain, the same
+   * lightning fork in the same place — a round is one shared event, and two
+   * players describing it to each other should be describing one thing. It also
+   * means the ambience can never accidentally become an input to anything: it
+   * is a pure function of a number the server already committed to.
+   */
+  private cosmeticRandom(index: number): number {
+    const base = this.state.cosmetic?.seed ?? 0x9e3779b9;
+    let x = (base ^ (index * 0x85ebca6b)) >>> 0;
+    x ^= x << 13;
+    x >>>= 0;
+    x ^= x >> 17;
+    x ^= x << 5;
+    x >>>= 0;
+    return x / 0x1_0000_0000;
+  }
+
+  /**
+   * The ambient layer. Every branch is a handful of primitives on the same two
+   * Graphics objects, because the environments have to be free: one of them
+   * runs on 65% of rounds and none of them may cost the board a frame.
+   */
+  private drawEnvironment(now: number, W: number, H: number): void {
+    const env = this.state.environment;
+    this.envBackG.clear();
+    this.envFrontG.clear();
+    if (!env || this.reduced) return;
+
+    switch (env.id) {
+      case 'NORMAL_SEA':
+        break;
+
+      case 'RAIN': {
+        // Rain is drawn as a shear of short strokes, not as particles: the
+        // board is an instrument and the weather on it should read as hatching.
+        const drift = (now / 9) % 26;
+        for (let i = 0; i < 46; i++) {
+          const x = ((this.cosmeticRandom(i) * (W + 120) + drift * 2) % (W + 120)) - 60;
+          const y = (this.cosmeticRandom(i + 200) * H + drift * 6) % H;
+          this.envFrontG
+            .moveTo(x, y)
+            .lineTo(x - 4, y + 14)
+            .stroke({ color: 0x9fb3c8, width: 1, alpha: 0.14 });
+        }
+        break;
+      }
+
+      case 'NIGHT': {
+        for (let i = 0; i < 60; i++) {
+          const x = this.cosmeticRandom(i) * W;
+          const y = this.cosmeticRandom(i + 300) * H * 0.55;
+          const twinkle = 0.25 + 0.25 * Math.sin(now / 900 + i);
+          this.envBackG.rect(x, y, 1.4, 1.4).fill({ color: 0xffffff, alpha: twinkle });
+        }
+        break;
+      }
+
+      case 'LIGHTNING': {
+        // Horizon flashes only — the fork itself belongs to a TEMPEST reveal.
+        const beat = (now / 2_600) % 1;
+        if (beat < 0.05) {
+          this.envBackG
+            .rect(0, 0, W, H * 0.42)
+            .fill({ color: 0x6f7fa8, alpha: 0.05 * (1 - beat / 0.05) });
+        }
+        break;
+      }
+
+      case 'RED_SKY': {
+        this.envBackG.rect(0, 0, W, H * 0.5).fill({ color: 0x7a1c14, alpha: 0.09 });
+        break;
+      }
+
+      case 'AURORA': {
+        for (let band = 0; band < 3; band++) {
+          const phase = now / (5_200 + band * 900);
+          const y = H * (0.08 + band * 0.05) + Math.sin(phase) * 12;
+          this.envBackG
+            .rect(0, y, W, 16 + band * 6)
+            .fill({ color: band === 1 ? 0x17e07d : 0x2f8fbf, alpha: 0.05 });
+        }
+        break;
+      }
+
+      case 'BLACK_FOG': {
+        // The rarest skin: a heavy vignette that leaves the harbors legible and
+        // takes the horizon away. It must never obscure a control — the game is
+        // still being played through it.
+        const inset = Math.min(W, H) * 0.1;
+        this.envFrontG.rect(0, 0, W, inset).fill({ color: 0x000000, alpha: 0.5 });
+        this.envFrontG.rect(0, H - inset, W, inset).fill({ color: 0x000000, alpha: 0.5 });
+        this.envFrontG.rect(0, 0, inset, H).fill({ color: 0x000000, alpha: 0.45 });
+        this.envFrontG.rect(W - inset, 0, inset, H).fill({ color: 0x000000, alpha: 0.45 });
+        break;
+      }
+    }
+
+    // Scheduled forks (TEMPEST reveals, and only those).
+    for (const bolt of this.bolts) {
+      const age = now - bolt.at;
+      if (age < 0 || age > 220) continue;
+      const alpha = 1 - age / 220;
+      let x = bolt.x;
+      let y = 0;
+      for (let seg = 0; seg < 7; seg++) {
+        const nx = x + (this.cosmeticRandom(bolt.seed + seg) - 0.5) * 60;
+        const ny = y + H / 7;
+        this.envFrontG
+          .moveTo(x, y)
+          .lineTo(nx, ny)
+          .stroke({ color: 0xffffff, width: 2, alpha: alpha * 0.7 });
+        x = nx;
+        y = ny;
+      }
+    }
+    if (this.bolts.length && now - this.bolts[this.bolts.length - 1]!.at > 400) this.bolts = [];
+  }
+
+  /* ---------- the reveal, in four readable stages ---------- */
+
+  /**
+   * The five seconds between the table sealing and the strike, spent saying one
+   * thing: *how close is this to being decided?*
+   *
+   *   0–18 %   the storm arrives      a ring opens at the centre of the board
+   *   18–52 %  radar sweeps           N pulses cross every harbor in turn
+   *   52–84 %  the approach           a frame closes from the board's edges
+   *   84–100 % focus                  the frame tightens onto the reticle
+   *
+   * `pulses` is the only thing the event tier changes here. The RESULT ALREADY
+   * EXISTS — it was drawn in `beginRound()` on the server, before this window
+   * opened — and nothing in this method has, or could have, any access to it:
+   * the client is not told the struck harbor until the LANDFALL message. The
+   * narrowing therefore cannot leak an answer, and equally it never CLAIMS to
+   * exclude a harbor: the sweeps keep crossing all six, and the frame closes
+   * on the reticle's patrol stop, which is a published decoy.
+   */
+  private drawReveal(now: number, W: number, H: number): void {
+    this.revealG.clear();
+    const st = this.state;
+    if (st.phase !== 'LOCKED_STORM' || !st.storm) return;
+
+    const span = Math.max(1, this.revealWindow.endsAt - this.revealWindow.startedAt);
+    const t = Math.min(1, Math.max(0, (now - this.revealWindow.startedAt) / span));
+    const tier = st.eventTier;
+    const pulses = tier?.pulses ?? 2;
+    const cx = W / 2;
+    const cy = H / 2;
+    const maxR = Math.hypot(W, H) / 2;
+
+    // Stage 1 — arrival.
+    if (t < 0.2) {
+      const u = t / 0.2;
+      const r = maxR * 0.16 * (1 - (1 - u) ** 2);
+      this.revealG.circle(cx, cy, r).stroke({ color: DANGER, width: 2, alpha: 0.5 * (1 - u) });
+    }
+
+    // Stage 2 — radar sweeps. Each pulse is a ring crossing the whole board, so
+    // every harbor is scanned by every pulse. Nothing is eliminated.
+    if (t >= 0.14 && t < 0.9) {
+      const u = (t - 0.14) / (0.9 - 0.14);
+      for (let i = 0; i < pulses; i++) {
+        const pu = (u * pulses - i) % 1;
+        if (pu < 0 || pu > 1) continue;
+        const r = maxR * pu;
+        this.revealG
+          .circle(cx, cy, r)
+          .stroke({ color: DANGER, width: 1.5, alpha: 0.28 * (1 - pu) });
+      }
+    }
+
+    // Stage 3+4 — the frame closes. It is drawn as four inward-marching edges,
+    // easing toward the reticle's current stop rather than toward any harbor
+    // the client has been told about (it has not been told about one).
+    if (t >= 0.5) {
+      const u = Math.min(1, (t - 0.5) / 0.5);
+      const ease = 1 - (1 - u) ** 3;
+      const tx = this.stormPos.x >= 0 ? this.stormPos.x : cx;
+      const ty = this.stormPos.y >= 0 ? this.stormPos.y : cy;
+      const halfW = lerp(W / 2, this.stormReach.halfW + 26, ease);
+      const halfH = lerp(H / 2, this.stormReach.halfH + 26, ease);
+      const x = lerp(cx, tx, ease);
+      const y = lerp(cy, ty, ease);
+      this.revealG
+        .rect(x - halfW, y - halfH, halfW * 2, halfH * 2)
+        .stroke({ color: DANGER, width: 1, alpha: 0.18 + ease * 0.4 });
+
+      // Everything outside the closing frame loses light. Dimming is the honest
+      // half of "narrowing": it says the attention is here now, not that the
+      // rest is safe — and it lifts completely the instant the strike lands.
+      const dim = ease * 0.34;
+      if (dim > 0.01) {
+        this.revealG.rect(0, 0, W, Math.max(0, y - halfH)).fill({ color: 0x000000, alpha: dim });
+        this.revealG
+          .rect(0, y + halfH, W, Math.max(0, H - (y + halfH)))
+          .fill({ color: 0x000000, alpha: dim });
+        this.revealG
+          .rect(0, Math.max(0, y - halfH), Math.max(0, x - halfW), halfH * 2)
+          .fill({ color: 0x000000, alpha: dim });
+        this.revealG
+          .rect(x + halfW, Math.max(0, y - halfH), Math.max(0, W - (x + halfW)), halfH * 2)
+          .fill({ color: 0x000000, alpha: dim });
+      }
+    }
+
+    // A TEMPEST throws its lightning during the approach, not at the strike —
+    // at the strike it would compete with the answer.
+    if (tier?.lightning && this.bolts.length === 0 && t > 0.55) {
+      this.bolts = [0, 1, 2].map((i) => ({
+        at: now + i * 170,
+        x: this.cosmeticRandom(i + 900) * W,
+        seed: 1_000 + i * 17,
+      }));
+    }
+  }
+
   /* ---------- the strike cinematic ---------- */
 
   private beginStrike(struck: number): void {
     this.beamStart = Date.now() + 650;
     if (!this.reduced) this.flashUntil = Date.now() + 200;
+    // Shake amplitude comes from the event tier and nowhere else. CALM is 0, so
+    // three rounds in four have a completely still board — which is what makes
+    // the one in twenty that moves mean something.
+    const amplitude = this.reduced ? 0 : (this.state.eventTier?.shakePx ?? 0);
+    if (amplitude > 0) {
+      this.shake = { amplitude, until: Date.now() + 520 };
+    }
     this.stormBolt.visible = true;
     window.setTimeout(() => (this.stormBolt.visible = false), 420);
 
@@ -748,7 +1050,11 @@ export class BayScene {
     const from = this.coves[struck];
     if (!from) return;
     // the shockwave that answers "which zone got hit?" — fires as the bolt lands
-    this.strikeImpact = { x: from.moorX, y: from.moorY, start: Date.now() + (this.reduced ? 0 : 150) };
+    this.strikeImpact = {
+      x: from.moorX,
+      y: from.moorY,
+      start: Date.now() + (this.reduced ? 0 : 150),
+    };
     const now = Date.now();
     let stagger = 620; // let the bolt land first
     this.coves.forEach((cove, z) => {
@@ -803,7 +1109,14 @@ export class BayScene {
           : st.phase === 'RESOLVED'
             ? 'golden'
             : 'night';
-    this.sky = lerpColor(this.sky, MOOD[mood], 0.05);
+    // The environment owns the ground colour; the phase tints on top of it. A
+    // Red Sky round stays a red sky in every phase, which is the point of a
+    // cosmetic skin — otherwise the rare ones would be invisible for most of
+    // the round they are supposed to decorate.
+    const envHex = st.environment?.skyHex ?? null;
+    const phaseHex = MOOD[mood];
+    const target = envHex === null ? phaseHex : lerpColor(envHex, phaseHex, 0.45);
+    this.sky = lerpColor(this.sky, target, 0.05);
     this.skyG.clear();
     // Barely there. The phase is told by the reticle, the shutter and the
     // colour of the countdown — the tint only keeps the board from feeling
@@ -872,7 +1185,9 @@ export class BayScene {
         // token. Spent: the bracket closes to a solid bar.
         if (st.fogActive && !st.finalOrderUsed && mine?.primary) {
           const r = 15 + Math.sin(now / 320) * 2;
-          cove.myHalo.rect(-r, -r - 6, r * 2, r * 2).stroke({ color: FOCUS, width: 1.5, alpha: 0.9 });
+          cove.myHalo
+            .rect(-r, -r - 6, r * 2, r * 2)
+            .stroke({ color: FOCUS, width: 1.5, alpha: 0.9 });
         }
         if (st.fogActive && st.finalOrderUsed && mine?.primary) {
           cove.mySeal.rect(-11, -30, 22, 3).fill({ color: FOCUS, alpha: 0.9 });
@@ -943,7 +1258,7 @@ export class BayScene {
     /*
      * Storm motion. The reticle has exactly six possible positions — the six
      * zone plots — and it SNAPS between them. It never slides, so there is no
-     * frame in which it sits between harbours, drifts across the countdown, or
+     * frame in which it sits between harbors, drifts across the countdown, or
      * hangs off the board. Re-acquiring is carried by a 160ms lock-on instead
      * of by travel, which is both the stricter reading of "it moves between
      * zones" and the more instrument-like one.
@@ -956,6 +1271,8 @@ export class BayScene {
         // patrol is timed against THIS phase rather than the wall clock.
         if (this.stormLeg.endsAt !== st.storm.endsAt) {
           this.stormLeg = { endsAt: st.storm.endsAt, startedAt: now };
+          this.revealWindow = { endsAt: st.storm.endsAt, startedAt: now };
+          this.bolts = [];
         }
         // Route rules and the reason they exist live in ../stormPath.ts.
         const zones = stormRouteZones(st.storm.feints, ZONE_COUNT);
@@ -1014,6 +1331,21 @@ export class BayScene {
           this.stormRain.rect(-1, y, 2, 6).fill({ color: DANGER, alpha: 0.45 });
         }
       }
+    }
+
+    // The cosmetic skin, then the reveal's own layer.
+    this.drawEnvironment(now, W, H);
+    this.drawReveal(now, W, H);
+
+    // Camera shake — the whole stage, so nothing can drift out of register with
+    // anything else. It decays to exactly zero and the stage is snapped back,
+    // because a board that ends a round half a pixel off never recovers.
+    if (this.shake.until > now) {
+      const remaining = (this.shake.until - now) / 520;
+      const amp = this.shake.amplitude * remaining * remaining;
+      this.app.stage.position.set((Math.random() - 0.5) * 2 * amp, (Math.random() - 0.5) * 2 * amp);
+    } else if (this.app.stage.position.x !== 0 || this.app.stage.position.y !== 0) {
+      this.app.stage.position.set(0, 0);
     }
 
     // strike flash

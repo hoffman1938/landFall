@@ -155,10 +155,7 @@ export function SecondaryPanel() {
 
     for (const message of chat) {
       latestAt = Math.max(latestAt, message.at);
-      if (
-        message.at > preferences.lastSeenChatAt &&
-        (myName === null || message.name !== myName)
-      ) {
+      if (message.at > preferences.lastSeenChatAt && (myName === null || message.name !== myName)) {
         unread += 1;
       }
     }
@@ -265,10 +262,7 @@ export function SecondaryPanel() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [closePanel, mode, open]);
 
-  const onTabKeyDown = (
-    event: ReactKeyboardEvent<HTMLButtonElement>,
-    currentIndex: number,
-  ) => {
+  const onTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
     let nextIndex: number | null = null;
     if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % TABS.length;
     if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + TABS.length) % TABS.length;
@@ -285,10 +279,10 @@ export function SecondaryPanel() {
 
   const panelClass =
     mode === 'docked'
-      ? 'relative z-20 flex h-full w-72 shrink-0 flex-col overflow-hidden border-l border-[var(--lf-line)] bg-[var(--lf-surface)]'
+      ? 'relative z-[var(--lf-z-hud)] flex h-full w-72 shrink-0 flex-col overflow-hidden border-l border-[var(--lf-line)] bg-[var(--lf-surface)]'
       : mode === 'drawer'
-        ? 'lf-sheet fixed bottom-0 right-0 top-10 z-50 flex w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-l-lg border border-r-0 border-[var(--lf-line)] bg-[var(--lf-surface)]'
-        : 'lf-sheet fixed inset-x-0 bottom-0 z-50 flex h-[72dvh] max-h-[44rem] flex-col overflow-hidden rounded-t-lg border border-b-0 border-[var(--lf-line)] bg-[var(--lf-surface)] pb-[env(safe-area-inset-bottom)]';
+        ? 'lf-sheet fixed bottom-0 right-0 top-10 z-[var(--lf-z-drawer)] flex w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-l-lg border border-r-0 border-[var(--lf-line)] bg-[var(--lf-surface)]'
+        : 'lf-sheet fixed inset-x-0 bottom-0 z-[var(--lf-z-drawer)] flex h-[72dvh] max-h-[44rem] flex-col overflow-hidden rounded-t-lg border border-b-0 border-[var(--lf-line)] bg-[var(--lf-surface)] pb-[env(safe-area-inset-bottom)]';
 
   return (
     <>
@@ -297,7 +291,7 @@ export function SecondaryPanel() {
           ref={launcherRef}
           type="button"
           onClick={openPanel}
-          className="lf-surface absolute right-2 top-2 z-20 flex h-11 w-11 items-center justify-center rounded-md text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
+          className="lf-surface absolute right-2 top-2 z-[1] flex h-11 w-11 items-center justify-center rounded-md text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
           aria-label={`Open Chat and Activity${unreadCount > 0 ? `, ${unreadCount} unread chat messages` : ''}`}
           aria-controls={panelId}
           aria-expanded="false"
@@ -318,7 +312,7 @@ export function SecondaryPanel() {
 
       {open && mode !== 'docked' ? (
         <div
-          className={`fixed z-40 bg-black/80 ${mode === 'drawer' ? 'inset-x-0 bottom-0 top-10' : 'inset-0'}`}
+          className={`fixed z-[var(--lf-z-scrim)] bg-black/80 ${mode === 'drawer' ? 'inset-x-0 bottom-0 top-10' : 'inset-0'}`}
           aria-hidden="true"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closePanel();
@@ -398,9 +392,7 @@ export function SecondaryPanel() {
                   {tab === 'chat' && unreadCount > 0 ? (
                     <span
                       className={`ml-1 inline-flex min-w-4 items-center justify-center rounded-md px-1 text-[9px] font-extrabold ${
-                        active
-                          ? 'bg-black/20 text-black'
-                          : 'bg-[var(--lf-focus)] text-black'
+                        active ? 'bg-black/20 text-black' : 'bg-[var(--lf-focus)] text-black'
                       }`}
                       aria-label={`${unreadCount} unread`}
                     >

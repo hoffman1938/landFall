@@ -44,11 +44,10 @@ import {
   updateDeckProgress,
   useDeckProgress,
   withModesUnlockedByTap,
-  withRivalFlagSeen,
-  withRoundCompleted,
   withStakeEdited,
 } from '../deckProgress';
 import { formatPayoutStrip, resolveDeckState, type PrimaryId } from '../deckState';
+import { setDeckHeight } from '../deckHeight';
 import { resolveStakeLimit } from '../stakeLimits';
 import { fmt, useStore } from '../store';
 import {
@@ -145,10 +144,6 @@ export function ControlDeck() {
   // B4 flag cooldown mirror: dimmed flag + round counter, no prose.
   const myFlagRounds = useStore((s) => s.myFlagRounds);
   const roundId = useStore((s) => s.round?.roundId);
-  // D5 progressive disclosure inputs.
-  const landfallRoundId = useStore((s) => s.lastLandfall?.roundId);
-  const signals = useStore((s) => s.signals);
-  const myName = useStore((s) => s.name);
   const progress = useDeckProgress();
   const disclosure = resolveDisclosure(progress);
 
@@ -156,17 +151,9 @@ export function ControlDeck() {
   const [draft, setDraft] = useState<string | null>(null);
   const [stakeError, setStakeError] = useState<string | null>(null);
 
-  // D5 unlock triggers: completed rounds and the first rival flag seen.
-  useEffect(() => {
-    if (landfallRoundId === undefined) return;
-    updateDeckProgress(withRoundCompleted(getDeckProgress(), landfallRoundId));
-  }, [landfallRoundId]);
-  useEffect(() => {
-    if (myName === null) return;
-    if (signals.some((s) => s.name !== myName)) {
-      updateDeckProgress(withRivalFlagSeen(getDeckProgress()));
-    }
-  }, [signals, myName]);
+  // D5 unlock triggers now live in ../useDeckProgressTriggers.ts, mounted by
+  // App — beginner mode never renders this deck, and the counters have to keep
+  // running for the player those unlocks are actually for.
 
   const open = phase?.phase === 'ANCHOR_OPEN';
   const canOrder = connected && open && !finalOrderUsed && !orderPending;
@@ -215,11 +202,7 @@ export function ControlDeck() {
   useEffect(() => {
     const deckEl = deckRef.current;
     if (!deckEl) return;
-    const apply = () =>
-      document.documentElement.style.setProperty(
-        '--lf-control-deck-height',
-        `${deckEl.offsetHeight}px`,
-      );
+    const apply = () => setDeckHeight(deckEl.offsetHeight);
     apply();
     const observer = new ResizeObserver(apply);
     observer.observe(deckEl);
@@ -339,9 +322,7 @@ export function ControlDeck() {
     sending: { label: STR.sending },
     anchored: {
       label: STR.betPlaced,
-      ...(myFleet
-        ? { sub: `${coveName(myFleet.primaryZone)} · ${fmt(myFleet.stakeMinor)}` }
-        : {}),
+      ...(myFleet ? { sub: `${coveName(myFleet.primaryZone)} · ${fmt(myFleet.stakeMinor)}` } : {}),
     },
     'place-bet': {
       label: `${STR.placeBet} ${fmt(stakeInputMinor)}`,
@@ -425,7 +406,7 @@ export function ControlDeck() {
           way in, so the disclosure check must live here too. */}
       {flagPickerAt && open && disclosure.showFlags && (
         <div
-          className="fixed z-30"
+          className="fixed z-[var(--lf-z-notice)]"
           style={{
             left: Math.min(Math.max(flagPickerAt.x - 100, 8), window.innerWidth - 208),
             top: Math.max(flagPickerAt.y - 92, 8),
@@ -463,7 +444,7 @@ export function ControlDeck() {
       {/* the deck */}
       <div
         ref={deckRef}
-        className="absolute inset-x-0 bottom-0 z-10 border-t border-[var(--lf-line)] bg-[var(--lf-bg-2)] pb-[env(safe-area-inset-bottom)]"
+        className="absolute inset-x-0 bottom-0 z-[var(--lf-z-deck)] border-t border-[var(--lf-line)] bg-[var(--lf-bg-2)] pb-[env(safe-area-inset-bottom)]"
       >
         {/*
          * D4 — the price tag. Risk and reward at the same size, in one row,
@@ -670,10 +651,7 @@ export function ControlDeck() {
               {/* ×2/½/MAX appear once the stake has been edited (D5) */}
               {disclosure.showStakeTricks && (
                 <>
-                  <span
-                    className="mx-1 h-5 w-px shrink-0 bg-[var(--lf-line)]"
-                    aria-hidden="true"
-                  />
+                  <span className="mx-1 h-5 w-px shrink-0 bg-[var(--lf-line)]" aria-hidden="true" />
                   <button
                     onClick={() => {
                       audio.click('up');

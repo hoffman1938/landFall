@@ -4,7 +4,13 @@
  */
 import { Hono } from 'hono';
 import { desc, eq } from 'drizzle-orm';
-import { ZONE_COUNT, drawZone, stormPowerFromRoll, weatherFromRoll } from '@landfall/core';
+import {
+  ZONE_COUNT,
+  drawPresentation,
+  drawZone,
+  stormPowerFromRoll,
+  weatherFromRoll,
+} from '@landfall/core';
 import { DEFAULT_ECONOMY, type EconomyConfig } from './coordinator.js';
 import type { Db } from './db/index.js';
 import { rounds, surgeEvents } from './db/schema.js';
@@ -108,6 +114,9 @@ export function createApp(
     const draw = drawZone(row.seedHex, row.id, ZONE_COUNT);
     const power = stormPowerFromRoll(draw.stormPowerRoll);
     const weather = weatherFromRoll(draw.weatherRoll);
+    // v4 presentation domains — separate HMACs over the same revealed seed, so
+    // the announcement the player saw before the round can be rechecked after it.
+    const presentation = drawPresentation(row.seedHex, row.id);
     return c.json({
       roundId: row.id,
       chainIndex: row.chainIndex,
@@ -130,6 +139,8 @@ export function createApp(
         : null,
       stormPower: { label: power.label, mNum: power.mNum, mDen: power.mDen },
       weather,
+      eventTier: presentation.eventTier,
+      environment: presentation.environment,
     });
   });
 
