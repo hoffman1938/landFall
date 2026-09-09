@@ -1,48 +1,64 @@
-/** Compact strip of recent struck-cove results — small chips, latest highlighted. */
-import { HARBOR_NAMES } from '@landfall/core';
+/**
+ * Result tape — the last struck zones as a row of flat cells, newest at the
+ * right, opening the full replay history on tap.
+ *
+ * It is a tape, not a pattern: only the newest cell is red (that is the round
+ * that just happened), and everything behind it decays to grey. The strip is
+ * deliberately unreadable as a trend — the telemetry rail carries the actual
+ * counts, next to the flat statement that every zone stays 1 in 6.
+ */
+import { audio } from '../audio/engine';
 import { useStore } from '../store';
+import { STR, zoneName } from '../strings';
 
 const MAX_VISIBLE_RESULTS = 14;
 
 export function WreckLog() {
   const wreckLog = useStore((s) => s.wreckLog);
+  const setWreckLogOpen = useStore((s) => s.setWreckLogOpen);
   const visibleResults = wreckLog.slice(-MAX_VISIBLE_RESULTS);
 
   return (
     <section
-      className="lf-surface pointer-events-auto absolute left-2 top-2 z-10 flex h-7 max-w-[calc(100%-4.5rem)] items-center gap-1.5 rounded-lg px-2"
-      aria-label="Recent wreck history"
+      className="lf-glass pointer-events-auto absolute left-2 top-2 z-10 flex h-9 max-w-[calc(100%-4.5rem)] items-center gap-2 rounded-md pr-2"
+      aria-label="Recent results"
     >
-      <span
-        className="shrink-0 text-[9px] font-extrabold tracking-[0.05em] text-[var(--lf-dim)]"
-        aria-hidden="true"
+      <button
+        type="button"
+        onClick={() => {
+          audio.click('nav');
+          setWreckLogOpen(true);
+        }}
+        className="lf-label flex h-9 shrink-0 items-center border-r border-[var(--lf-line)] px-2.5 transition-colors hover:!text-[var(--lf-text)]"
+        aria-label="Open round history"
+        title="Open round history — recent results and replays"
       >
-        WRECKS
-      </span>
+        {STR.history}
+      </button>
 
       {visibleResults.length === 0 ? (
-        <span className="truncate text-[10px] font-medium text-[var(--lf-dim)]">
+        <span className="truncate text-[12px] font-medium text-[var(--lf-mute)]">
           No results yet
         </span>
       ) : (
-        <ol className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <ol className="flex min-w-0 flex-1 items-center gap-[3px] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {visibleResults.map((zone, index) => {
             const latest = index === visibleResults.length - 1;
-            const harborName = HARBOR_NAMES[zone] ?? `Cove ${zone + 1}`;
-            const label = `${latest ? 'Latest result. ' : ''}Cove ${zone + 1}, ${harborName}, was struck.`;
+            const label = `${latest ? 'Latest result. ' : ''}${zoneName(zone)} was hit.`;
+            const age = visibleResults.length - 1 - index;
 
             return (
               <li key={index} className="shrink-0">
                 <span
-                  className={`flex h-[18px] w-[18px] items-center justify-center rounded-full text-[10px] font-extrabold tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lf-focus)] ${
+                  className={`flex h-[24px] w-[24px] items-center justify-center text-[12px] font-black tabular-nums ${
                     latest
-                      ? 'bg-[var(--lf-danger)]/20 text-[var(--lf-danger)] ring-1 ring-[var(--lf-danger)]/60'
+                      ? 'bg-[var(--lf-accent)] text-black'
                       : 'bg-[var(--lf-surface-2)] text-[var(--lf-dim)]'
                   }`}
+                  style={latest ? undefined : { opacity: Math.max(0.35, 1 - age * 0.06) }}
                   title={label}
                   aria-label={label}
                   aria-current={latest ? 'true' : undefined}
-                  tabIndex={0}
                 >
                   {zone + 1}
                 </span>

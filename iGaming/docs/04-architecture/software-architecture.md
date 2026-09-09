@@ -161,7 +161,55 @@ iGaming/
 **Not created in this iteration** — this structure is documented here as the target for Phase 9
 (scaffolding), which is explicitly out of scope for the current docs-only pass.
 
-## 7. Why Plain pnpm Workspaces (Not Nx/TurboRepo)
+## 7. Operability — Logs, Metrics, Probes, Shutdown
+
+The game loop is a fixed ~20-second heartbeat that moves money on every beat. That makes it
+unusually easy to monitor and unusually unforgiving of blind spots: a loop that stalls, a
+conservation assert that fires, or a reserve that drains are all silent failures without
+instrumentation.
+
+**Structured logs** (`packages/server/src/log.ts`). One JSON object per line on stdout, so a
+shipper can index fields rather than regex prose. Every line carries `instance`, which is the
+first thing needed once more than one process runs behind a load balancer. `LANDFALL_LOG_LEVEL`
+sets the floor; `LANDFALL_LOG_FORMAT=text` restores readable local output. Money stays in minor
+units named `*Minor`, exactly as in the code — a log line that quietly switched to credits
+would be a reconciliation trap.
+
+**Metrics** (`packages/server/src/metrics.ts`, `GET /api/metrics`). Prometheus text exposition,
+hand-rolled: the format is a few lines and the program's rule is that a runtime dependency needs
+a recorded reason. The series that matter, and what they mean when they move:
+
+| Series | Alert when |
+|---|---|
+| `landfall_round_settle_seconds` | p95 climbing — settlement is falling behind the 20s loop |
+| `landfall_house_delta_minor_total` | drifts from the DB's own reckoning — a money leak |
+| `landfall_storm_reserve_minor` | persistently negative — the Storm Power bankroll alarm (A3) |
+| `landfall_room_humans` | at zero across rooms — the liquidity risk, live |
+| `landfall_house_seed_minor` | pinned at the ceiling — nobody is actually playing |
+| `landfall_action_rejected_total{code}` | one code spiking — a client bug or a probing account |
+| `landfall_uncaught_errors_total` | anything but zero |
+
+Counters only increase; gauges are sampled at scrape time. Everything is process-local — with
+several instances, aggregate in the scraper by the `instance` label rather than trying to share
+state in the process.
+
+**Probes.** `GET /api/health` is LIVENESS and never touches the database, so a DB blip cannot get
+a healthy process killed. `GET /api/ready` is READINESS: it queries the database and asserts the
+room loop is running, and returns 503 otherwise. An orchestrator that only probed liveness would
+keep routing players to an instance whose game loop had stopped.
+
+**Graceful shutdown.** SIGTERM (and SIGINT) fail readiness FIRST so the load balancer drains,
+then stop the bots and the round loop, close sockets, and only then close the database — a
+settlement transaction is never interrupted mid-write. A 10-second timer forces exit so a stuck
+socket cannot hang a deploy.
+
+**Not yet solved: horizontal scaling.** A room's authoritative state lives in one
+`RoundCoordinator` in one process. Running several instances therefore needs sticky routing per
+room plus shared seed-chain custody — the design belongs in the provider network spec (C4) and
+is NOT implied by anything above. What the above does buy is that a multi-instance deployment
+is diagnosable when it arrives.
+
+## 8. Why Plain pnpm Workspaces (Not Nx/TurboRepo)
 
 At the current/target package count (`core`, `web`, `server`, later `mobile` — four packages),
 pnpm's native workspace filtering (`pnpm --filter`) is sufficient for running builds/tests across

@@ -21,9 +21,11 @@ interface RoundRecord {
   struckZone: number;
   lockSnapshot: StakeEntry[];
   rake: number;
+  maxPayoutMultiple: number;
+  powerCapped: boolean;
   zoneCount: number;
   surgeProb: number;
-  surge: { winnerStakeId: string | null; amountMinor: number } | null;
+  surge: { winnerStakeId: string | null; amountMinor: number; flatOdds?: boolean } | null;
   stormPower: { label: string; mNum: number; mDen: number };
   weather: WeatherPattern;
 }
@@ -40,6 +42,7 @@ export function VerifyModal() {
   const roundId = useStore((s) => s.verifyRoundId);
   const openVerify = useStore((s) => s.openVerify);
   const chainCommitment = useStore((s) => s.chainCommitment);
+  const receipts = useStore((s) => s.receipts);
   const [rec, setRec] = useState<RoundRecord | null>(null);
   const [result, setResult] = useState<RoundVerificationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,10 +71,12 @@ export function VerifyModal() {
             announcedStruckZone: data.struckZone,
             zoneCount: data.zoneCount,
             rake: data.rake,
+            maxPayoutMultiple: data.maxPayoutMultiple,
             stakes: data.lockSnapshot,
             surgeProb: data.surgeProb,
             announcedSurge: data.surge !== null,
             announcedSurgeWinnerStakeId: data.surge ? data.surge.winnerStakeId : null,
+            surgeFlatOdds: data.surge?.flatOdds ?? false,
             announcedPowerLabel: data.stormPower.label,
             announcedWeatherId: data.weather.id,
           }),
@@ -105,7 +110,7 @@ export function VerifyModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) openVerify(null);
       }}
@@ -114,17 +119,17 @@ export function VerifyModal() {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--lf-line)] bg-[var(--lf-panel)] p-4 text-sm sm:max-h-[80vh] sm:p-5"
+        className="lf-overlay max-h-[calc(100dvh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-lg p-4 text-sm sm:max-h-[80vh] sm:p-5"
       >
         <div className="mb-3 flex items-center justify-between">
-          <h2 id={titleId} className="text-base font-bold">
+          <h2 id={titleId} className="text-base font-black uppercase tracking-[0.08em] text-[var(--lf-mute)]">
             Verify Round #{roundId}
           </h2>
           <button
             ref={closeRef}
             type="button"
             onClick={() => openVerify(null)}
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[var(--lf-dim)] hover:text-[var(--lf-text)]"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md text-[var(--lf-dim)] hover:text-[var(--lf-text)]"
             aria-label={`Close verification for round ${roundId}`}
           >
             <XIcon size={18} />
@@ -153,10 +158,10 @@ export function VerifyModal() {
               <Check ok={result.chainOk} label="SHA-256(seed) matches the pre-committed chain" />
               <Check
                 ok={result.drawOk}
-                label={`HMAC → u=${result.u.toFixed(6)} → Harbor ${result.recomputedZone + 1} struck (matches announcement)`}
+                label={`HMAC → u=${result.u.toFixed(6)} → Zone ${result.recomputedZone + 1} struck (matches announcement)`}
               />
               <div className="text-[var(--lf-dim)]">
-                Storm feints derived from the same digest: Harbors{' '}
+                Storm feints derived from the same digest: Zones{' '}
                 {result.feints.map((f) => f + 1).join(', ')}
               </div>
               {result.powerOk !== null && (
@@ -166,6 +171,12 @@ export function VerifyModal() {
                     result.recomputedPower.mNum / result.recomputedPower.mDen
                   }) — matches announcement`}
                 />
+              )}
+              {rec.powerCapped && (
+                <div className="text-[var(--lf-dim)]">
+                  Liability cap applied: total salvage clamped to {rec.maxPayoutMultiple}× the
+                  round handle (recomputed from the public snapshot).
+                </div>
               )}
               {result.weatherOk !== null && (
                 <Check
@@ -188,13 +199,34 @@ export function VerifyModal() {
                 />
               )}
             </div>
+            {receipts.some((r) => r.roundId === roundId) && (
+              <div className="border-t border-[var(--lf-line)] pt-2">
+                <div className="mb-1 text-xs font-semibold text-[var(--lf-text)]">
+                  Your order history (server-signed receipts)
+                </div>
+                <div className="space-y-1 text-xs text-[var(--lf-dim)]">
+                  {receipts
+                    .filter((r) => r.roundId === roundId)
+                    .map((r) => (
+                      <div key={r.seq}>
+                        {r.verdict === 'ACCEPTED' ? '✓' : '✗'} {r.action.replace('_', ' ')} —{' '}
+                        {r.msBeforeLock >= 0
+                          ? `received ${(r.msBeforeLock / 1000).toFixed(2)}s before lock`
+                          : `refused ${(-r.msBeforeLock / 1000).toFixed(2)}s after lock`}
+                        {r.reason ? ` (${r.reason})` : ''} · seq #{r.seq} · sig{' '}
+                        {r.sigHex.slice(0, 8)}…
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
             <div className="border-t border-[var(--lf-line)] pt-2 text-xs text-[var(--lf-dim)]">
               Lock snapshot ({rec.lockSnapshot.length} stakes):{' '}
               {Array.from({ length: rec.zoneCount }, (_, z) => {
                 const total = rec.lockSnapshot
                   .filter((s) => s.zone === z)
                   .reduce((a, s) => a + s.amountMinor, 0);
-                return `H${z + 1} ${(total / 100).toFixed(0)}`;
+                return `Z${z + 1} ${(total / 100).toFixed(0)}`;
               }).join(' · ')}
             </div>
             <div
@@ -203,7 +235,7 @@ export function VerifyModal() {
               }`}
             >
               {result.allOk
-                ? 'All checks passed — this outcome was fixed before anchoring opened, and the strike is uniform across harbors.'
+                ? 'All checks passed — this outcome was fixed before betting opened, and every zone had exactly the same 1-in-6 chance.'
                 : 'VERIFICATION FAILED — this would indicate a real integrity breach.'}
             </div>
           </div>

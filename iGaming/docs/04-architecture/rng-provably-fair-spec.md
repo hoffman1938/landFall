@@ -151,6 +151,16 @@ surge round  ⟺  uSurge < SURGE_PROB
 winner = stake-weighted pick over surviving player stakes (sorted by id) at uWinner
 ```
 
+**Flat-odds mode (A4, feature-flagged, default off):** when a deployment enables
+`surgeFlatEveryN` (env `LANDFALL_SURGE_FLAT_EVERY`), every Nth surge round — counted over the
+auditable `surge_events` history — pays the pot with **equal odds per surviving stake entry**
+instead of stake-weighted odds. The mode consumes the *same* `uWinner` span (no new span, no
+new cryptography): `winner = eligible[floor(uWinner × |eligible|)]` over the same
+id-sorted survivor list (`pickGoldenAnchorFlat` in `settlement.ts`). The mode is announced in
+the round header (`surgeFlatOdds`) before anchoring, persisted on the surge event, returned in
+the round's public verification record, and `verifyRound` recomputes the winner under whichever
+mode was announced — a cross-mode mismatch fails verification (tested in `core/test/surge.test.ts`).
+
 **Pre-announcement note (deliberate exception to "no observable seed-dependent behavior"):**
 the surge flag is announced in the round header, *before* anchoring — that is the product
 point (players pile into surge rounds). This leaks exactly one seed-derived bit, from a span

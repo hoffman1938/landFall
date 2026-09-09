@@ -25,10 +25,23 @@ not the product.
 
 ## 2. Scale and Tiers
 
-- **Fast tier:** N = 100,000 rounds, runs on every PR via Vitest.
-- **Full tier:** N = 10,000,000 rounds, nightly job; failure blocks release, not merge.
-- Fixed, documented test vectors: a known hash-chain seed, fixed `K = 6`, `r = 0.06`, `h = 50`,
+- **Fast tier:** N = 100,000 rounds, runs on every PR via Vitest + the sim script's default
+  1M tier (`pnpm --filter @landfall/core sim`).
+- **Full tier:** N = 10,000,000 rounds
+  (`pnpm --filter @landfall/core sim -- --rounds=10000000`), nightly job; failure blocks
+  release, not merge. The script exits non-zero on any out-of-tolerance check.
+- Fixed, documented test vectors: a known hash-chain seed and LCG pool seed (default
+  20260711), fixed `K = 6`, `r = 0.12`, split `0.5/0.25/0.25`, `h = 50`, cap `25×`,
   scripted pool scenarios (below), so every run is reproducible bit-for-bit.
+
+**Implementation:** `packages/core/scripts/simulate.ts` (node/tsx, no Python) runs the
+**production** `drawZone`, `stormPowerFromRoll`, `settleRound` and `pickGoldenAnchor` —
+never a reimplementation. Latest full-tier results (10M rounds, 2026-07-11): gross take
+2.0013% of handle (theory 2%), operator hold 1.0009% (≈1%), surge funding 0.5002% (0.5%),
+reserve inflow 0.5002% / outflow 0.4878% (funding invariant respected), reserve drift
++0.0125% of handle, 13 liability-cap hits (all disclosed), conservation exact, solo-player
+EV −2.452% of stake vs −2.564% analytic. Full table:
+[mathematical-model.md](mathematical-model.md) §7.
 
 ## 3. Required Checks
 

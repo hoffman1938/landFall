@@ -1,25 +1,88 @@
 @import 'tailwindcss';
 @import '@fontsource-variable/manrope';
 
+/*
+ * ============================================================================
+ * "TERMINAL" — dark neo-minimalist game dashboard
+ * ============================================================================
+ *
+ * The room is gone. What is left is an instrument: a near-black ground, flat
+ * panels separated by hairlines, and numbers that carry all the weight. The
+ * reference points are a trading terminal and a vehicle HUD, not a casino
+ * floor — no felt, no brass, no bevels, no glass, no illustration.
+ *
+ * FOUR RULES, and every screen obeys them:
+ *
+ *  1. GROUND IS NEAR-BLACK. Depth is three steps of grey (#0e/#141/#191) plus
+ *     a 1px hairline. Never a shadow to fake elevation, never a gradient to
+ *     fake a light source. Only true overlays (modals, popovers) get a shadow,
+ *     and only so the scrim reads as a layer.
+ *
+ *  2. COLOR IS MEANING, NOT DECORATION. A hue on this screen is always a fact:
+ *       --lf-accent (red)  the storm. The struck zone, the last seconds, the
+ *                          live-round pulse, the brand mark. It is the loudest
+ *                          thing here precisely because it is the threat.
+ *       --lf-win  (green)  money coming toward you, and the one button that
+ *                          commits a bet. Never anything else.
+ *       --lf-warn (orange) the jackpot, the fog, a limit you are near.
+ *       WHITE              YOU. Your selection, your stake, your position. On
+ *                          a black ground white is the highest-contrast accent
+ *                          available, so the player's own state never has to
+ *                          compete with a hue — and never collides with red,
+ *                          which in a game about being hit can only mean loss.
+ *     Everything else is grey. If a pixel is colored, it is saying something.
+ *
+ *  3. ONE NUMBER LEADS. Per surface there is exactly one figure at display
+ *     size; everything else is at most half of it. The centre of the board
+ *     carries the round's leading number (countdown → result), because that is
+ *     where the eye already is.
+ *
+ *  4. MOTION IS TELEMETRY. Things move because a value changed or time is
+ *     passing — a drain, a tick, a settle. Nothing pulses to be noticed, and
+ *     nothing that reports money ever animates in a way that celebrates a
+ *     number the player has not won yet.
+ */
+
 :root {
-  /* Minimal dark chart tokens. Amber stays reserved for payout moments ONLY —
-     hard brand rule. Green is the confirmed-action color; cyan is selection /
-     informational; red is danger. */
-  --lf-bg: #060a12;
-  --lf-surface: #0c1322;
-  --lf-surface-2: #121b2e;
-  --lf-panel: #0c1322;
-  --lf-glass: rgba(8, 13, 23, 0.92);
-  --lf-line: #1c2a40;
-  --lf-text: #edf2f9;
-  --lf-dim: #8da0ba;
-  --lf-action: #29c469;
-  --lf-action-strong: #1fae59;
-  --lf-amber: #ffb02e;
-  --lf-danger: #ff5a5a;
-  --lf-safe: #3ddc97;
-  --lf-focus: #41b7f5;
+  /* ---- ground: three steps, near-black, and two hairlines ---- */
+  --lf-bg: #0e0e0e;
+  --lf-bg-2: #121212; /* chrome: top bar, rails, deck */
+  --lf-surface: #161616; /* cards */
+  --lf-surface-2: #1e1e1e; /* controls, hover, inset rows */
+  --lf-line: #262626;
+  --lf-line-2: #383838; /* emphasized hairline */
+  --lf-panel: var(--lf-surface);
+  --lf-glass: #141414; /* was translucent; flat design has no glass */
+
+  /* ---- ink ---- */
+  --lf-text: #f4f4f4;
+  --lf-dim: #a3a3a3; /* body grey — 6.6:1 on the lightest surface */
+  --lf-mute: #8a8a8a; /* micro-labels — 4.8:1 on the lightest surface */
+
+  /* ---- the accent system (rule 2) ---- */
+  --lf-accent: #ff2f45; /* the storm */
+  --lf-accent-soft: rgba(255, 47, 69, 0.14);
+  --lf-accent-line: rgba(255, 47, 69, 0.42);
+  --lf-win: #17e07d; /* money in, commit */
+  --lf-win-soft: rgba(23, 224, 125, 0.13);
+  --lf-warn: #ff9f0a; /* jackpot, fog, limits */
+  --lf-warn-soft: rgba(255, 159, 10, 0.13);
+  --lf-white-soft: rgba(255, 255, 255, 0.09);
+
+  /*
+   * Semantic aliases. Components ask for meaning, not for a hue, so a future
+   * repaint changes four lines here and nothing else. There is no second
+   * palette hiding behind them — every one resolves into the four above.
+   * (The old brass/felt tokens are gone: metal has no meaning on this screen.)
+   */
+  --lf-danger: var(--lf-accent);
+  --lf-safe: var(--lf-win);
+  --lf-action: var(--lf-win);
+  --lf-amber: var(--lf-warn);
+  --lf-focus: #ffffff; /* YOU: selection, ownership, current tab */
+
   --lf-control-deck-height: 7.5rem;
+  --lf-rail-width: 15.5rem;
 }
 
 html,
@@ -29,96 +92,551 @@ body,
   min-height: 100dvh;
 }
 
-body {
+/*
+ * Element defaults live in @layer base ON PURPOSE.
+ *
+ * Unlayered CSS beats every layered rule regardless of specificity, and all of
+ * Tailwind's utilities are layered. Written unlayered, the scrollbar defaults
+ * below silently overrode `[scrollbar-width:none]` and
+ * `[&::-webkit-scrollbar]:hidden` everywhere they were used — the stake presets,
+ * the result tape and the chat panel all grew a scrollbar they had explicitly
+ * opted out of, and the deck reserved 10px of gutter for it. Layering these as
+ * base restores the normal order: a utility on an element wins.
+ *
+ * The .lf-* component classes further down stay unlayered deliberately; call
+ * sites override those with `!` where they mean to.
+ */
+@layer base {
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: var(--lf-bg);
+    color: var(--lf-text);
+    font-family:
+      'Manrope Variable',
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      'Segoe UI',
+      Roboto,
+      sans-serif;
+    /* Every figure on this screen is a measurement: lock the digit width so a
+       countdown or a balance never jitters as it changes. */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  button {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Keyboard focus is red — the one place the accent means "this control is
+     live" rather than "the storm". It is unmistakable on a black ground and it
+     never competes with white, which marks the player's own state. */
+  :where(button, input, textarea, select, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--lf-accent);
+    outline-offset: 2px;
+  }
+
+  /* ==========================================================================
+     Native form controls
+     ==========================================================================
+     `accent-color` only repaints the browser's own widget — the box keeps the
+     platform's gradient, radius, tick and focus ring, so a Windows checkbox and
+     a macOS one landed next to hairline flat cards looking like neither. These
+     are rebuilt from the same three ingredients everything else on this screen
+     uses: a dark surface, a 1px hairline, and white for "you chose this".
+
+     White, not red, because that is what selection already means here — the
+     mode toggle, the selected stake chip and the current table all use a white
+     fill with black content. Red is the storm and the focus ring.
+     ========================================================================== */
+
+  input[type='checkbox'] {
+    appearance: none;
+    -webkit-appearance: none;
+    flex: none;
+    width: 17px;
+    height: 17px;
+    margin: 0;
+    border: 1px solid var(--lf-line-2);
+    border-radius: 4px;
+    background-color: var(--lf-bg);
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 13px 13px;
+    cursor: pointer;
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease;
+  }
+
+  input[type='checkbox']:hover:not(:disabled) {
+    border-color: var(--lf-dim);
+  }
+
+  input[type='checkbox']:checked {
+    background-color: #ffffff;
+    border-color: #ffffff;
+    /* The tick is baked in as a background image rather than a pseudo-element:
+       ::before/::after do not render on a replaced element like <input>. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23000000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' d='M3.4 8.4l3 3 6.2-6.6'/%3E%3C/svg%3E");
+  }
+
+  input[type='checkbox']:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+  }
+
+  /*
+   * Select. The popup list itself belongs to the OS and cannot be restyled
+   * portably, so the closed control is what we own: flat field, hairline, and a
+   * chevron drawn in the body grey instead of the platform's arrow.
+   */
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-color: var(--lf-bg);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23a3a3a3' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M4 6.5l4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 10px center;
+    background-repeat: no-repeat;
+    background-size: 15px 15px;
+    padding-right: 32px;
+    cursor: pointer;
+  }
+
+  select option {
+    background-color: var(--lf-surface);
+    color: var(--lf-text);
+  }
+
+  /*
+   * Range. A hairline track and a thin white bar for the thumb — the same
+   * vocabulary as the countdown drain and the zone flow bars, so a slider does
+   * not arrive as the one rounded, shaded object in the interface.
+   */
+  input[type='range'] {
+    appearance: none;
+    -webkit-appearance: none;
+    height: 18px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  input[type='range']::-webkit-slider-runnable-track {
+    height: 3px;
+    background: var(--lf-surface-2);
+    border: 1px solid var(--lf-line);
+  }
+
+  input[type='range']::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 5px;
+    height: 15px;
+    margin-top: -7px;
+    border: 0;
+    border-radius: 1px;
+    background: #ffffff;
+  }
+
+  input[type='range']::-moz-range-track {
+    height: 3px;
+    background: var(--lf-surface-2);
+    border: 1px solid var(--lf-line);
+  }
+
+  input[type='range']::-moz-range-thumb {
+    width: 5px;
+    height: 15px;
+    border: 0;
+    border-radius: 1px;
+    background: #ffffff;
+  }
+
+  /* Thin, dark, unobtrusive — a scrollbar is chrome, not content. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--lf-line-2) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--lf-line-2);
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* ==========================================================================
+   Selection controls
+   ==========================================================================
+   A square box with a tick is the right shape for "check all that apply". It
+   is the wrong shape for either of the places this interface actually uses:
+   two standing preferences, and a one-of-five table picker. Both got the same
+   flat square, and both read as unfinished because the shape was not saying
+   what the control does.
+
+   Shape carries the meaning here, the way it does in every instrument panel:
+
+     SWITCH  a setting that is on or off right now, and stays that way. The
+             knob's position is readable across the room, which a tick is not.
+     RADIO   one of several. Round, because round has meant "pick exactly one"
+             for as long as there have been dials.
+
+   Both are built from the same parts as the rest of the interface — one
+   hairline, one dark surface, white for the state you chose — and both move in
+   the 120-180ms band the deck's buttons use.
+   ========================================================================== */
+
+/*
+ * The real <input> stays in the DOM and keeps every keyboard and screen-reader
+ * behaviour a checkbox has; it is only made invisible. The visible switch is
+ * its sibling, which is what lets a knob exist at all — pseudo-elements do not
+ * render on a replaced element like <input>.
+ */
+.lf-switch-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   margin: 0;
-  overflow: hidden;
+  padding: 0;
+  opacity: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: none;
+}
+
+.lf-switch {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 38px;
+  height: 22px;
+  border: 1px solid var(--lf-line-2);
+  border-radius: 5px;
+  background: var(--lf-surface-2);
+  cursor: pointer;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.lf-switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--lf-mute);
+  transition:
+    transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 160ms ease;
+}
+
+.lf-switch-input:hover:not(:disabled) + .lf-switch,
+.lf-switch:hover {
+  border-color: var(--lf-dim);
+}
+
+.lf-switch-input:checked + .lf-switch {
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+.lf-switch-input:checked + .lf-switch::after {
+  transform: translateX(16px);
   background: var(--lf-bg);
-  color: var(--lf-text);
-  font-family:
-    'Manrope Variable',
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
-  font-variant-numeric: tabular-nums;
 }
 
-button,
-input,
-textarea,
-select {
-  font: inherit;
-}
-
-button {
-  -webkit-tap-highlight-color: transparent;
-}
-
-:where(button, input, textarea, select, summary):focus-visible {
-  outline: 2px solid var(--lf-focus);
+/* The input carries focus, so the ring has to be drawn on its sibling. */
+.lf-switch-input:focus-visible + .lf-switch {
+  outline: 2px solid var(--lf-accent);
   outline-offset: 2px;
 }
 
-/* Minimal chart bay: near-black navy vignette; Pixi draws the chart marks,
-   boats, weather and FX on top. No photographic environment. */
+.lf-switch-input:disabled + .lf-switch {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/*
+ * Radio. Driven by `data-checked` rather than :checked because the table
+ * pickers are <button role="radio"> — the row IS the control, so a native
+ * input inside it would be a second thing to click.
+ */
+.lf-radio {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--lf-line-2);
+  border-radius: 50%;
+  transition: border-color 160ms ease;
+}
+
+.lf-radio::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: #ffffff;
+  transform: scale(0);
+  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.lf-radio[data-checked='true'] {
+  border-color: #ffffff;
+}
+
+.lf-radio[data-checked='true']::after {
+  transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lf-switch,
+  .lf-switch::after,
+  .lf-radio,
+  .lf-radio::after {
+    transition: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .lf-switch,
+  .lf-radio {
+    border-width: 2px;
+  }
+}
+
+/* ==========================================================================
+   Surfaces
+   ========================================================================== */
+
+/*
+ * The board. A flat near-black field with a faint coordinate grid — the only
+ * "texture" the design allows, and it earns its place by reading as a plot
+ * area rather than as decoration. Pixi draws the zones, storm and FX on top.
+ */
 .lf-bay {
   isolation: isolate;
-  background:
-    radial-gradient(120% 90% at 50% 32%, #0c1526 0%, #070d19 55%, #04070e 100%);
+  background-color: #0b0b0b;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+  background-size: 56px 56px;
+  background-position: center center;
 }
 
 .lf-bay canvas {
   display: block;
+  position: relative;
+  z-index: 1;
 }
 
-/* Solid HUD surfaces — one controlled dark layer, thin border, no heavy blur. */
-.lf-glass {
-  background: var(--lf-glass);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border: 1px solid var(--lf-line);
-}
-
+/*
+ * Cards. One treatment, used everywhere: flat fill, 1px hairline, no shadow.
+ * `.lf-glass` is kept as a name because half the app asks for it; it is the
+ * same flat card, one step lighter, for things that float over the board.
+ */
 .lf-surface {
   background: var(--lf-surface);
   border: 1px solid var(--lf-line);
 }
 
+.lf-glass {
+  background: var(--lf-glass);
+  border: 1px solid var(--lf-line);
+}
+
+/* Emphasized edge — for the piece of chrome that currently matters. */
+.lf-rim {
+  border-color: var(--lf-line-2);
+}
+
+/* True overlays only (modals, popovers, sheets): a flat panel plus enough
+   shadow that the scrim reads as a layer beneath it. */
+.lf-overlay {
+  background: var(--lf-surface);
+  border: 1px solid var(--lf-line-2);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.72);
+}
+
+/*
+ * Payout fill. The one surface where a hue is a background rather than a mark,
+ * reserved for money that has actually moved. Flat — no gradient, no glow.
+ */
+.lf-gold {
+  background: var(--lf-warn);
+  color: #150c00;
+}
+
+.lf-payout {
+  background: var(--lf-win);
+  color: #04180e;
+}
+
+/* ==========================================================================
+   Type primitives
+   ========================================================================== */
+
+/*
+ * The micro-label above every figure. Small, wide, grey, never a sentence —
+ * but 11px in the body grey, not 10px in the faintest one. These name the
+ * numbers a player reads mid-round (RISK, MAX NOW, POT), and at 10px/#8a8a8a
+ * they were the least legible text in the product while labelling the most
+ * important. 11px is the floor of the brief's metadata band.
+ */
+.lf-label {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lf-dim);
+}
+
+/* Genuinely secondary metadata — the same size, one step back in contrast. */
+.lf-label-soft {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lf-mute);
+}
+
+/*
+ * An important secondary figure: the brief's 18-28px band. Pots, balances,
+ * session totals — everything one step below the round's leading number.
+ */
+.lf-metric {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Any figure that is read as data: tight, heavy, tabular. */
+.lf-num {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The leading figure of a surface (rule 3). */
+.lf-display {
+  font-weight: 800;
+  letter-spacing: -0.055em;
+  line-height: 0.88;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Motion — telemetry only (rule 4)
+   ========================================================================== */
+
+/* A live data channel: the dot next to something that is currently updating. */
 @keyframes lf-pulse {
   0%,
   100% {
     opacity: 1;
   }
   50% {
-    opacity: 0.55;
+    opacity: 0.35;
   }
 }
 .lf-pulse {
-  animation: lf-pulse 1.2s ease-in-out infinite;
+  animation: lf-pulse 1.4s ease-in-out infinite;
 }
 
-/* Verdict card rises from the bay (motion token: cinematic). */
+/*
+ * The commit button. It does not glow or breathe — it carries a hairline that
+ * travels once every two seconds, the way an armed control reads on a HUD.
+ * Invitation, not an alarm, and it costs no contrast.
+ */
+@keyframes lf-armed {
+  0% {
+    transform: translateX(-100%);
+  }
+  55%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+.lf-armed {
+  position: relative;
+  overflow: hidden;
+}
+.lf-armed::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.22) 50%,
+    transparent 100%
+  );
+  animation: lf-armed 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* A panel arriving. Short, linear-ish, no bounce — instruments do not bounce. */
 @keyframes lf-rise {
   from {
     opacity: 0;
-    transform: translateY(26px) scale(0.97);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 .lf-rise {
-  animation: lf-rise 300ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: lf-rise 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-/* Sheets and drawers slide up (motion token: ui). */
+/*
+ * A settled figure. It counts UP into place and stops — no overshoot, no
+ * scale-up. A result must never be animated like a celebration, because the
+ * same component renders a loss.
+ */
+@keyframes lf-settle {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.lf-settle {
+  animation: lf-settle 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Sheets and drawers. */
 @keyframes lf-sheet {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -126,10 +644,10 @@ button {
   }
 }
 .lf-sheet {
-  animation: lf-sheet 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: lf-sheet 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
-/* Invalid action: shake instead of error prose (motion token: micro). */
+/* Rejected input: the control shakes instead of the screen growing prose. */
 @keyframes lf-shake {
   0%,
   100% {
@@ -143,10 +661,10 @@ button {
   }
 }
 .lf-shake {
-  animation: lf-shake 120ms linear 2;
+  animation: lf-shake 110ms linear 2;
 }
 
-/* Caption fade under the round status. */
+/* One-line caption under a status readout. */
 @keyframes lf-caption {
   from {
     opacity: 0;
@@ -158,31 +676,102 @@ button {
   }
 }
 .lf-caption {
-  animation: lf-caption 240ms ease-out both;
+  animation: lf-caption 200ms ease-out both;
+}
+
+/* A field whose value just changed: its edge lights for half a second. Used
+   by the balance, so money moving is felt at the top of the screen without
+   the figure itself jumping or the player having to watch for it. */
+@keyframes lf-edge {
+  from {
+    border-color: #ffffff;
+  }
+  to {
+    border-color: var(--lf-line);
+  }
+}
+.lf-edge {
+  animation: lf-edge 600ms ease-out both;
+}
+
+/* A value that just changed — one frame of white, then back. Used by the
+   telemetry rail so a moving number is felt without being read twice. */
+@keyframes lf-tick {
+  from {
+    color: #ffffff;
+  }
+  to {
+    color: inherit;
+  }
+}
+.lf-tick {
+  animation: lf-tick 420ms ease-out both;
+}
+
+/*
+ * First-loss trust moment (E3, ux-redesign-v2 §6.3): the verify stamp draws
+ * attention on the first meaningful loss — fairness offered exactly when doubt
+ * is felt. White, never red: this is reassurance, not another alarm.
+ */
+@keyframes lf-verify-glow {
+  0%,
+  100% {
+    border-color: var(--lf-line);
+    color: var(--lf-dim);
+  }
+  50% {
+    border-color: #ffffff;
+    color: #ffffff;
+  }
+}
+.lf-verify-glow {
+  animation: lf-verify-glow 1.4s ease-in-out 3;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .lf-rise,
   .lf-sheet,
   .lf-caption,
-  .lf-shake {
+  .lf-shake,
+  .lf-settle,
+  .lf-edge,
+  .lf-tick {
     animation-duration: 1ms;
     animation-iteration-count: 1;
   }
-  .lf-pulse {
+  .lf-pulse,
+  .lf-armed::after {
     animation: none;
+  }
+  .lf-armed::after {
+    display: none;
+  }
+  .lf-verify-glow {
+    animation: none;
+    border-color: #ffffff;
+    color: #ffffff;
   }
 }
 
 @media (prefers-contrast: more) {
   :root {
-    --lf-line: #83a8c8;
-    --lf-dim: #c6d5e5;
-    --lf-glass: rgba(3, 10, 20, 0.97);
+    --lf-line: #6a6a6a;
+    --lf-line-2: #9a9a9a;
+    --lf-dim: #d0d0d0;
+    --lf-mute: #b0b0b0;
+    --lf-surface: #101010;
+    --lf-surface-2: #1a1a1a;
   }
 
   .lf-glass,
-  .lf-surface {
+  .lf-surface,
+  .lf-overlay,
+  input[type='checkbox'] {
     border-width: 2px;
+  }
+
+  /* The grid costs contrast for no information — drop it. */
+  .lf-bay {
+    background-image: none;
   }
 }

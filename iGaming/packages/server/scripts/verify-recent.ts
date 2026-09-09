@@ -14,7 +14,7 @@ const hist = (await (await fetch(`${BASE}/api/history`)).json()) as {
 let checked = 0;
 let failed = 0;
 for (const r of hist.rounds.slice(0, 20)) {
-  const rec = (await (await fetch(`${BASE}/api/round/${r.id}`)).json()) as any;
+  const rec = (await (await fetch(`${BASE}/api/round/${r.id}`)).json());
   if (rec.error) continue;
   const v = verifyRound({
     roundId: rec.roundId,

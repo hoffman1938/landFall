@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   SURGE_PROB,
   ZONE_COUNT,
+  chainCommitment,
   drawZone,
   pickGoldenAnchor,
+  pickGoldenAnchorFlat,
   roundSeed,
+  verifyRound,
   type StakeEntry,
 } from '../src/index.js';
 
@@ -60,7 +63,7 @@ describe('golden anchor pick', () => {
 
   it('weights winners by stake size', () => {
     // survivors: a=100, b=300, c=600 (struck zone 5, none struck) — total 1000.
-    let counts = { a: 0, b: 0, c: 0 };
+    const counts = { a: 0, b: 0, c: 0 };
     const N = 20_000;
     for (let i = 0; i < N; i++) {
       const u = drawZone(SEED, i, ZONE_COUNT).uWinner; // reuse uniform stream
@@ -81,5 +84,86 @@ describe('golden anchor pick', () => {
       { id: 'p', zone: 3, amountMinor: 700, isHouseSeed: false },
     ];
     expect(pickGoldenAnchor(onlyHouse, 3, 0.4)).toBeNull();
+  });
+});
+
+describe('flat-odds golden anchor (A4)', () => {
+  const stakes: StakeEntry[] = [
+    { id: 'a', zone: 0, amountMinor: 100, isHouseSeed: false },
+    { id: 'b', zone: 1, amountMinor: 300, isHouseSeed: false },
+    { id: 'c', zone: 2, amountMinor: 600, isHouseSeed: false },
+    { id: 'house-0', zone: 0, amountMinor: 5000, isHouseSeed: true },
+  ];
+
+  it('gives every surviving stake EQUAL odds regardless of size', () => {
+    const counts = { a: 0, b: 0, c: 0 };
+    const N = 20_000;
+    for (let i = 0; i < N; i++) {
+      const u = drawZone(SEED, i, ZONE_COUNT).uWinner;
+      const w = pickGoldenAnchorFlat(stakes, 5, u)!;
+      counts[w.id as 'a' | 'b' | 'c']++;
+    }
+    // 1/3 each within a generous band.
+    for (const share of [counts.a / N, counts.b / N, counts.c / N]) {
+      expect(share).toBeGreaterThan(0.3);
+      expect(share).toBeLessThan(0.37);
+    }
+  });
+
+  it('keeps the same eligibility rules (no house seeds, no struck zone, null on empty)', () => {
+    const w = pickGoldenAnchorFlat(stakes, 1, 0.0); // struck zone 1 excludes 'b'
+    expect(w!.id).toBe('a');
+    expect(w!.isHouseSeed).toBe(false);
+    const onlyHouse: StakeEntry[] = [
+      { id: 'house-0', zone: 0, amountMinor: 5000, isHouseSeed: true },
+    ];
+    expect(pickGoldenAnchorFlat(onlyHouse, 3, 0.4)).toBeNull();
+  });
+
+  it('verifyRound recomputes the winner under both modes', () => {
+    // Find a surging round in the deterministic stream, then check the verifier
+    // agrees with each picker exactly when the matching mode flag is passed.
+    let roundId = 0;
+    for (let i = 0; i < 5_000; i++) {
+      if (drawZone(SEED, i, ZONE_COUNT).uSurge < SURGE_PROB) {
+        roundId = i;
+        break;
+      }
+    }
+    const draw = drawZone(SEED, roundId, ZONE_COUNT);
+    const weighted = pickGoldenAnchor(stakes, draw.struckZone, draw.uWinner);
+    const flat = pickGoldenAnchorFlat(stakes, draw.struckZone, draw.uWinner);
+    const base = {
+      roundId,
+      seedHex: SEED,
+      prevChainValue: chainCommitment(TERMINAL, 100), // SHA256(SEED) — valid link
+      announcedStruckZone: draw.struckZone,
+      zoneCount: ZONE_COUNT,
+      rake: 0.12,
+      stakes,
+      surgeProb: SURGE_PROB,
+      announcedSurge: true,
+    };
+    const vWeighted = verifyRound({
+      ...base,
+      surgeFlatOdds: false,
+      announcedSurgeWinnerStakeId: weighted?.id ?? null,
+    });
+    expect(vWeighted.surgeOk).toBe(true);
+    const vFlat = verifyRound({
+      ...base,
+      surgeFlatOdds: true,
+      announcedSurgeWinnerStakeId: flat?.id ?? null,
+    });
+    expect(vFlat.surgeOk).toBe(true);
+    // Cross-mode mismatch must FAIL verification whenever the picks differ.
+    if (weighted?.id !== flat?.id) {
+      const vWrong = verifyRound({
+        ...base,
+        surgeFlatOdds: true,
+        announcedSurgeWinnerStakeId: weighted?.id ?? null,
+      });
+      expect(vWrong.surgeOk).toBe(false);
+    }
   });
 });

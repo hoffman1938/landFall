@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { RAKE, ZONE_COUNT, settleRound, type StakeEntry } from '../src/index.js';
+import {
+  RAKE,
+  RAKE_SPLIT,
+  ZONE_COUNT,
+  settleRound,
+  validateRakeConfig,
+  type StakeEntry,
+} from '../src/index.js';
 
 function mkStakes(perZoneMinor: number[][], seedPerZone = 0): StakeEntry[] {
   const out: StakeEntry[] = [];
@@ -28,10 +35,10 @@ describe('pari-mutuel settlement', () => {
     stakes.push({ id: 'doc-player', zone: 2, amountMinor: 20_00, isHouseSeed: false });
     const r = settleRound(stakes, 1, RAKE);
     expect(r.struckPoolMinor).toBe(90_00);
-    expect(r.rakeMinor).toBe(Math.floor(90_00 * RAKE)); // 5.40
+    expect(r.rakeMinor).toBe(Math.floor(90_00 * RAKE)); // 10.80
     const doc = r.lines.find((l) => l.id === 'doc-player')!;
-    // 20 + 84.60 × (20/710) = 22.38 — exact under largest-remainder (verified externally).
-    expect(doc.payoutMinor).toBe(22_38);
+    // 20 + 79.20 × (20/710) = 22.23 — exact under largest-remainder (verified externally).
+    expect(doc.payoutMinor).toBe(22_23);
   });
 
   it('conserves every minor unit across 5k fuzzed rounds', () => {
@@ -50,8 +57,8 @@ describe('pari-mutuel settlement', () => {
   });
 
   it('distributes rounding remainders by largest fractional remainder (no house dust)', () => {
-    // struck pool 100 minor units, rake 6 -> 94 distributable across 3 equal survivors:
-    // 94/3 = 31.33..; floors 31+31+31=93, one leftover unit goes to lowest id on tie.
+    // struck pool 100 minor units, rake 12 -> 88 distributable across 3 equal survivors:
+    // 88/3 = 29.33..; floors 29+29+29=87, one leftover unit goes to lowest id on tie.
     const stakes: StakeEntry[] = [
       { id: 's-a', zone: 1, amountMinor: 100, isHouseSeed: false },
       { id: 's-b', zone: 2, amountMinor: 100, isHouseSeed: false },
@@ -60,7 +67,7 @@ describe('pari-mutuel settlement', () => {
     ];
     const r = settleRound(stakes, 0, RAKE);
     const shares = r.lines.filter((l) => l.outcome === 'SAFE').map((l) => l.salvageMinor);
-    expect(shares.reduce((a, b) => a + b, 0)).toBe(94);
+    expect(shares.reduce((a, b) => a + b, 0)).toBe(88);
     expect(Math.max(...shares) - Math.min(...shares)).toBeLessThanOrEqual(1);
   });
 
@@ -94,5 +101,56 @@ describe('pari-mutuel settlement', () => {
     const r = settleRound(stakes, 2, RAKE);
     expect(r.lines[0]!.outcome).toBe('WRECKED');
     expect(r.rakeMinor).toBe(500);
+  });
+});
+
+describe('rake restructure (A1)', () => {
+  it('holds RAKE/K of handle in expectation over simulated rounds', () => {
+    // Expected hold: E[rake] = RAKE × E[P_struck] = RAKE × T/K under the uniform
+    // strike. Summing the rake over all K equally likely strike zones makes the
+    // expectation exact up to one floor per zone.
+    const rand = lcg(777);
+    for (let trial = 0; trial < 500; trial++) {
+      const perZone: number[][] = Array.from({ length: ZONE_COUNT }, () =>
+        Array.from({ length: Math.floor(rand() * 5) }, () => 1_00 + Math.floor(rand() * 499_00)),
+      );
+      const stakes = mkStakes(perZone, 50_00);
+      const handle = stakes.reduce((a, s) => a + s.amountMinor, 0);
+      let rakeSum = 0;
+      for (let z = 0; z < ZONE_COUNT; z++) rakeSum += settleRound(stakes, z, RAKE).rakeMinor;
+      expect(Math.abs(rakeSum - handle * RAKE)).toBeLessThanOrEqual(ZONE_COUNT);
+    }
+  });
+
+  it('passes survivors exactly (1−RAKE) of the struck pool at ×1', () => {
+    const rand = lcg(888);
+    for (let trial = 0; trial < 500; trial++) {
+      const perZone: number[][] = Array.from({ length: ZONE_COUNT }, () =>
+        Array.from({ length: 1 + Math.floor(rand() * 4) }, () => 1_00 + Math.floor(rand() * 99_00)),
+      );
+      const stakes = mkStakes(perZone, 50_00);
+      const struck = Math.floor(rand() * ZONE_COUNT);
+      const r = settleRound(stakes, struck, RAKE);
+      expect(r.salvageTotalMinor).toBe(r.struckPoolMinor - Math.floor(r.struckPoolMinor * RAKE));
+    }
+  });
+
+  it('validates rake and split configs (room/env overrides)', () => {
+    expect(() => validateRakeConfig(RAKE, RAKE_SPLIT)).not.toThrow();
+    expect(() => validateRakeConfig(0.06, RAKE_SPLIT)).not.toThrow();
+    expect(() => validateRakeConfig(0.2, RAKE_SPLIT)).not.toThrow();
+    expect(() => validateRakeConfig(0.05, RAKE_SPLIT)).toThrow(/outside/);
+    expect(() => validateRakeConfig(0.21, RAKE_SPLIT)).toThrow(/outside/);
+    expect(() => validateRakeConfig(NaN, RAKE_SPLIT)).toThrow(/outside/);
+    expect(() =>
+      validateRakeConfig(RAKE, { house: 0.5, surge: 0.3, stormReserve: 0.3 }),
+    ).toThrow(/sum to 1/);
+    expect(() =>
+      validateRakeConfig(RAKE, { house: 1.2, surge: -0.1, stormReserve: -0.1 }),
+    ).toThrow(/non-negative/);
+  });
+
+  it('split fractions sum to 1 (the shipped default)', () => {
+    expect(RAKE_SPLIT.house + RAKE_SPLIT.surge + RAKE_SPLIT.stormReserve).toBe(1);
   });
 });

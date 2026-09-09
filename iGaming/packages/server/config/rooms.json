@@ -1,0 +1,75 @@
+{
+  "$comment": "Default stake-tier rooms (remediation C2). Tier configs live here — server config, not code. Casuals never share a room with 100× their stake, and each tier steps ×10 from the last: Skiff 1–50, Schooner 5–500, Flagship 50–5,000, Galleon 500–50,000, Leviathan 5,000–500,000 credits. botsAllowed only takes effect under LANDFALL_ENV=demo; any other environment refuses to start if a room requests bots (C5). botCount/botBankrollMinor are per-tier: a Leviathan bot on a Skiff bankroll is broke on its first anchor, so the rich tables would look deserted. LIQUIDITY: seedMinor is the CEILING (a dead table); the house tops the table up to liquidityFloorMinor and then falls away to minSeedMinor as real players arrive — a large flat seed averages the pools together and flattens every payout to the same number (see packages/core/src/liquidity.ts). Every tier's floor is sized so that liquidityFloorMinor/3 (the B5 whale cap on a dead table) is comfortably above minStakeMinor — otherwise the first bettor of a round would be rejected by a guardrail meant for whales.",
+  "rooms": [
+    {
+      "roomId": "skiff",
+      "name": "Skiff Harbor",
+      "minStakeMinor": 100,
+      "maxStakeMinor": 5000,
+      "whaleCapFraction": 0.25,
+      "seedMinor": 2500,
+      "liquidityFloorMinor": 9000,
+      "minSeedMinor": 100,
+      "signalMinStakeMinor": 200,
+      "botsAllowed": true,
+      "botCount": 14,
+      "botBankrollMinor": 5000000
+    },
+    {
+      "roomId": "schooner",
+      "name": "Schooner Bay",
+      "minStakeMinor": 500,
+      "maxStakeMinor": 50000,
+      "whaleCapFraction": 0.25,
+      "seedMinor": 5000,
+      "liquidityFloorMinor": 18000,
+      "minSeedMinor": 500,
+      "signalMinStakeMinor": 500,
+      "botsAllowed": true,
+      "botCount": 14,
+      "botBankrollMinor": 5000000
+    },
+    {
+      "roomId": "flagship",
+      "name": "Flagship Sound",
+      "minStakeMinor": 5000,
+      "maxStakeMinor": 500000,
+      "whaleCapFraction": 0.25,
+      "seedMinor": 25000,
+      "liquidityFloorMinor": 90000,
+      "minSeedMinor": 5000,
+      "signalMinStakeMinor": 5000,
+      "botsAllowed": true,
+      "botCount": 12,
+      "botBankrollMinor": 12500000
+    },
+    {
+      "roomId": "galleon",
+      "name": "Galleon Roads",
+      "minStakeMinor": 50000,
+      "maxStakeMinor": 5000000,
+      "whaleCapFraction": 0.25,
+      "seedMinor": 125000,
+      "liquidityFloorMinor": 450000,
+      "minSeedMinor": 50000,
+      "signalMinStakeMinor": 50000,
+      "botsAllowed": true,
+      "botCount": 10,
+      "botBankrollMinor": 125000000
+    },
+    {
+      "roomId": "leviathan",
+      "name": "Leviathan Deep",
+      "minStakeMinor": 500000,
+      "maxStakeMinor": 50000000,
+      "whaleCapFraction": 0.25,
+      "seedMinor": 625000,
+      "liquidityFloorMinor": 2250000,
+      "minSeedMinor": 500000,
+      "signalMinStakeMinor": 500000,
+      "botsAllowed": true,
+      "botCount": 8,
+      "botBankrollMinor": 1250000000
+    }
+  ]
+}

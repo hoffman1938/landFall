@@ -10,6 +10,10 @@ export const players = sqliteTable('players', {
   name: text('name').notNull().unique(),
   balanceMinor: integer('balance_minor').notNull(),
   isHouse: integer('is_house', { mode: 'boolean' }).notNull().default(false),
+  /** Demo practice bots (C5) — marked in DB, excluded from Golden Anchor. */
+  isBot: integer('is_bot', { mode: 'boolean' }).notNull().default(false),
+  /** Reconnect restores the player to their room (C1). */
+  lastRoomId: text('last_room_id'),
   createdAt: integer('created_at').notNull(),
 });
 
@@ -23,12 +27,18 @@ export const chainState = sqliteTable('chain_state', {
 
 export const rounds = sqliteTable('rounds', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  /** Room the round ran in (C1). Round ids stay globally unique. */
+  roomId: text('room_id'),
   chainIndex: integer('chain_index').notNull(),
   prevChainValue: text('prev_chain_value').notNull(),
   seedHex: text('seed_hex'), // null until reveal
   struckZone: integer('struck_zone'), // null until resolved
   lockSnapshotJson: text('lock_snapshot_json'), // canonical pools at lock (public record)
   rakeMinor: integer('rake_minor'),
+  /** Economy config in force at settlement, for verification of historic rounds. */
+  rakeBp: integer('rake_bp'), // rake as integer basis points (0.12 -> 1200)
+  maxPayoutMultiple: integer('max_payout_multiple'), // Storm Power liability cap (× handle)
+  powerCapped: integer('power_capped', { mode: 'boolean' }),
   settledAt: integer('settled_at'),
   createdAt: integer('created_at').notNull(),
 });
@@ -45,9 +55,25 @@ export const stakes = sqliteTable('stakes', {
   createdAt: integer('created_at').notNull(),
 });
 
-export const surgeState = sqliteTable('surge_state', {
-  id: integer('id').primaryKey(),
+/** Per-room Storm Surge pots (C1 replaced the single global surge_state row). */
+export const surgePots = sqliteTable('surge_pots', {
+  roomId: text('room_id').primaryKey(),
   potMinor: integer('pot_minor').notNull(),
+});
+
+/**
+ * Storm Reserve ledger (A3) — one row per settled round, auditable:
+ * inflow = rake × RAKE_SPLIT.stormReserve, outflow = the Storm Power draw
+ * (salvageTotal − distributable, cap applied), balance = running balance.
+ */
+export const stormReserveLedger = sqliteTable('storm_reserve_ledger', {
+  roundId: integer('round_id').primaryKey(),
+  /** Reserve balances are per room (C1). */
+  roomId: text('room_id'),
+  inflowMinor: integer('inflow_minor').notNull(),
+  outflowMinor: integer('outflow_minor').notNull(),
+  balanceMinor: integer('balance_minor').notNull(),
+  createdAt: integer('created_at').notNull(),
 });
 
 export const surgeEvents = sqliteTable('surge_events', {
@@ -55,11 +81,107 @@ export const surgeEvents = sqliteTable('surge_events', {
   winnerPlayerId: text('winner_player_id'), // null -> pot rolled over
   winnerStakeId: text('winner_stake_id'),
   amountMinor: integer('amount_minor').notNull(),
+  /** Flat-odds Golden Anchor round (A4, flag-gated). */
+  flatOdds: integer('flat_odds', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at').notNull(),
+});
+
+/** Server-local secrets (receipt signing key). NOT the fairness chain terminal. */
+export const serverSecrets = sqliteTable('server_secrets', {
+  id: integer('id').primaryKey(),
+  receiptKeyHex: text('receipt_key_hex').notNull(),
+});
+
+/**
+ * Signed action receipts (B1) — every accepted/rejected anchor, fleet order and
+ * cancel, with the server timestamp, per-round sequence and HMAC signature.
+ */
+export const actionReceipts = sqliteTable('action_receipts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  roundId: integer('round_id').notNull(),
+  seq: integer('seq').notNull(),
+  playerId: text('player_id').notNull(),
+  action: text('action').notNull(),
+  actionHash: text('action_hash').notNull(),
+  ts: integer('ts').notNull(),
+  msBeforeLock: integer('ms_before_lock').notNull(),
+  verdict: text('verdict').notNull(), // ACCEPTED | REJECTED
+  reason: text('reason'),
+  sigHex: text('sig_hex').notNull(),
+});
+
+/**
+ * Per-action behavioral telemetry (B3) — accepted round actions only, for the
+ * offline collusion scan (scripts/collusion-scan.ts). Distinct from receipts:
+ * receipts are the player-facing audit trail; telemetry is the ops-facing
+ * behavioral record (zone, stake, phase timing, fog membership).
+ */
+export const actionTelemetry = sqliteTable('action_telemetry', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  roomId: text('room_id').notNull(),
+  roundId: integer('round_id').notNull(),
+  playerId: text('player_id').notNull(),
+  action: text('action').notNull(), // FLEET_ORDER | CANCEL_ORDER | SIGNAL
+  msIntoPhase: integer('ms_into_phase').notNull(),
+  zone: integer('zone'), // primary/flagged zone; null for cancels
+  stakeMinor: integer('stake_minor'), // null for signals
+  inFog: integer('in_fog', { mode: 'boolean' }).notNull(),
+  /** Stake equals the room minimum — the probing detector's raw signal. */
+  isMinStake: integer('is_min_stake', { mode: 'boolean' }).notNull(),
+  /** FOCUS/SPLIT for orders, the SignalKind for flags. */
+  detail: text('detail'),
+  createdAt: integer('created_at').notNull(),
+});
+
+/**
+ * Skipper Record (E1) — per-player cosmetic reputation. Read for display only;
+ * NEVER an input to gameplay, odds, or settlement. Bots get records too so
+ * demo profile cards work; the house never sails.
+ */
+export const skipperRecords = sqliteTable('skipper_records', {
+  playerId: text('player_id').primaryKey(),
+  currentStreak: integer('current_streak').notNull().default(0),
+  bestStreak: integer('best_streak').notNull().default(0),
+  /** Flags revealed dishonest at reveal (flag zone ≠ fleet reality at lock). */
+  bluffsCalled: integer('bluffs_called').notNull().default(0),
+  biggestSalvageMinor: integer('biggest_salvage_minor').notNull().default(0),
+  roundsSailed: integer('rounds_sailed').notNull().default(0),
+  surgeWins: integer('surge_wins').notNull().default(0),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+/**
+ * Responsible-gambling limits (F1) + demo-grade self-exclusion (F2).
+ * Tightening applies immediately; loosenings wait in pending_json
+ * ({field: {value, effectiveAt}}) behind the 24h cooldown.
+ */
+export const playerLimits = sqliteTable('player_limits', {
+  playerId: text('player_id').primaryKey(),
+  sessionLossLimitMinor: integer('session_loss_limit_minor'),
+  dailyLossLimitMinor: integer('daily_loss_limit_minor'),
+  stakePerRoundCapMinor: integer('stake_per_round_cap_minor'),
+  realityCheckMinutes: integer('reality_check_minutes'),
+  pendingJson: text('pending_json'),
+  excludedUntil: integer('excluded_until'),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+/**
+ * Per-player daily net loss (F1) — one row per player per UTC day, written
+ * inside the settlement transaction. Positive = down, negative = up; the
+ * daily loss limit compares against max(0, net).
+ */
+export const playerDayLoss = sqliteTable('player_day_loss', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  playerId: text('player_id').notNull(),
+  dayKey: text('day_key').notNull(), // 'YYYY-MM-DD', UTC
+  netLossMinor: integer('net_loss_minor').notNull(),
 });
 
 export const chatMessages = sqliteTable('chat_messages', {
   id: integer('id').primaryKey({ autoIncrement: true }),
+  /** Chat is scoped per room (C1). */
+  roomId: text('room_id'),
   playerId: text('player_id').notNull(),
   name: text('name').notNull(),
   text: text('text').notNull(),

@@ -11,7 +11,12 @@ import {
   type WeatherPattern,
 } from './constants.js';
 import { drawZone, verifyChainLink } from './rng.js';
-import { pickGoldenAnchor, settleRound, type StakeEntry } from './settlement.js';
+import {
+  pickGoldenAnchor,
+  pickGoldenAnchorFlat,
+  settleRound,
+  type StakeEntry,
+} from './settlement.js';
 
 export interface RoundVerificationInput {
   roundId: number;
@@ -22,6 +27,11 @@ export interface RoundVerificationInput {
   rake: number;
   /** Full lock snapshot as published (all stakes incl. house seeds). */
   stakes: StakeEntry[];
+  /**
+   * Storm Power liability cap in force for the round (A3), as a multiple of the
+   * round handle. Omitted -> uncapped recompute (legacy rounds).
+   */
+  maxPayoutMultiple?: number;
   /** Optional: verify one player's payout. */
   myStakeId?: string;
   myAnnouncedPayoutMinor?: number;
@@ -29,6 +39,8 @@ export interface RoundVerificationInput {
   surgeProb?: number;
   announcedSurge?: boolean;
   announcedSurgeWinnerStakeId?: string | null;
+  /** Flat-odds Golden Anchor mode as announced in the round header (A4). */
+  surgeFlatOdds?: boolean;
   /** Optional Storm Power check: the multiplier the server claims applied. */
   announcedPowerLabel?: string;
   /** Optional Weather Pattern check: the round pattern the server claims applied. */
@@ -43,6 +55,8 @@ export interface RoundVerificationResult {
   feints: [number, number];
   payoutOk: boolean | null; // null when no payout check requested
   recomputedPayoutMinor: number | null;
+  /** True when the recomputed settlement hit the liability cap (null: no payout check). */
+  recomputedPowerCapped: boolean | null;
   /** null when no surge check requested. */
   surgeOk: boolean | null;
   recomputedSurge: boolean | null;
@@ -74,13 +88,24 @@ export function verifyRound(input: RoundVerificationInput): RoundVerificationRes
       ? null
       : recomputedWeather.id === input.announcedWeatherId;
 
+  // Liability cap in force (A3): recompute from the public snapshot's handle so
+  // capped rounds verify exactly as settled.
+  const handleMinor = input.stakes.reduce((a, s) => a + s.amountMinor, 0);
+  const maxSalvageMinor =
+    input.maxPayoutMultiple === undefined ? undefined : input.maxPayoutMultiple * handleMinor;
+
   let payoutOk: boolean | null = null;
   let recomputedPayoutMinor: number | null = null;
+  let recomputedPowerCapped: boolean | null = null;
   if (input.myStakeId !== undefined) {
-    const settlement = settleRound(input.stakes, input.announcedStruckZone, input.rake, {
-      mNum: recomputedPower.mNum,
-      mDen: recomputedPower.mDen,
-    });
+    const settlement = settleRound(
+      input.stakes,
+      input.announcedStruckZone,
+      input.rake,
+      { mNum: recomputedPower.mNum, mDen: recomputedPower.mDen },
+      maxSalvageMinor,
+    );
+    recomputedPowerCapped = settlement.powerCapped;
     const line = settlement.lines.find((l) => l.id === input.myStakeId);
     recomputedPayoutMinor = line ? line.payoutMinor : null;
     payoutOk =
@@ -95,8 +120,9 @@ export function verifyRound(input: RoundVerificationInput): RoundVerificationRes
   let recomputedSurgeWinnerStakeId: string | null = null;
   if (input.surgeProb !== undefined) {
     recomputedSurge = draw.uSurge < input.surgeProb;
+    const pick = input.surgeFlatOdds ? pickGoldenAnchorFlat : pickGoldenAnchor;
     const winner = recomputedSurge
-      ? pickGoldenAnchor(input.stakes, input.announcedStruckZone, draw.uWinner)
+      ? pick(input.stakes, input.announcedStruckZone, draw.uWinner)
       : null;
     recomputedSurgeWinnerStakeId = winner?.id ?? null;
     surgeOk =
@@ -113,6 +139,7 @@ export function verifyRound(input: RoundVerificationInput): RoundVerificationRes
     feints: draw.feints,
     payoutOk,
     recomputedPayoutMinor,
+    recomputedPowerCapped,
     surgeOk,
     recomputedSurge,
     recomputedSurgeWinnerStakeId,

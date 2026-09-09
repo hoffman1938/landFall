@@ -47,7 +47,9 @@ function client(): TestClient {
         state.phase = msg.phase;
         break;
       case 'ANCHOR_ACK':
-        state.ackRound = state.roundId;
+        // `roundId` is optional until the first ROUND_HEADER lands; an ACK can
+        // only arrive after one, but the compiler cannot know that.
+        if (state.roundId !== undefined) state.ackRound = state.roundId;
         break;
       case 'LANDFALL':
         state.landfalls.push(msg);

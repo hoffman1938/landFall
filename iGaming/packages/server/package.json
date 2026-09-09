@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/main.ts",
+    "dev": "tsx watch scripts/dev.ts",
     "start": "tsx src/main.ts",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"

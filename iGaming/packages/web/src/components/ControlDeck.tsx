@@ -1,32 +1,116 @@
 /**
- * Persistent bottom control deck — always-visible stake input, quick presets,
- * Focus/Split segmented control, and one contextual primary action button.
- * Replaces the old stake chip + pop-up sheet so repeated rounds need zero
- * extra taps. The deck never moves between phases; only labels change.
+ * Control deck — the persistent bottom row: what you are risking, and the one
+ * button that commits it.
+ *
+ * The deck is the only place in the product where a player spends money, so it
+ * is also the only place that never changes shape. Its geometry is fixed within
+ * a phase, the primary action never moves or resizes, and secondary slots are
+ * reserved (invisible, inert) rather than removed — a control that shifts under
+ * a thumb during a 10-second window is a control that takes bets by accident.
+ *
+ * Remediated per D1/D2/D3/D4:
+ *  - the primary button is NEVER destructive; its full state machine lives in
+ *    ../deckState.ts (see the state table there — every state is unit-tested);
+ *  - cancel is only the small ✕, hold-to-confirm during Blind Fog;
+ *  - RESTAKE is an explicit secondary in a reserved slot (deck geometry never
+ *    changes within a phase);
+ *  - all interactive targets ≥ 44px, interactive text ≥ 14px, primary ≥ 16px
+ *    (audit table: docs/09-remediation/d2-accessibility-audit.md);
+ *  - the payout expectation strip derives from the PUBLIC tide report only and
+ *    freezes with it;
+ *  - disclosure is progressive (D5, ../deckProgress.ts): a fresh profile sees
+ *    stepper + presets + primary only; Focus/Split, flags and ×2/½/MAX unlock
+ *    per the schedule there. Experts are never re-gated.
+ *
+ * The one thing this pass adds is symmetry in the telemetry strip: the amount
+ * at RISK is stated at the same size, in the same row, as the amount that comes
+ * back IF SAFE. An upside shown alone is a nudge; the two shown together is a
+ * price tag, and a price tag is what a player is entitled to before they commit.
  */
-import { useEffect, useRef, useState } from 'react';
-import { HARBOR_NAMES, MAX_STAKE_MINOR, MIN_STAKE_MINOR, SPLIT_PRIMARY_PERCENT } from '@landfall/core';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  FLAG_MAX_PER_WINDOW,
+  FLAG_WINDOW_ROUNDS,
+  RAKE,
+  SPLIT_PRIMARY_PERCENT,
+  payoutExpectationGains,
+} from '@landfall/core';
 import { audio } from '../audio/engine';
+import { LIVE_MAX_HINT, STR, liveMaxNotice, zoneName } from '../strings';
+import {
+  MODE_UNLOCK_ROUNDS,
+  getDeckProgress,
+  resolveDisclosure,
+  updateDeckProgress,
+  useDeckProgress,
+  withModesUnlockedByTap,
+  withRivalFlagSeen,
+  withRoundCompleted,
+  withStakeEdited,
+} from '../deckProgress';
+import { formatPayoutStrip, resolveDeckState, type PrimaryId } from '../deckState';
+import { resolveStakeLimit } from '../stakeLimits';
 import { fmt, useStore } from '../store';
-import { BoatIcon, RallyFlagIcon, FleeFlagIcon, HoldFlagIcon, SplitBoatsIcon, XIcon } from './icons';
+import {
+  BoatIcon,
+  RallyFlagIcon,
+  FleeFlagIcon,
+  HoldFlagIcon,
+  LockIcon,
+  SplitBoatsIcon,
+  XIcon,
+} from './icons';
 
-const PRESETS = [10_00, 50_00, 200_00, 500_00, 1000_00, 2500_00, 5000_00];
+/**
+ * v3 — stake presets are DYNAMIC: derived from THIS table's min/max, not a fixed
+ * list. A fixed [1,2,5,10] is useless in a 5–500 or 50–5000 room (below the
+ * minimum). We span the table's range with up to four "nice" 1-2-5 values,
+ * always anchored by the table minimum and maximum, so every chip is a bet you
+ * can actually place.
+ */
+function niceStakePresets(minMinor: number, maxMinor: number): number[] {
+  if (!Number.isFinite(minMinor) || !Number.isFinite(maxMinor) || maxMinor <= minMinor) {
+    return [Math.max(1_00, minMinor)];
+  }
+  // 1-2-5 ladder strictly inside the range
+  const ladder: number[] = [];
+  for (let mag = 1_00; mag <= maxMinor; mag *= 10) {
+    for (const m of [1, 2, 5]) {
+      const v = m * mag;
+      if (v > minMinor && v < maxMinor) ladder.push(v);
+    }
+  }
+  const nearest = (target: number) =>
+    ladder.length
+      ? ladder.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a))
+      : target;
+  // two interior values at geometric thirds of [min, max]
+  const ratio = maxMinor / minMinor;
+  const mid1 = nearest(minMinor * ratio ** (1 / 3));
+  const mid2 = nearest(minMinor * ratio ** (2 / 3));
+  const set = new Set<number>([minMinor, mid1, mid2, maxMinor]);
+  return [...set].sort((a, b) => a - b);
+}
+
+/** A "nice" nudge step for ± scaled to the table (one table-minimum unit). */
+function stepFor(minMinor: number): number {
+  return Math.max(1_00, minMinor);
+}
+
+/** Hold duration for the fog-cancel confirm affordance. */
+const CANCEL_HOLD_MS = 650;
 
 function coveName(zone: number): string {
-  return HARBOR_NAMES[zone] ?? `Cove ${zone + 1}`;
+  return zoneName(zone);
 }
 
 function presetLabel(minor: number): string {
   const units = minor / 100;
-  return units >= 1000 ? `${units / 1000}k` : String(units);
-}
-
-interface PrimaryAction {
-  label: string;
-  sub?: string | undefined;
-  kind: 'action' | 'cancel' | 'confirmed' | 'idle';
-  disabled: boolean;
-  onPress?: () => void;
+  if (units >= 1000) {
+    const k = units / 1000;
+    return `${Number.isInteger(k) ? k : k.toFixed(1)}k`;
+  }
+  return String(units);
 }
 
 export function ControlDeck() {
@@ -35,6 +119,8 @@ export function ControlDeck() {
   const stakeInputMinor = useStore((s) => s.stakeInputMinor);
   const setStakeInput = useStore((s) => s.setStakeInput);
   const myFleet = useStore((s) => s.myFleet);
+  const selectedZone = useStore((s) => s.selectedZone);
+  const commitBet = useStore((s) => s.commitBet);
   const fleetMode = useStore((s) => s.fleetMode);
   const setFleetMode = useStore((s) => s.setFleetMode);
   const finalOrderUsed = useStore((s) => s.finalOrderUsed);
@@ -44,33 +130,99 @@ export function ControlDeck() {
   const tideReport = useStore((s) => s.tideReport);
   const rebet = useStore((s) => s.rebet);
   const cancelOrder = useStore((s) => s.cancelOrder);
-  const doubleStake = useStore((s) => s.doubleStake);
   const sendSignal = useStore((s) => s.sendSignal);
   const flagPickerAt = useStore((s) => s.flagPickerAt);
   const openFlagPicker = useStore((s) => s.openFlagPicker);
   const closeFlagPicker = useStore((s) => s.closeFlagPicker);
   const toast = useStore((s) => s.toast);
+  // Room tier limits (C2) — the clamp speaks in this room's numbers.
+  const minStakeMinor = useStore((s) => s.roomMinStakeMinor);
+  const maxStakeMinor = useStore((s) => s.roomMaxStakeMinor);
+  // B5 round-share inputs — so MAX and presets reflect what you can ACTUALLY bet.
+  const whaleCapFraction = useStore((s) => s.whaleCapFraction);
+  const roomLiquidityFloorMinor = useStore((s) => s.roomLiquidityFloorMinor);
+  const houseSeedMinor = useStore((s) => s.round?.houseSeedMinor ?? 0);
+  // B4 flag cooldown mirror: dimmed flag + round counter, no prose.
+  const myFlagRounds = useStore((s) => s.myFlagRounds);
+  const roundId = useStore((s) => s.round?.roundId);
+  // D5 progressive disclosure inputs.
+  const landfallRoundId = useStore((s) => s.lastLandfall?.roundId);
+  const signals = useStore((s) => s.signals);
+  const myName = useStore((s) => s.name);
+  const progress = useDeckProgress();
+  const disclosure = resolveDisclosure(progress);
 
   const deckRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [stakeError, setStakeError] = useState<string | null>(null);
 
+  // D5 unlock triggers: completed rounds and the first rival flag seen.
+  useEffect(() => {
+    if (landfallRoundId === undefined) return;
+    updateDeckProgress(withRoundCompleted(getDeckProgress(), landfallRoundId));
+  }, [landfallRoundId]);
+  useEffect(() => {
+    if (myName === null) return;
+    if (signals.some((s) => s.name !== myName)) {
+      updateDeckProgress(withRivalFlagSeen(getDeckProgress()));
+    }
+  }, [signals, myName]);
+
   const open = phase?.phase === 'ANCHOR_OPEN';
   const canOrder = connected && open && !finalOrderUsed && !orderPending;
   const fogActive = open && (tideReport?.frozen ?? false);
 
+  const deck = resolveDeckState({
+    connected,
+    phase: phase?.phase ?? null,
+    hasFleet: myFleet !== null,
+    fleetStakeMinor: myFleet?.stakeMinor ?? null,
+    stakeInputMinor,
+    finalOrderUsed,
+    orderPending,
+    fogActive,
+    hasLastFleet: lastFleet !== null,
+    hasSelection: myFleet === null && selectedZone !== null,
+  });
+
+  // ✕ hold-to-confirm state (fog only).
+  const [holdProgress, setHoldProgress] = useState(0);
+  const holdTimer = useRef<number | null>(null);
+  const holdRaf = useRef<number | null>(null);
+  const clearHold = () => {
+    if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
+    if (holdRaf.current !== null) window.cancelAnimationFrame(holdRaf.current);
+    holdTimer.current = null;
+    holdRaf.current = null;
+    setHoldProgress(0);
+  };
+  const beginHold = () => {
+    const start = performance.now();
+    const tick = () => {
+      setHoldProgress(Math.min(1, (performance.now() - start) / CANCEL_HOLD_MS));
+      holdRaf.current = window.requestAnimationFrame(tick);
+    };
+    holdRaf.current = window.requestAnimationFrame(tick);
+    holdTimer.current = window.setTimeout(() => {
+      clearHold();
+      audio.click('down');
+      cancelOrder();
+    }, CANCEL_HOLD_MS);
+  };
+  useEffect(() => clearHold, []);
+
   // The docked secondary panel sizes itself above the deck.
   useEffect(() => {
-    const deck = deckRef.current;
-    if (!deck) return;
+    const deckEl = deckRef.current;
+    if (!deckEl) return;
     const apply = () =>
       document.documentElement.style.setProperty(
         '--lf-control-deck-height',
-        `${deck.offsetHeight}px`,
+        `${deckEl.offsetHeight}px`,
       );
     apply();
     const observer = new ResizeObserver(apply);
-    observer.observe(deck);
+    observer.observe(deckEl);
     return () => observer.disconnect();
   }, []);
 
@@ -84,15 +236,60 @@ export function ControlDeck() {
     return () => window.clearTimeout(t);
   }, [stakeError]);
 
-  const clamp = (v: number) => Math.min(MAX_STAKE_MINOR, Math.max(MIN_STAKE_MINOR, v));
+  // v3 — everything about the stake scales to what you can ACTUALLY bet right
+  // now: min(your balance, the table max, the round-share cap). Presets, the ±
+  // step, MAX and the input ceiling all follow it, so no chip in this row is a
+  // number the server would refuse. The cap itself is derived exactly as the
+  // server derives it — see ../stakeLimits.ts for why the old estimate, taken
+  // from the previous round's handle, promised stakes that got rejected.
+  const stakeLimit = useMemo(
+    () =>
+      resolveStakeLimit({
+        balanceMinor,
+        roomMinStakeMinor: minStakeMinor,
+        roomMaxStakeMinor: maxStakeMinor,
+        whaleCapFraction,
+        liquidityFloorMinor: roomLiquidityFloorMinor,
+        houseSeedMinor,
+      }),
+    [
+      balanceMinor,
+      maxStakeMinor,
+      minStakeMinor,
+      whaleCapFraction,
+      roomLiquidityFloorMinor,
+      houseSeedMinor,
+    ],
+  );
+  const effectiveMaxMinor = stakeLimit.maxMinor;
+
+  const presets = useMemo(
+    () => niceStakePresets(minStakeMinor, effectiveMaxMinor),
+    [minStakeMinor, effectiveMaxMinor],
+  );
+  const stepMinor = stepFor(minStakeMinor);
+  const clamp = (v: number) => Math.min(effectiveMaxMinor, Math.max(minStakeMinor, v));
+
+  // Keep the shown stake inside the live limits: raise to the table minimum, and
+  // lower it whenever the cap drops below it (so 5000 can't sit there when the
+  // live max is 500). Never auto-raises, so it won't fight a deliberate low bet.
+  useEffect(() => {
+    if (stakeInputMinor < minStakeMinor) setStakeInput(minStakeMinor);
+    else if (stakeInputMinor > effectiveMaxMinor) setStakeInput(effectiveMaxMinor);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minStakeMinor, effectiveMaxMinor]);
 
   const applyStake = (value: number, announceClamp = false) => {
+    // Every stake edit is a user action — it unlocks the ×2/½/MAX row (D5).
+    updateDeckProgress(withStakeEdited(getDeckProgress()));
     const next = clamp(value);
     if (announceClamp && next !== value) {
       setStakeError(
-        value < MIN_STAKE_MINOR
-          ? `Minimum stake is ${fmt(MIN_STAKE_MINOR)}`
-          : `Maximum stake is ${fmt(MAX_STAKE_MINOR)}`,
+        value < minStakeMinor
+          ? `Table minimum is ${fmt(minStakeMinor)}`
+          : value > maxStakeMinor
+            ? `Table maximum is ${fmt(maxStakeMinor)}`
+            : liveMaxNotice(effectiveMaxMinor),
       );
     } else if (announceClamp) {
       setStakeError(null);
@@ -100,6 +297,16 @@ export function ControlDeck() {
     setStakeInput(next);
     setDraft(null);
   };
+
+  // B4: flags usable in at most FLAG_MAX_PER_WINDOW of FLAG_WINDOW_ROUNDS rounds.
+  const recentFlags =
+    roundId === undefined
+      ? []
+      : myFlagRounds.filter((r) => r >= roundId - (FLAG_WINDOW_ROUNDS - 1) && r < roundId);
+  const flagCoolingDown = roundId !== undefined && recentFlags.length >= FLAG_MAX_PER_WINDOW;
+  const flagRoundsLeft = flagCoolingDown
+    ? Math.max(1, Math.min(...recentFlags) + FLAG_WINDOW_ROUNDS - roundId)
+    : 0;
 
   const commitDraft = () => {
     if (draft === null) return;
@@ -117,77 +324,66 @@ export function ControlDeck() {
     applyStake(stakeInputMinor + delta, true);
   };
 
-  /* ---------- primary action resolution ---------- */
+  /* ---------- primary presentation (state resolved in deckState.ts) ---------- */
 
-  const primary: PrimaryAction = !connected
-    ? { label: 'RECONNECTING…', kind: 'idle', disabled: true }
-    : !phase
-      ? { label: 'CONNECTING…', kind: 'idle', disabled: true }
-      : phase.phase === 'LOCKED_STORM'
-        ? { label: 'ANCHORS LOCKED', sub: 'Storm is choosing a cove', kind: 'idle', disabled: true }
-        : phase.phase === 'RESOLVED'
-          ? { label: 'LANDFALL', sub: 'Settling results', kind: 'idle', disabled: true }
-          : phase.phase === 'COOLDOWN'
-            ? { label: 'NEXT ROUND SOON', kind: 'idle', disabled: true }
-            : finalOrderUsed
-              ? {
-                  label: 'FINAL ORDER SET',
-                  sub: myFleet ? `Committed at ${coveName(myFleet.primaryZone)}` : undefined,
-                  kind: 'confirmed',
-                  disabled: true,
-                }
-              : orderPending
-                ? { label: 'SENDING…', kind: 'idle', disabled: true }
-                : myFleet
-                  ? stakeInputMinor !== myFleet.stakeMinor
-                    ? {
-                        label: `RESTAKE ${fmt(stakeInputMinor)}`,
-                        sub: `at ${coveName(myFleet.primaryZone)}`,
-                        kind: 'action',
-                        disabled: false,
-                        onPress: () => {
-                          audio.click('send');
-                          useStore.getState().sendAnchor(myFleet.primaryZone);
-                        },
-                      }
-                    : {
-                        label: 'CANCEL BET',
-                        sub: fogActive
-                          ? `${fmt(myFleet.stakeMinor)} at ${coveName(myFleet.primaryZone)} · uses your fog order`
-                          : `${fmt(myFleet.stakeMinor)} at ${coveName(myFleet.primaryZone)} refunds in full`,
-                        kind: 'cancel',
-                        disabled: false,
-                        onPress: () => {
-                          audio.click('down');
-                          cancelOrder();
-                        },
-                      }
-                  : lastFleet
-                    ? {
-                        label: `REBET ${fmt(lastFleet.stakeMinor)}`,
-                        sub: `${lastFleet.mode === 'SPLIT' ? 'Split' : 'Focus'} · ${coveName(lastFleet.primaryZone)}`,
-                        kind: 'action',
-                        disabled: false,
-                        onPress: () => {
-                          audio.click('send');
-                          rebet();
-                        },
-                      }
-                    : {
-                        label: 'SELECT A COVE',
-                        sub: 'Tap the map to anchor',
-                        kind: 'idle',
-                        disabled: true,
-                      };
+  const primaryContent: Record<PrimaryId, { label: string; sub?: string }> = {
+    reconnecting: { label: STR.reconnecting },
+    connecting: { label: STR.connecting },
+    locked: { label: STR.locked, sub: STR.lockedSub },
+    landfall: { label: STR.result, sub: STR.resultSub },
+    cooldown: { label: STR.nextRoundSoon },
+    'final-order-set': {
+      label: STR.lastMoveSet,
+      ...(myFleet ? { sub: `${coveName(myFleet.primaryZone)} · ${fmt(myFleet.stakeMinor)}` } : {}),
+    },
+    sending: { label: STR.sending },
+    anchored: {
+      label: STR.betPlaced,
+      ...(myFleet
+        ? { sub: `${coveName(myFleet.primaryZone)} · ${fmt(myFleet.stakeMinor)}` }
+        : {}),
+    },
+    'place-bet': {
+      label: `${STR.placeBet} ${fmt(stakeInputMinor)}`,
+      ...(selectedZone !== null ? { sub: coveName(selectedZone) } : {}),
+    },
+    rebet: {
+      label: `${STR.betAgain} ${lastFleet ? fmt(lastFleet.stakeMinor) : ''}`.trim(),
+      ...(lastFleet
+        ? {
+            sub: `${coveName(lastFleet.primaryZone)}${lastFleet.mode === 'SPLIT' ? ` · ${STR.twoZones}` : ''}`,
+          }
+        : {}),
+    },
+    'select-cove': { label: STR.pickZone, sub: STR.pickZoneSub },
+  };
+  const primary = primaryContent[deck.primary.id];
+  const primaryOnPress =
+    deck.primary.id === 'rebet'
+      ? () => {
+          audio.click('send');
+          rebet();
+        }
+      : deck.primary.id === 'place-bet'
+        ? () => {
+            audio.click('send');
+            commitBet();
+          }
+        : undefined;
 
+  /*
+   * Three states, three flat treatments and no gradients between them:
+   *   action    — solid green. The only saturated fill in the deck, so "the
+   *               button is green" and "I can commit" are the same fact.
+   *   confirmed — hairline green on black. Your bet is in; nothing to press.
+   *   inert     — grey on grey. The round is not yours to act on.
+   */
   const primaryClass =
-    primary.kind === 'action'
-      ? 'bg-[var(--lf-action)] text-[#04240f] hover:bg-[var(--lf-action-strong)] active:scale-[0.99]'
-      : primary.kind === 'cancel'
-        ? 'bg-[var(--lf-danger)] text-[#2b0505] hover:brightness-110 active:scale-[0.99]'
-        : primary.kind === 'confirmed'
-          ? 'border border-[var(--lf-action)]/60 bg-[var(--lf-action)]/10 text-[var(--lf-safe)]'
-          : 'bg-[var(--lf-surface-2)] text-[var(--lf-dim)]';
+    deck.primary.kind === 'action'
+      ? 'bg-[var(--lf-win)] text-[#04180e] hover:bg-[#2af08c] active:translate-y-px'
+      : deck.primary.kind === 'confirmed'
+        ? 'border border-[var(--lf-win)]/55 bg-[var(--lf-win-soft)] text-[var(--lf-win)]'
+        : 'border border-[var(--lf-line)] bg-[var(--lf-surface)] text-[var(--lf-mute)]';
 
   const split = fleetMode === 'SPLIT';
   const summary = myFleet
@@ -195,29 +391,52 @@ export function ControlDeck() {
       ? `${SPLIT_PRIMARY_PERCENT}% ${coveName(myFleet.primaryZone)} · ${100 - SPLIT_PRIMARY_PERCENT}% ${coveName(myFleet.secondaryZone)}`
       : `100% ${coveName(myFleet.primaryZone)}`
     : split
-      ? `Next pick splits ${SPLIT_PRIMARY_PERCENT}/${100 - SPLIT_PRIMARY_PERCENT} across two coves`
-      : 'Full stake in one cove';
+      ? `${SPLIT_PRIMARY_PERCENT}/${100 - SPLIT_PRIMARY_PERCENT} across two zones`
+      : STR.oneZoneHint;
 
+  /* ---------- D4 payout expectation strip (public tide bands only) ---------- */
+
+  // v3 P0-6: base the "If safe ≈ $range" on the stake actually in play — the
+  // placed fleet's stake if committed, otherwise the stepper value.
+  const atRiskMinor = myFleet?.stakeMinor ?? stakeInputMinor;
+  const strip =
+    open && tideReport
+      ? formatPayoutStrip(
+          payoutExpectationGains(
+            tideReport.entries.map((e) => e.band),
+            myFleet?.primaryZone ?? selectedZone ?? null,
+            RAKE,
+          ),
+          atRiskMinor,
+        )
+      : null;
+
+  // Flat stake chips: rectangles, hairline, no chip metaphor, no shadow.
   const chipBtn =
-    'flex h-7 min-w-9 items-center justify-center rounded-md bg-[var(--lf-surface-2)] px-2 text-[11px] font-bold text-[var(--lf-dim)] hover:bg-[var(--lf-line)] hover:text-[var(--lf-text)] disabled:cursor-not-allowed disabled:opacity-40';
+    'flex h-11 min-w-11 items-center justify-center rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface)] px-3.5 text-[15px] font-semibold tabular-nums text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)] disabled:cursor-not-allowed disabled:opacity-35';
+
+  const stepBtn =
+    'flex h-12 w-11 shrink-0 items-center justify-center rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface)] text-xl font-bold text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)] disabled:cursor-not-allowed disabled:opacity-35';
 
   return (
     <>
-      {/* flag picker popover — three pictographic flags, no text required */}
-      {flagPickerAt && open && (
+      {/* flag picker popover — three pictographic flags, no text required.
+          Gated with the flag button (D5): long-press on a cove is the other
+          way in, so the disclosure check must live here too. */}
+      {flagPickerAt && open && disclosure.showFlags && (
         <div
           className="fixed z-30"
           style={{
-            left: Math.min(Math.max(flagPickerAt.x - 90, 8), window.innerWidth - 188),
-            top: Math.max(flagPickerAt.y - 84, 8),
+            left: Math.min(Math.max(flagPickerAt.x - 100, 8), window.innerWidth - 208),
+            top: Math.max(flagPickerAt.y - 92, 8),
           }}
         >
-          <div className="lf-sheet lf-surface flex gap-1.5 rounded-xl p-2 shadow-[0_12px_36px_rgba(0,0,0,0.5)]">
+          <div className="lf-sheet lf-overlay flex gap-1 rounded-md p-1.5">
             {(
               [
-                ['RALLY', RallyFlagIcon, 'var(--lf-safe)', 'Rally here'],
-                ['FLEE', FleeFlagIcon, '#ff9948', 'Danger here'],
-                ['HOLD', HoldFlagIcon, 'var(--lf-focus)', 'I stay'],
+                ['RALLY', RallyFlagIcon, 'var(--lf-win)', STR.signalJoin],
+                ['FLEE', FleeFlagIcon, 'var(--lf-warn)', STR.signalAvoid],
+                ['HOLD', HoldFlagIcon, '#ffffff', STR.signalStay],
               ] as const
             ).map(([kind, Icon, color, label]) => (
               <button
@@ -227,12 +446,12 @@ export function ControlDeck() {
                   sendSignal(kind, flagPickerAt.zone);
                   closeFlagPicker();
                 }}
-                className="flex h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-lg hover:bg-[var(--lf-line)]"
+                className="flex h-16 w-16 flex-col items-center justify-center gap-1 rounded-md hover:bg-[var(--lf-surface-2)]"
                 style={{ color }}
                 title={`${label} — signals can bluff`}
               >
-                <Icon size={22} />
-                <span className="text-[10px] font-bold text-[var(--lf-dim)]">
+                <Icon size={20} />
+                <span className="text-[12px] font-bold text-[var(--lf-dim)]">
                   {label.split(' ')[0]}
                 </span>
               </button>
@@ -244,111 +463,195 @@ export function ControlDeck() {
       {/* the deck */}
       <div
         ref={deckRef}
-        className="absolute inset-x-0 bottom-0 z-10 border-t border-[var(--lf-line)] bg-[var(--lf-glass)] pb-[env(safe-area-inset-bottom)] backdrop-blur-md"
+        className="absolute inset-x-0 bottom-0 z-10 border-t border-[var(--lf-line)] bg-[var(--lf-bg-2)] pb-[env(safe-area-inset-bottom)]"
       >
-        <div className="mx-auto flex max-w-4xl flex-col gap-2 px-3 py-2 md:flex-row md:items-stretch md:gap-3">
-          {/* mode + selection summary */}
-          <div className="flex items-center gap-2 md:flex-col md:items-stretch md:justify-center md:gap-1.5">
-            <div
-              className="flex overflow-hidden rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)]"
-              role="radiogroup"
-              aria-label="Fleet mode"
+        {/*
+         * D4 — the price tag. Risk and reward at the same size, in one row,
+         * frozen together with the tide report. Never the upside alone.
+         */}
+        {strip && (
+          <div
+            className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--lf-line)] px-3 py-1.5 sm:gap-x-4"
+            role="note"
+            aria-label={`At risk ${fmt(atRiskMinor)} credits. ${STR.ifSafe}: about ${strip.ifSafeRange}. ${STR.estimateNote}`}
+          >
+            <span className="flex shrink-0 items-baseline gap-1.5">
+              <span className="lf-label">Risk</span>
+              <span className="lf-num text-[14px] text-[var(--lf-text)] sm:text-[16px]">
+                {fmt(atRiskMinor)}
+              </span>
+            </span>
+            <span
+              className={`flex shrink-0 items-baseline gap-1.5 ${fogActive ? 'opacity-60' : ''}`}
+              title={STR.estimateNote}
             >
-              {(
-                [
-                  ['FOCUS', BoatIcon, 'Focus', 'Full stake in one cove'],
-                  [
-                    'SPLIT',
-                    SplitBoatsIcon,
-                    'Split',
-                    `${SPLIT_PRIMARY_PERCENT}/${100 - SPLIT_PRIMARY_PERCENT} across two coves`,
-                  ],
-                ] as const
-              ).map(([mode, Icon, label, hint]) => (
-                <button
-                  key={mode}
-                  role="radio"
-                  aria-checked={fleetMode === mode}
-                  onClick={() => {
-                    audio.click('tap');
-                    setFleetMode(mode);
-                  }}
-                  disabled={!canOrder}
-                  className={`flex h-9 min-w-16 items-center justify-center gap-1.5 px-3 text-xs font-extrabold disabled:cursor-not-allowed disabled:opacity-40 ${
-                    fleetMode === mode
-                      ? 'bg-[var(--lf-focus)] text-[#03202f]'
-                      : 'text-[var(--lf-dim)] hover:text-[var(--lf-text)]'
-                  }`}
-                  title={hint}
-                >
-                  <Icon size={15} />
-                  {label}
-                </button>
-              ))}
-            </div>
-            <p
-              className="hidden max-w-44 truncate text-[10px] font-semibold text-[var(--lf-dim)] md:block"
-              title={summary}
+              <span className="lf-label whitespace-nowrap">{STR.ifSafe}</span>
+              <span className="lf-num whitespace-nowrap text-[14px] text-[var(--lf-win)] sm:text-[16px]">
+                ≈ {strip.ifSafeRange}
+              </span>
+            </span>
+            {/*
+             * The live ceiling, stated BEFORE the player runs into it. The tier
+             * range printed on the table ("Bet 50–5,000") is what the table is
+             * for; this is what this round will actually take, and on a quiet
+             * table the two are far apart. Showing only the tier number and
+             * then refusing it is what made the limit feel arbitrary.
+             */}
+            <span
+              className="flex shrink-0 items-baseline gap-1.5 whitespace-nowrap"
+              title={
+                stakeLimit.boundBy === 'balance'
+                  ? 'Capped by your balance.'
+                  : stakeLimit.boundBy === 'table'
+                    ? "This table's maximum bet."
+                    : LIVE_MAX_HINT
+              }
             >
-              {summary}
-            </p>
+              <span className="lf-label">Max now</span>
+              <span
+                className={`lf-num text-[14px] sm:text-[16px] ${
+                  effectiveMaxMinor < maxStakeMinor
+                    ? 'text-[var(--lf-warn)]'
+                    : 'text-[var(--lf-dim)]'
+                }`}
+              >
+                {fmt(effectiveMaxMinor)}
+              </span>
+            </span>
+            {fogActive && (
+              <span className="lf-label ml-auto shrink-0 rounded-sm border border-[var(--lf-line)] px-1.5 py-1 !text-[var(--lf-warn)]">
+                {STR.paused}
+              </span>
+            )}
           </div>
+        )}
+
+        <div className="mx-auto flex max-w-5xl flex-col gap-2 px-3 py-2 md:flex-row md:items-stretch md:gap-3">
+          {/* mode + selection summary — progressively disclosed (D5): fresh
+              profiles see no mode group; after one round a dimmed teaser with
+              the same footprint appears; unlocked at 3 rounds or on tap. */}
+          {disclosure.showModeToggle ? (
+            <div className="flex items-center gap-2 md:flex-col md:items-stretch md:justify-center md:gap-1.5">
+              <div
+                className="flex overflow-hidden rounded-md border border-[var(--lf-line)]"
+                role="radiogroup"
+                aria-label="Bet mode"
+              >
+                {(
+                  [
+                    ['FOCUS', BoatIcon, STR.oneZone, STR.oneZoneHint],
+                    ['SPLIT', SplitBoatsIcon, STR.twoZones, STR.twoZonesHint],
+                  ] as const
+                ).map(([mode, Icon, label, hint]) => (
+                  <button
+                    key={mode}
+                    role="radio"
+                    aria-checked={fleetMode === mode}
+                    onClick={() => {
+                      audio.click('tap');
+                      setFleetMode(mode);
+                    }}
+                    disabled={!canOrder}
+                    className={`flex h-11 min-w-20 items-center justify-center gap-1.5 px-3 text-[15px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-35 ${
+                      fleetMode === mode
+                        ? 'bg-white text-black'
+                        : 'bg-[var(--lf-surface)] text-[var(--lf-dim)] hover:text-[var(--lf-text)]'
+                    }`}
+                    title={hint}
+                  >
+                    <Icon size={14} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p
+                className="hidden max-w-44 truncate text-[11px] font-semibold text-[var(--lf-mute)] md:block"
+                title={summary}
+              >
+                {summary}
+              </p>
+            </div>
+          ) : disclosure.showModeTeaser ? (
+            <div className="flex items-center md:flex-col md:justify-center">
+              <button
+                onClick={() => {
+                  audio.click('tap');
+                  updateDeckProgress(withModesUnlockedByTap(getDeckProgress()));
+                }}
+                className="flex h-11 min-w-[10.5rem] items-center justify-center gap-1.5 rounded-md border border-dashed border-[var(--lf-line)] px-3 text-[14px] font-semibold text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
+                aria-label={`1 Zone and 2 Zones bet modes unlock after ${MODE_UNLOCK_ROUNDS} rounds — activate to unlock now`}
+                title={`Unlocks after ${MODE_UNLOCK_ROUNDS} rounds — tap to unlock now`}
+              >
+                <LockIcon size={13} />
+                {STR.oneZone} / {STR.twoZones}
+              </button>
+            </div>
+          ) : null}
 
           {/* stake module */}
           <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5">
             <div className="flex items-center gap-1.5">
               <button
-                onClick={() => bump(-10_00)}
+                onClick={() => bump(-stepMinor)}
                 disabled={!canOrder}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] text-base font-bold hover:bg-[var(--lf-line)] disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="Lower stake by 10"
+                className={stepBtn}
+                aria-label={`Lower stake by ${fmt(stepMinor)}`}
               >
                 −
               </button>
               <label className="sr-only" htmlFor="lf-stake-input">
                 Stake amount in credits
               </label>
-              <input
-                id="lf-stake-input"
-                type="text"
-                inputMode="decimal"
-                value={draft ?? fmt(stakeInputMinor)}
-                onChange={(e) => setDraft(e.target.value)}
-                onBlur={commitDraft}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    commitDraft();
-                  }
-                }}
-                disabled={!canOrder}
-                aria-invalid={stakeError !== null}
-                aria-describedby={stakeError ? 'lf-stake-error' : undefined}
-                className="h-9 w-24 min-w-0 rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] text-center text-sm font-extrabold tabular-nums outline-none focus:border-[var(--lf-focus)] disabled:cursor-not-allowed disabled:opacity-50"
-              />
+              <div className="relative">
+                <span
+                  className="lf-label pointer-events-none absolute left-2 top-1"
+                  aria-hidden="true"
+                >
+                  Stake
+                </span>
+                <input
+                  id="lf-stake-input"
+                  type="text"
+                  inputMode="decimal"
+                  value={draft ?? fmt(stakeInputMinor)}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={commitDraft}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitDraft();
+                    }
+                  }}
+                  disabled={!canOrder}
+                  aria-invalid={stakeError !== null}
+                  aria-describedby={stakeError ? 'lf-stake-error' : undefined}
+                  className={`lf-num h-12 w-36 min-w-0 rounded-md border bg-[var(--lf-bg)] pb-1 pl-2 pr-2.5 pt-4 text-right text-[19px] text-[var(--lf-text)] outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                    stakeError
+                      ? 'border-[var(--lf-accent)]'
+                      : 'border-[var(--lf-line-2)] focus:border-white'
+                  }`}
+                />
+              </div>
               <button
-                onClick={() => bump(10_00)}
+                onClick={() => bump(stepMinor)}
                 disabled={!canOrder}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] text-base font-bold hover:bg-[var(--lf-line)] disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="Raise stake by 10"
+                className={stepBtn}
+                aria-label={`Raise stake by ${fmt(stepMinor)}`}
               >
                 +
               </button>
-              <span className="ml-1 hidden text-[10px] font-bold text-[var(--lf-dim)] sm:inline">
-                STAKE
-              </span>
               {stakeError && (
                 <span
                   id="lf-stake-error"
                   role="status"
-                  className="truncate text-[10px] font-semibold text-[var(--lf-danger)]"
+                  className="truncate text-[13px] font-medium text-[var(--lf-accent)]"
                 >
                   {stakeError}
                 </span>
               )}
             </div>
             <div className="flex items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {PRESETS.map((p) => (
+              {presets.map((p) => (
                 <button
                   key={p}
                   onClick={() => {
@@ -357,100 +660,177 @@ export function ControlDeck() {
                   }}
                   disabled={!canOrder}
                   className={`${chipBtn} ${
-                    stakeInputMinor === p
-                      ? '!bg-[var(--lf-focus)]/15 !text-[var(--lf-focus)] ring-1 ring-[var(--lf-focus)]/50'
-                      : ''
+                    stakeInputMinor === p ? '!border-white !bg-white !text-black' : ''
                   }`}
+                  title={`Bet ${fmt(p)}`}
                 >
                   {presetLabel(p)}
                 </button>
               ))}
-              <span className="mx-0.5 h-4 w-px shrink-0 bg-[var(--lf-line)]" aria-hidden="true" />
-              <button
-                onClick={() => {
-                  audio.click('up');
-                  doubleStake();
-                }}
-                disabled={!canOrder}
-                className={chipBtn}
-                title="Double the stake"
-              >
-                ×2
-              </button>
-              <button
-                onClick={() => {
-                  audio.click('down');
-                  applyStake(Math.max(MIN_STAKE_MINOR, Math.floor(stakeInputMinor / 2 / 100) * 100));
-                }}
-                disabled={!canOrder}
-                className={chipBtn}
-                title="Halve the stake"
-              >
-                ½
-              </button>
-              <button
-                onClick={() => {
-                  audio.click('up');
-                  applyStake(Math.min(balanceMinor, MAX_STAKE_MINOR));
-                }}
-                disabled={!canOrder}
-                className={chipBtn}
-                title="Stake the maximum"
-              >
-                MAX
-              </button>
+              {/* ×2/½/MAX appear once the stake has been edited (D5) */}
+              {disclosure.showStakeTricks && (
+                <>
+                  <span
+                    className="mx-1 h-5 w-px shrink-0 bg-[var(--lf-line)]"
+                    aria-hidden="true"
+                  />
+                  <button
+                    onClick={() => {
+                      audio.click('up');
+                      applyStake(stakeInputMinor * 2, true);
+                    }}
+                    disabled={!canOrder}
+                    className={chipBtn}
+                    title="Double the stake"
+                  >
+                    ×2
+                  </button>
+                  <button
+                    onClick={() => {
+                      audio.click('down');
+                      applyStake(
+                        Math.max(minStakeMinor, Math.floor(stakeInputMinor / 2 / 100) * 100),
+                      );
+                    }}
+                    disabled={!canOrder}
+                    className={chipBtn}
+                    title="Halve the stake"
+                  >
+                    ½
+                  </button>
+                  <button
+                    onClick={() => {
+                      audio.click('up');
+                      applyStake(effectiveMaxMinor);
+                    }}
+                    disabled={!canOrder}
+                    className={chipBtn}
+                    title={`Bet ${fmt(effectiveMaxMinor)} — the most this round will take from you right now`}
+                  >
+                    {/* The figure is worth the width when there is width. */}
+                    <span className="whitespace-nowrap">
+                      MAX<span className="hidden sm:inline"> {fmt(effectiveMaxMinor)}</span>
+                    </span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
-          {/* flag + primary action */}
+          {/* secondary actions + primary. The primary's position and size never
+              change within a phase: secondary slots are RESERVED (invisible,
+              inert) whenever a fleet is placed, so nothing shifts. */}
           <div className="flex items-stretch gap-2">
             {myFleet && open && (
               <button
+                onClick={() => {
+                  audio.click('send');
+                  useStore.getState().sendAnchor(myFleet.primaryZone);
+                }}
+                disabled={!deck.showRestake || !canOrder}
+                className={`flex min-h-14 w-24 shrink-0 flex-col items-center justify-center rounded-md border border-[var(--lf-line-2)] bg-[var(--lf-surface)] px-2 text-[var(--lf-text)] transition-colors hover:border-white ${
+                  deck.showRestake ? '' : 'pointer-events-none opacity-0'
+                }`}
+                aria-hidden={!deck.showRestake}
+                tabIndex={deck.showRestake ? 0 : -1}
+                title={
+                  fogActive
+                    ? `${STR.updateBet} to ${fmt(stakeInputMinor)} — uses your one last move`
+                    : `${STR.updateBet} to ${fmt(stakeInputMinor)} at ${coveName(myFleet.primaryZone)}`
+                }
+              >
+                <span className="text-[14px] font-semibold leading-tight">Update</span>
+                <span className="lf-num text-[13px] leading-tight">{fmt(stakeInputMinor)}</span>
+              </button>
+            )}
+            {myFleet && open && disclosure.showFlags && (
+              <button
                 onClick={(e) => {
+                  if (flagCoolingDown) return;
                   audio.click('nav');
                   const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                   if (flagPickerAt) closeFlagPicker();
                   else openFlagPicker(myFleet.primaryZone, r.left + r.width / 2, r.top);
                 }}
-                className="flex w-11 shrink-0 items-center justify-center rounded-lg border border-[var(--lf-line)] bg-[var(--lf-surface)] text-[var(--lf-dim)] hover:text-[var(--lf-text)]"
-                aria-label="Raise a signal flag"
-                title="Raise a signal flag (or long-press your cove)"
+                disabled={flagCoolingDown}
+                className={`relative flex w-11 shrink-0 items-center justify-center rounded-md border border-[var(--lf-line)] bg-[var(--lf-surface)] transition-colors ${
+                  flagCoolingDown
+                    ? 'cursor-not-allowed text-[var(--lf-mute)]/50'
+                    : 'text-[var(--lf-dim)] hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]'
+                }`}
+                aria-label={
+                  flagCoolingDown
+                    ? `Signal available again in ${flagRoundsLeft} round${flagRoundsLeft === 1 ? '' : 's'}`
+                    : 'Send a signal'
+                }
+                title={
+                  flagCoolingDown
+                    ? `Signal returns in ${flagRoundsLeft} round${flagRoundsLeft === 1 ? '' : 's'}`
+                    : 'Send a signal (or long-press your zone)'
+                }
               >
-                <RallyFlagIcon size={18} />
+                <RallyFlagIcon size={17} />
+                {flagCoolingDown && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-sm bg-[var(--lf-surface-2)] px-1 text-[10px] font-extrabold tabular-nums text-[var(--lf-dim)]"
+                  >
+                    {flagRoundsLeft}
+                  </span>
+                )}
               </button>
             )}
-            {myFleet && canOrder && stakeInputMinor !== myFleet.stakeMinor && (
+            {deck.showCancel && myFleet && (
               <button
-                onClick={() => {
-                  audio.click('down');
-                  cancelOrder();
-                }}
-                className="flex w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-[var(--lf-danger)]/60 bg-[var(--lf-danger)]/10 text-[var(--lf-danger)] hover:bg-[var(--lf-danger)]/20"
-                aria-label={`Cancel bet — refund ${fmt(myFleet.stakeMinor)}`}
-                title={`Cancel bet — refund ${fmt(myFleet.stakeMinor)}`}
+                onClick={
+                  deck.cancelNeedsHold
+                    ? undefined
+                    : () => {
+                        audio.click('down');
+                        cancelOrder();
+                      }
+                }
+                onPointerDown={deck.cancelNeedsHold ? beginHold : undefined}
+                onPointerUp={deck.cancelNeedsHold ? clearHold : undefined}
+                onPointerLeave={deck.cancelNeedsHold ? clearHold : undefined}
+                onPointerCancel={deck.cancelNeedsHold ? clearHold : undefined}
+                className="relative flex w-11 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[var(--lf-accent-line)] bg-[var(--lf-accent-soft)] text-[var(--lf-accent)] transition-colors hover:border-[var(--lf-accent)]"
+                aria-label={
+                  deck.cancelNeedsHold
+                    ? `Cancel bet — this uses your one last move. Hold to confirm.`
+                    : `Cancel bet — refund ${fmt(myFleet.stakeMinor)}`
+                }
+                title={
+                  deck.cancelNeedsHold
+                    ? 'This uses your one last move — hold to confirm'
+                    : `Cancel bet — refund ${fmt(myFleet.stakeMinor)}`
+                }
               >
+                {deck.cancelNeedsHold && holdProgress > 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute inset-x-0 bottom-0 bg-[var(--lf-accent)]/35"
+                    style={{ height: `${holdProgress * 100}%` }}
+                  />
+                )}
                 <XIcon size={16} />
               </button>
             )}
             <button
-              onClick={primary.onPress}
-              disabled={primary.disabled}
-              className={`flex min-h-14 w-full min-w-52 flex-col items-center justify-center rounded-xl px-4 transition-[background-color,transform] duration-150 disabled:cursor-default md:w-auto ${primaryClass} ${
+              onClick={primaryOnPress}
+              disabled={deck.primary.disabled}
+              className={`relative flex min-h-14 w-full min-w-56 flex-col items-center justify-center rounded-md px-4 transition-colors duration-150 disabled:cursor-default md:w-auto ${primaryClass} ${
                 toast ? 'lf-shake' : ''
-              } ${primary.kind === 'idle' && open && !myFleet && !lastFleet ? 'lf-pulse' : ''}`}
+              } ${deck.primary.kind === 'action' ? 'lf-armed' : ''}`}
               aria-live="polite"
             >
-              <span className="text-sm font-extrabold leading-tight tracking-wide">
+              <span className="text-[18px] font-black uppercase leading-tight tracking-[0.04em]">
                 {primary.label}
               </span>
               {primary.sub && (
                 <span
-                  className={`text-[10px] font-semibold leading-tight ${
-                    primary.kind === 'action'
-                      ? 'text-[#04240f]/70'
-                      : primary.kind === 'cancel'
-                        ? 'text-[#2b0505]/75'
-                        : 'text-[var(--lf-dim)]'
+                  className={`text-[12px] font-medium leading-tight ${
+                    deck.primary.kind === 'action' ? 'text-black/60' : 'text-[var(--lf-mute)]'
                   }`}
                 >
                   {primary.sub}

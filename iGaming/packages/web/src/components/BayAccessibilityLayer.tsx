@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
-  HARBOR_NAMES,
   SPLIT_PRIMARY_PERCENT,
   ZONE_COUNT,
   type FleetPlanPublic,
@@ -10,6 +9,7 @@ import {
 } from '@landfall/core';
 import { getCoveLayouts, type CoveLayout } from '../coveLayout';
 import { useStore, type LandfallInfo } from '../store';
+import { crowdLabel, zoneName } from '../strings';
 import { BoatIcon, LockIcon, StormIcon } from './icons';
 
 interface BayAccessibilityLayerProps {
@@ -20,13 +20,14 @@ interface BayAccessibilityLayerProps {
 interface CoveStatusCardProps {
   zone: number;
   layout: CoveLayout;
-  width: number;
   phase: RoundPhase | null;
   tide: TideReportEntry | null;
   boatCount: number;
   lockedTotalMinor: number | null;
   fleet: FleetPlanPublic | null;
   struck: boolean;
+  /** v3 P0-1 — tapped but not yet committed (Place Bet will commit it). */
+  selected: boolean;
   canPick: boolean;
   actionDescription: string;
   onPick(zone: number): void;
@@ -34,11 +35,11 @@ interface CoveStatusCardProps {
 }
 
 const BAND_LABELS: Record<TideBand, string> = {
-  seed: 'Seeded',
-  light: 'Light',
-  medium: 'Medium',
-  heavy: 'Heavy',
-  packed: 'Packed',
+  seed: crowdLabel('seed'),
+  light: crowdLabel('light'),
+  medium: crowdLabel('medium'),
+  heavy: crowdLabel('heavy'),
+  packed: crowdLabel('packed'),
 };
 
 const TREND = {
@@ -47,17 +48,69 @@ const TREND = {
   rising: { glyph: '↗', label: 'rising' },
 } as const;
 
+/**
+ * How full the crowd meter reads per band. Mirrors BAND_FRAC in BayScene so
+ * the card and the pier gauge tell the same story. The meter is the casino
+ * read of the tide report: "Medium" is a word, a half-full pot is a picture —
+ * and it stays banded, so it still leaks nothing beyond the public report.
+ */
+const BAND_FILL: Record<TideBand, number> = {
+  seed: 0.12,
+  light: 0.34,
+  medium: 0.56,
+  heavy: 0.79,
+  packed: 1,
+};
+
+const CROWD_SEGMENTS = 6;
+
+/**
+ * Banded crowd meter — six flat ticks, grey. It reports how many other people
+ * are here, which is information rather than an outcome, so it gets no hue.
+ * Renders nothing once the band is gone (lock onward): that is exactly when
+ * the status word is at its longest and the exact pot takes over the story,
+ * so the meter's width is better spent on the label at narrow widths.
+ */
+function CrowdMeter({ band }: { band: TideBand | null }) {
+  if (!band) return null;
+  const lit = Math.round(BAND_FILL[band] * CROWD_SEGMENTS);
+  return (
+    <span aria-hidden="true" className="flex shrink-0 items-center gap-[2px]">
+      {Array.from({ length: CROWD_SEGMENTS }, (_, i) => (
+        <span
+          key={i}
+          className={`h-2.5 w-[3px] ${
+            i < lit ? 'bg-[var(--lf-dim)]' : 'bg-[var(--lf-line)]'
+          }`}
+          style={i < lit ? { opacity: 0.55 + (i / CROWD_SEGMENTS) * 0.45 } : undefined}
+        />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * What the player has riding on this zone. `stakeMinor` is the fleet total, so
+ * a Split is apportioned here — the card shows the money actually at risk on
+ * THIS zone, never the whole fleet (which read as "your bet: 110" next to a
+ * 50-credit bet before).
+ */
 function ownership(fleet: FleetPlanPublic | null, zone: number) {
   if (!fleet) return null;
+  const split = fleet.mode === 'SPLIT' && fleet.secondaryZone !== null;
   if (fleet.primaryZone === zone) {
-    return fleet.mode === 'SPLIT'
-      ? { label: `Split · ${SPLIT_PRIMARY_PERCENT}%`, description: 'your primary split cove' }
-      : { label: 'Focus · 100%', description: 'your selected Focus cove' };
+    const mineMinor = split
+      ? Math.round((fleet.stakeMinor * SPLIT_PRIMARY_PERCENT) / 100)
+      : fleet.stakeMinor;
+    return split
+      ? { label: `Yours · ${SPLIT_PRIMARY_PERCENT}%`, mineMinor, description: 'your main zone' }
+      : { label: 'Your bet', mineMinor, description: 'your bet is here' };
   }
-  if (fleet.mode === 'SPLIT' && fleet.secondaryZone === zone) {
+  if (split && fleet.secondaryZone === zone) {
     return {
-      label: `Split · ${100 - SPLIT_PRIMARY_PERCENT}%`,
-      description: 'your secondary split cove',
+      label: `Yours · ${100 - SPLIT_PRIMARY_PERCENT}%`,
+      mineMinor: fleet.stakeMinor - Math.round((fleet.stakeMinor * SPLIT_PRIMARY_PERCENT) / 100),
+      description: 'your second zone',
     };
   }
   return null;
@@ -72,21 +125,20 @@ function formatCredits(minor: number): string {
 
 function resultAnnouncement(result: LandfallInfo | null): string {
   if (!result) return '';
-  const harbor = HARBOR_NAMES[result.struckZone] ?? `Harbor ${result.struckZone + 1}`;
-  const round = `Round ${result.roundId}. The storm struck Harbor ${result.struckZone + 1}, ${harbor}.`;
+  const round = `Round ${result.roundId}. The storm hit ${zoneName(result.struckZone)}.`;
   const net = Math.abs(result.yourResult.netMinor) / 100;
   const credits = `${net.toFixed(2)} credits`;
 
   switch (result.yourResult.outcome) {
     case 'SAFE':
-      return `${round} You are safe and gained ${credits}.`;
+      return `${round} You are safe and won ${credits}.`;
     case 'WRECKED':
-      return `${round} Your cove was wrecked and you lost ${credits}.`;
+      return `${round} Your zone was hit and you lost ${credits}.`;
     case 'SPLIT':
       return result.yourResult.netMinor === 0
-        ? `${round} Your split fleet broke even.`
-        : `${round} Your split fleet settled and you ${
-            result.yourResult.netMinor > 0 ? 'gained' : 'lost'
+        ? `${round} Your two-zone bet broke even.`
+        : `${round} Your two-zone bet settled and you ${
+            result.yourResult.netMinor > 0 ? 'won' : 'lost'
           } ${credits}.`;
     case 'SPECTATOR':
       return `${round} You sat out this round.`;
@@ -106,13 +158,13 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 function CoveStatusCard({
   zone,
   layout,
-  width,
   phase,
   tide,
   boatCount,
   lockedTotalMinor,
   fleet,
   struck,
+  selected,
   canPick,
   actionDescription,
   onPick,
@@ -120,25 +172,29 @@ function CoveStatusCard({
 }: CoveStatusCardProps) {
   const longPressTimer = useRef<number | null>(null);
   const suppressClick = useRef(false);
-  const harborName = HARBOR_NAMES[zone] ?? `Harbor ${zone + 1}`;
   const mine = ownership(fleet, zone);
   const trend = tide ? TREND[tide.trend] : null;
   const locked = phase === 'LOCKED_STORM';
   const safe = !struck && (phase === 'RESOLVED' || phase === 'COOLDOWN');
   const band = tide ? BAND_LABELS[tide.band] : 'Waiting';
-  const status = struck ? 'Struck' : locked ? 'Locked' : safe ? 'Safe' : band;
-  const detail = lockedTotalMinor !== null ? `${formatCredits(lockedTotalMinor)} CR` : null;
-  const markerWidth =
-    width >= 768
-      ? Math.min(160, Math.max(132, width * 0.11))
-      : Math.min(150, Math.max(124, width * 0.36));
+  const status = struck ? 'Hit' : locked ? 'Locked' : safe ? 'Safe' : band;
+  const detail = lockedTotalMinor !== null ? formatCredits(lockedTotalMinor) : null;
+  // Bigger seats: the markers are the product's primary betting surface, so on
+  // a wide table they get real presence instead of hugging a 132px minimum.
+  // The size lives in coveLayout so the Pixi scene can frame this exact box
+  // rather than guess at it — a marker drawn inside it would be invisible.
+  const markerWidth = layout.markerWidth;
   const cardDescription = [
-    `Cove ${zone + 1}, ${harborName}.`,
-    struck ? 'Struck.' : locked ? 'Anchors locked.' : safe ? 'Safe harbor.' : `${band} tide.`,
+    `${zoneName(zone)}.`,
+    struck ? 'Hit by the storm.' : locked ? 'Bets locked.' : safe ? 'Safe.' : `${band} crowd.`,
     trend ? `Trend ${trend.label}.` : '',
-    `${boatCount} ${boatCount === 1 ? 'boat' : 'boats'}.`,
-    detail ? `${detail}.` : '',
-    mine ? `${mine.description}, ${mine.label.replace('·', 'at')}.` : 'Not selected.',
+    `${boatCount} ${boatCount === 1 ? 'player' : 'players'}.`,
+    detail ? `Pot ${detail} credits.` : 'Exact pot hidden until bets lock.',
+    mine
+      ? `${formatCredits(mine.mineMinor)} credits of yours are here — ${mine.description}.`
+      : selected
+        ? 'Selected — press Place Bet to confirm.'
+        : 'Not selected.',
     actionDescription,
     `Keyboard shortcut ${zone + 1}.`,
   ]
@@ -168,19 +224,21 @@ function CoveStatusCard({
     <button
       type="button"
       data-cove={zone + 1}
-      className={`pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-[var(--lf-glass)] px-2.5 py-1.5 text-left text-[var(--lf-text)] shadow-[0_6px_20px_rgba(0,0,0,0.45)] transition-[border-color,background-color,box-shadow] duration-150 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[var(--lf-focus)]/40 ${
+      className={`lf-glass pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-md border px-3 py-2 text-left text-[var(--lf-text)] transition-[border-color,background-color] duration-150 ${
         struck
-          ? 'border-[var(--lf-danger)]'
+          ? '!border-[var(--lf-accent)]'
           : mine
-            ? 'border-[var(--lf-focus)] ring-1 ring-[var(--lf-focus)]/40'
-            : locked || safe
-              ? 'border-[var(--lf-line)]'
-              : 'border-[var(--lf-line)] hover:border-[var(--lf-focus)]/70'
+            ? '!border-white'
+            : selected
+              ? 'border-dashed !border-white/60'
+              : locked || safe
+                ? ''
+                : 'hover:!border-[var(--lf-line-2)]'
       } ${canPick ? 'cursor-pointer' : 'cursor-default'}`}
       style={{ left: layout.markerX, top: layout.markerY, width: markerWidth }}
       aria-label={cardDescription}
       aria-keyshortcuts={`${zone + 1}`}
-      aria-pressed={!!mine}
+      aria-pressed={!!mine || selected}
       aria-disabled={!canPick}
       onClick={() => {
         if (suppressClick.current) {
@@ -199,43 +257,88 @@ function CoveStatusCard({
       onPointerCancel={clearLongPress}
       onPointerLeave={clearLongPress}
     >
-      <span className="flex items-center gap-1.5 leading-none">
-        <span className="text-[11px] font-extrabold tabular-nums text-[var(--lf-focus)]">
-          {String(zone + 1).padStart(2, '0')}
+      {/* struck / mine wash — the state is felt before it is read */}
+      {(struck || mine) && (
+        <span
+          aria-hidden="true"
+          className={`absolute inset-0 ${
+            struck ? 'bg-[var(--lf-accent-soft)]' : 'bg-[var(--lf-white-soft)]'
+          }`}
+        />
+      )}
+
+      <span className="relative flex items-center gap-1.5 leading-none">
+        <span className="truncate text-[14px] font-bold uppercase tracking-[0.07em] text-[var(--lf-text)]">
+          {zoneName(zone)}
         </span>
-        <span className="truncate text-xs font-bold normal-case">{harborName}</span>
+        {(mine || selected) && (
+          <span
+            aria-hidden="true"
+            className={`ml-auto h-2 w-2 shrink-0 ${mine ? 'bg-white' : 'bg-white/45'}`}
+          />
+        )}
       </span>
 
-      <span className="mt-1 flex min-w-0 items-center gap-1 text-[11px] leading-none text-[var(--lf-dim)]">
-        {struck ? (
-          <StormIcon size={12} aria-hidden="true" />
-        ) : locked ? (
-          <LockIcon size={12} aria-hidden="true" />
-        ) : (
-          <BoatIcon size={12} aria-hidden="true" />
+      {/* the pot: a banded chip meter, the crowd word, and the fleet count */}
+      <span className="relative mt-1.5 flex min-w-0 items-center gap-1.5 leading-none">
+        {/*
+         * The meter and the word say the same thing. On a phone-sized card
+         * there is room for one of them, and the word wins: "MEDIUM" is
+         * unambiguous where a half-lit bar has to be learned.
+         */}
+        {markerWidth >= 150 && (
+          <CrowdMeter band={tide && !struck && !locked && !safe ? tide.band : null} />
         )}
-        <span className={struck ? 'font-bold text-[var(--lf-danger)]' : 'font-semibold'}>
+        <span
+          className={`truncate text-[12px] font-semibold uppercase ${
+            struck ? 'text-[var(--lf-accent)]' : 'text-[var(--lf-dim)]'
+          }`}
+        >
           {status}
         </span>
         {trend && !struck && !locked && (
-          <span aria-label={`${trend.label} trend`} className="font-extrabold text-[var(--lf-focus)]">
+          <span
+            aria-label={`${trend.label} trend`}
+            className="shrink-0 text-[12px] font-extrabold text-[var(--lf-dim)]"
+          >
             {trend.glyph}
           </span>
         )}
-        <span className="ml-auto flex shrink-0 items-center gap-0.5 tabular-nums">
+        <span className="ml-auto flex shrink-0 items-center gap-1 text-[12px] font-bold tabular-nums text-[var(--lf-dim)]">
+          {struck ? (
+            <StormIcon size={13} aria-hidden="true" />
+          ) : locked ? (
+            <LockIcon size={13} aria-hidden="true" />
+          ) : null}
           {boatCount}
-          <BoatIcon size={11} aria-hidden="true" />
+          <BoatIcon size={12} aria-hidden="true" />
         </span>
       </span>
 
-      {(detail || mine) && (
-        <span className="mt-1 flex items-center gap-1 border-t border-[var(--lf-line)]/70 pt-1 text-[10px] font-bold leading-none">
-          <span className={mine ? 'text-[var(--lf-focus)]' : 'text-[var(--lf-dim)]'}>
-            {mine?.label ?? detail}
+      {/* Money row. Always rendered so the marker never changes height between
+          phases — the exact pot only exists after the lock snapshot, and a
+          card that grows at lock reads as the table twitching. Your own stake
+          on this zone sits left of the pot, so the two are never confused. */}
+      <span className="relative mt-1.5 flex items-baseline gap-2 border-t border-[var(--lf-line)] pt-1.5 leading-none">
+        {mine ? (
+          <span className="flex min-w-0 shrink items-baseline gap-1 text-white">
+            <span className="lf-label-soft shrink-0 !text-white/70">{mine.label}</span>
+            <span className="lf-num truncate text-[16px]">
+              {formatCredits(mine.mineMinor)}
+            </span>
           </span>
-          {mine && detail && <span className="ml-auto tabular-nums text-[var(--lf-dim)]">{detail}</span>}
+        ) : (
+          <span className="lf-label-soft shrink-0">Pot</span>
+        )}
+        <span
+          className={`ml-auto flex shrink-0 items-baseline gap-1 ${
+            detail ? 'text-[var(--lf-text)]' : 'text-[var(--lf-mute)]/60'
+          }`}
+        >
+          {mine && <span className="lf-label-soft">Pot</span>}
+          <span className="lf-num text-[16px]">{detail ?? '—'}</span>
         </span>
-      )}
+      </span>
     </button>
   );
 }
@@ -248,13 +351,15 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
   const tideReport = useStore((state) => state.tideReport);
   const pools = useStore((state) => state.pools);
   const myFleet = useStore((state) => state.myFleet);
+  const selectedZone = useStore((state) => state.selectedZone);
   const finalOrderUsed = useStore((state) => state.finalOrderUsed);
   const lastLandfall = useStore((state) => state.lastLandfall);
   const rulesOpen = useStore((state) => state.rulesOpen);
   const verifyRoundId = useStore((state) => state.verifyRoundId);
   const flagPickerAt = useStore((state) => state.flagPickerAt);
+  const welcomeOpen = useStore((state) => state.welcomeOpen);
   const fogActive = phase === 'ANCHOR_OPEN' && (tideReport?.frozen ?? false);
-  const dialogOpen = rulesOpen || verifyRoundId !== null || flagPickerAt !== null;
+  const dialogOpen = rulesOpen || welcomeOpen || verifyRoundId !== null || flagPickerAt !== null;
   const canPick = connected && phase === 'ANCHOR_OPEN' && !finalOrderUsed && !dialogOpen;
   const layouts = getCoveLayouts(size.width, size.height);
 
@@ -299,27 +404,27 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
     : dialogOpen
       ? 'Unavailable while another control is open.'
       : phase !== 'ANCHOR_OPEN'
-        ? 'Anchoring locked. No moves are accepted now.'
+        ? 'Bets are locked. No moves are accepted now.'
         : finalOrderUsed
-          ? 'Your Final Order is submitted. No more moves are available this round.'
+          ? 'Your last move is submitted. No more moves this round.'
           : fogActive
-            ? 'Blind Fog. Activate to submit your one hidden Final Order here.'
-            : 'Anchoring is open. Activate to move your fleet here.';
+            ? 'Bets hidden. Activate to make your one last move here.'
+            : 'Betting is open. Activate to select this zone.';
 
   const politeAnnouncement = !connected
     ? 'Connection lost. Reconnecting.'
     : phase === 'ANCHOR_OPEN'
       ? fogActive
         ? finalOrderUsed
-          ? 'Final Order accepted. Your fleet is committed.'
-          : 'Blind Fog. Tide reports are frozen. One final move remains.'
-        : 'Anchoring open. Choose a cove. Press 1 through 6 to anchor.'
+          ? 'Last move accepted. Your bet is committed.'
+          : 'Bets hidden. One last move remains.'
+        : 'Betting open. Pick a zone. Press 1 through 6 to select.'
       : phase === 'LOCKED_STORM'
-        ? 'Anchors locked. Storm approaching. No more moves.'
+        ? 'Bets locked. Storm approaching. No more moves.'
         : phase === 'RESOLVED'
-          ? 'Landfall. Results are settling.'
+          ? 'Result. The storm has hit.'
           : phase === 'COOLDOWN'
-            ? 'Round complete. Next tide soon.'
+            ? 'Round complete. Next round soon.'
             : 'Connecting to Landfall.';
 
   return (
@@ -328,7 +433,7 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
         ref={layerRef}
         className="pointer-events-none absolute inset-0 z-[2]"
         role="group"
-        aria-label="Harbor choices. Use Tab or press number keys 1 through 6."
+        aria-label="Zones. Use Tab or press number keys 1 through 6."
       >
         {layouts.map((layout, zone) => {
           const resolved = phase === 'RESOLVED' || phase === 'COOLDOWN';
@@ -341,13 +446,13 @@ export function BayAccessibilityLayer({ onPick, onFlag }: BayAccessibilityLayerP
               key={zone}
               zone={zone}
               layout={layout}
-              width={size.width}
               phase={phase}
               tide={tide}
               boatCount={boatCount}
               lockedTotalMinor={pools?.totalsMinor[zone] ?? null}
               fleet={myFleet}
               struck={resolved && lastLandfall?.struckZone === zone}
+              selected={myFleet === null && selectedZone === zone}
               canPick={canPick}
               actionDescription={actionDescription}
               onPick={onPick}

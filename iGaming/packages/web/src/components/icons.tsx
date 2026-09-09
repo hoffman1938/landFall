@@ -129,6 +129,14 @@ export const HoldFlagIcon = (p: P) => (
   </svg>
 );
 
+export const SlidersIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M4 7h9M19.5 7h.5M4 17h3M13.5 17h6.5" />
+    <circle cx="16" cy="7" r="2.4" />
+    <circle cx="10" cy="17" r="2.4" />
+  </svg>
+);
+
 export const ChatIcon = (p: P) => (
   <svg {...base(p)}>
     <path d="M4 5.5h16v11H9L4 20.5Z" />
@@ -145,6 +153,14 @@ export const QuestionIcon = (p: P) => (
   <svg {...base(p)}>
     <path d="M9 9a3 3 0 1 1 4.6 2.5c-1 .7-1.6 1.3-1.6 2.5" />
     <circle cx="12" cy="18" r="0.6" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+/** Telemetry: an axis with a plotted line — the rail's own mark. */
+export const ChartIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M4 4v16h16" />
+    <path d="m7.5 14.5 3.5-4 3 2.5 4.5-6" />
   </svg>
 );
 

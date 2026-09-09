@@ -3,13 +3,13 @@
   "configurations": [
     {
       "name": "landfall-server",
-      "runtimeExecutable": "pnpm",
+      "runtimeExecutable": "C:/Users/gtsulaia/tools/node-v22.23.1-win-x64/pnpm.CMD",
       "runtimeArgs": ["--filter", "@landfall/server", "dev"],
       "port": 8787
     },
     {
       "name": "landfall-web",
-      "runtimeExecutable": "pnpm",
+      "runtimeExecutable": "C:/Users/gtsulaia/tools/node-v22.23.1-win-x64/pnpm.CMD",
       "runtimeArgs": ["--filter", "@landfall/web", "dev"],
       "port": 5173
     }

@@ -1,11 +1,15 @@
 /**
- * BayScene — minimal night-chart bay.
+ * BayScene — the board, drawn as an instrument.
  *
- * The environment is a near-black nautical chart: sonar rings, six dashed
- * anchorage circles, vector boats, pier tide gauges, a physical storm,
- * rolling fog, wreck damage and the cargo-transfer payout cinematic.
- * All cove text lives in the DOM layer (CoveStatusCard) — the scene draws
- * no labels, so nothing is duplicated over the map.
+ * Everything here is a rectangle, a line or a tick: a coordinate frame with
+ * ruler marks and two axes, six bracketed zone plots, player tokens instead of
+ * figures, flat fill gauges, a targeting reticle for the storm, a shutter for
+ * the fog, and the settlement transfer. Nothing is illustrated and nothing is
+ * shaded — the board has to survive next to a hairline dashboard without
+ * looking like a different product.
+ *
+ * All cove text lives in the DOM layer (CoveStatusCard) — the scene draws no
+ * labels, so nothing is duplicated over the board.
  *
  * Pure presentation: all state arrives from the store; the scene never
  * computes outcomes. Mechanics, math, and the wire protocol are untouched.
@@ -18,6 +22,12 @@ import {
   type TideReport,
   type WeatherId,
 } from '@landfall/core';
+import { getCoveLayouts } from '../coveLayout';
+import {
+  FEINT_ACQUIRE_MS,
+  stormRouteLeg,
+  stormRouteZones,
+} from '../stormPath';
 
 export interface BayState {
   phase: 'ANCHOR_OPEN' | 'LOCKED_STORM' | 'RESOLVED' | 'COOLDOWN' | null;
@@ -42,24 +52,28 @@ export interface BayHandlers {
 
 /* ---------- palette (mirrors index.css tokens; Pixi wants numbers) ---------- */
 
-const CHART = 0x15233c; // chart rings / static anchorage marks
-const LINE = 0x1c2a40;
-const DIM = 0x8da0ba;
-const DANGER = 0xff5a5a;
-const SAFE = 0x3ddc97;
-const FOCUS = 0x41b7f5;
-const AMBER = 0xffb02e; // payout moments ONLY (cargo to my boat)
-const CRATE = 0xc8a06a;
-const CLOUD = 0x232d40;
-const ROPE = 0x8a6f4d;
+const CHART = 0x303030; // frame, ruler ticks, zone brackets — structure only
+const LINE = 0x262626;
+const DIM = 0x8e8e8e;
+const DANGER = 0xff2f45; // the storm, and only the storm
+const SAFE = 0x17e07d; // survived / money in
+const FOCUS = 0xffffff; // YOU: your token, your bracket, your transfer
+const AMBER = 0xff9f0a; // jackpot / caution
+const CRATE = 0x8e8e8e; // other players' settlement, deliberately neutral
+const OTHER = 0x6a6a6a; // other players' tokens
+const ROPE = 0x3a3a3a;
 
-/** Sky moods per phase — a single low-alpha tint; the chart stays dark. */
+/**
+ * Phase tint. Near-neutral by design: the board's mood is carried by what the
+ * marks are DOING, not by washing the screen in colour. Only the storm phase
+ * gets a hue, and only barely.
+ */
 const MOOD = {
-  dawn: 0x16324a,
-  fog: 0x2a3644,
-  storm: 0x0d1522,
-  golden: 0x3a3020,
-  night: 0x0b1526,
+  dawn: 0x141414,
+  fog: 0x1c1c1c,
+  storm: 0x2a0a10,
+  golden: 0x14140f,
+  night: 0x101010,
 };
 type MoodName = keyof typeof MOOD;
 
@@ -88,32 +102,6 @@ function lerpColor(a: number, b: number, t: number): number {
   );
 }
 
-/** Dashed circle helper — Pixi has no dashed stroke, so we draw arc segments. */
-function dashedCircle(
-  g: Graphics,
-  cx: number,
-  cy: number,
-  rx: number,
-  ry: number,
-  segments: number,
-  color: number,
-  width: number,
-  alpha: number,
-): void {
-  const gap = 0.4; // fraction of each segment left empty
-  for (let i = 0; i < segments; i++) {
-    const a0 = (i / segments) * Math.PI * 2;
-    const a1 = ((i + 1 - gap) / segments) * Math.PI * 2;
-    const steps = 4;
-    g.moveTo(cx + Math.cos(a0) * rx, cy + Math.sin(a0) * ry);
-    for (let s = 1; s <= steps; s++) {
-      const a = a0 + ((a1 - a0) * s) / steps;
-      g.lineTo(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry);
-    }
-    g.stroke({ color, width, alpha });
-  }
-}
-
 /* ---------- per-cove display bundle ---------- */
 
 interface Cove {
@@ -139,7 +127,33 @@ interface Cove {
   shoreH: number;
   moorX: number;
   moorY: number;
+  /** Centre and size of the DOM zone card — every marker is framed around this. */
+  markerX: number;
+  markerY: number;
+  markerW: number;
+  markerH: number;
   beamOrigin: { x: number; y: number };
+}
+
+/**
+ * The box a marker draws for a zone: concentric with the card, and always at
+ * least `pad` clear of it on every side.
+ *
+ * Markers nest by padding, so they never collide: the static plot brackets sit
+ * outside the card, your selection just outside those, and the strike frame and
+ * storm reticle outside everything.
+ */
+function markerFrame(cove: Cove, pad: number) {
+  const halfW = Math.max(cove.w * 0.42, cove.markerW / 2 + pad);
+  const halfH = Math.max(cove.h * 0.3, cove.markerH / 2 + pad);
+  return {
+    x: cove.markerX - halfW,
+    y: cove.markerY - halfH,
+    w: halfW * 2,
+    h: halfH * 2,
+    halfW,
+    halfH,
+  };
 }
 
 interface Crate {
@@ -153,25 +167,30 @@ interface Crate {
   done: boolean;
 }
 
-/* ---------- boat drawing ---------- */
+/* ---------- player tokens ---------- */
 
+/**
+ * A player, drawn as a token rather than a figure: other people are small grey
+ * squares, you are a taller white block with a stem. Two shapes, two greys and
+ * one white — a crowd of eight reads instantly at 12px, which a crowd of eight
+ * little sailboats never did, and it costs the board no ornament.
+ *
+ * The signature is unchanged so the fleet/my-boat plumbing above is untouched.
+ */
 function drawBoat(g: Graphics, s: number, kind: 'other' | 'mine' | 'barge'): void {
   g.clear();
-  const hull = kind === 'other' ? 0x31435f : 0x243450;
-  const sail = kind === 'other' ? 0x51678a : 0xf2f6fd;
-  // hull
-  g.poly([-9 * s, 0, 9 * s, 0, 5.5 * s, 4.5 * s, -5.5 * s, 4.5 * s]).fill(hull);
-  // mast + sail
-  g.moveTo(0, 0).lineTo(0, -11 * s).stroke({ color: hull, width: 1.4 * s });
-  g.poly([0.8 * s, -10.5 * s, 7.5 * s, -1.5 * s, 0.8 * s, -1.5 * s]).fill(sail);
-  if (kind !== 'other') {
-    g.poly([-0.8 * s, -9 * s, -5.5 * s, -2 * s, -0.8 * s, -2 * s]).fill({
-      color: sail,
-      alpha: 0.85,
-    });
-    // pennant — focus blue, never amber (amber = payout only)
-    g.poly([0, -11 * s, 5 * s, -9.6 * s, 0, -8.4 * s]).fill(FOCUS);
+  if (kind === 'other') {
+    const w = 7 * s;
+    g.rect(-w / 2, -w / 2, w, w).fill(OTHER);
+    return;
   }
+  // yours: a block on a stem, so your position is found without reading colour
+  const w = kind === 'mine' ? 9 * s : 7 * s;
+  const h = kind === 'mine' ? 11 * s : 8 * s;
+  g.rect(-w / 2, -h, w, h).fill(FOCUS);
+  g.moveTo(0, 0)
+    .lineTo(0, -h - 6 * s)
+    .stroke({ color: FOCUS, width: Math.max(1, 1.2 * s) });
 }
 
 /* ---------- the scene ---------- */
@@ -186,7 +205,10 @@ export class BayScene {
   private stormC = new Container();
   private stormBolt = new Graphics();
   private stormRain = new Graphics();
-  private churn = new Graphics();
+  /** The reticle body — sized per layout so it always clears the zone card. */
+  private stormReticle = new Graphics();
+  /** Half-extents of the reticle, so the drop line and bolt start below it. */
+  private stormReach = { halfW: 44, halfH: 26 };
   private flashG = new Graphics();
   private cargoC = new Container();
   private ripples = new Graphics();
@@ -210,16 +232,25 @@ export class BayScene {
   private sky = MOOD.night;
   private fogAlpha = 0;
   private stormPos = { x: -200, y: -200 };
+  /** Previous frame's timestamp, so scene motion is time-based, not per-frame. */
+  private lastTickAt = Date.now();
+  /** Storm-window identity + local start, so the feint patrol is phase-relative. */
+  private stormLeg = { endsAt: 0, startedAt: 0 };
+  /** Which stop the reticle is on and when it took it, driving the lock-on. */
+  private stormAcquire = { legKey: -1, at: 0 };
   private crates: Crate[] = [];
   private rippleFx: { x: number; y: number; start: number; amber: boolean }[] = [];
   private strikeHandledFor: number | null = null;
   private beamStart = 0;
   private flashUntil = 0;
+  /** Expanding red shockwave centered on the struck zone (the "which zone?" answer). */
+  private strikeImpact: { x: number; y: number; start: number } | null = null;
   private longPress: { timer: number; zone: number } | null = null;
   private suppressTap = false;
   private hoveredZone: number | null = null;
   private reduced = false;
   private destroyed = false;
+  private hostObserver: ResizeObserver | null = null;
 
   async init(host: HTMLElement, handlers: BayHandlers): Promise<void> {
     this.handlers = handlers;
@@ -316,32 +347,34 @@ export class BayScene {
         shoreH: 0,
         moorX: 0,
         moorY: 0,
+        markerX: 0,
+        markerY: 0,
+        markerW: 168,
+        markerH: 76,
         beamOrigin: { x: 0, y: 0 },
       });
     }
 
-    // Fog bank: restrained overlapping veils. Low opacity keeps the chart
-    // legible while still making the information freeze physical.
+    // The information shutter. Blind Fog is not weather here, it is a screen
+    // coming down over the readout, so it is drawn as flat horizontal bands.
     for (let i = 0; i < 11; i++) {
       const puff = new Graphics();
-      puff.ellipse(0, 0, 110, 28).fill({ color: 0xc6d5e5, alpha: 0.055 });
+      puff.rect(-140, -14, 280, 28).fill({ color: 0xffffff, alpha: 0.05 });
       this.fogC.addChild(puff);
     }
     this.fogC.alpha = 0;
     stage.addChild(this.fogC);
 
-    // storm: churn shadow + cloud mass + rain + bolt
-    this.churn.ellipse(0, 0, 74, 16).fill({ color: 0x050b16, alpha: 0.38 });
-    const mass = new Graphics();
-    mass.ellipse(0, 0, 52, 24).fill({ color: CLOUD, alpha: 0.95 });
-    mass.ellipse(-34, 8, 30, 16).fill({ color: CLOUD, alpha: 0.85 });
-    mass.ellipse(32, 7, 32, 17).fill({ color: CLOUD, alpha: 0.85 });
-    mass.ellipse(-4, -14, 30, 15).fill({ color: 0x2c3850, alpha: 0.9 });
-    this.stormBolt
-      .poly([0, 26, -9, 48, -2, 48, -11, 72, 7, 50, 0, 50, 9, 26])
-      .fill(0xfff3c0);
+    /*
+     * The storm is a targeting reticle that hunts between the two published
+     * feints and then locks onto the zone that was drawn. A weather system
+     * would be an illustration; a reticle is the same information as a mark,
+     * and it says the honest thing — something is being aimed, and it is not
+     * aiming at you personally. Its geometry is set in layout(), because it has
+     * to be sized to clear the DOM card it lands on.
+     */
     this.stormBolt.visible = false;
-    this.stormC.addChild(this.churn, this.stormRain, mass, this.stormBolt);
+    this.stormC.addChild(this.stormRain, this.stormReticle, this.stormBolt);
     this.stormC.visible = false;
     stage.addChild(this.stormC, this.cargoC, this.ripples);
 
@@ -351,6 +384,21 @@ export class BayScene {
 
     this.layout();
     this.app.renderer.on('resize', () => this.layout());
+
+    // `resizeTo` only reacts to WINDOW resizes, so the bay kept its old size
+    // whenever the host box changed on its own — opening or closing the docked
+    // chat column, for instance. The canvas then drew every anchorage, boat and
+    // pier at the previous width while the DOM cove cards had already moved:
+    // the two halves of the same map, visibly out of register. Observe the host.
+    this.hostObserver = new ResizeObserver(() => {
+      if (this.destroyed || !this.app.renderer) return;
+      const { clientWidth, clientHeight } = host;
+      if (clientWidth <= 0 || clientHeight <= 0) return;
+      if (clientWidth === this.app.screen.width && clientHeight === this.app.screen.height) return;
+      this.app.resize();
+    });
+    this.hostObserver.observe(host);
+
     this.app.ticker.add(() => this.tick());
   }
 
@@ -371,6 +419,8 @@ export class BayScene {
   destroy(): void {
     this.destroyed = true;
     this.clearLongPress();
+    this.hostObserver?.disconnect();
+    this.hostObserver = null;
     if (this.app.renderer) this.app.destroy(true, { children: true });
   }
 
@@ -386,49 +436,42 @@ export class BayScene {
   private layout(): void {
     const W = this.app.screen.width;
     const H = this.app.screen.height;
-    const landscape = W >= H;
-    const desktopCenters: readonly [number, number][] = [
-      [0.17, 0.29],
-      [0.16, 0.51],
-      [0.36, 0.7],
-      [0.59, 0.72],
-      [0.78, 0.53],
-      [0.81, 0.31],
-    ];
-    const mobileCenters: readonly [number, number][] = [
-      [0.23, 0.26],
-      [0.77, 0.26],
-      [0.23, 0.44],
-      [0.77, 0.44],
-      [0.23, 0.62],
-      [0.77, 0.62],
-    ];
-    const centers = landscape ? desktopCenters : mobileCenters;
-    const cw = W * (landscape ? 0.24 : 0.44);
-    const ch = H * (landscape ? 0.22 : 0.17);
+
+    // Geometry comes from coveLayout.ts — the ONE source the DOM cove cards
+    // also read. This used to be a second hardcoded copy of the centers, which
+    // silently drifted: the cards sat in one arrangement and the boats, piers
+    // and anchorages in another.
+    const layouts = getCoveLayouts(W, H);
 
     this.coves.forEach((cove, z) => {
-      const [cx, cy] = centers[z]!;
-      const x = cx * W - cw / 2;
-      const y = cy * H - ch / 2;
-      cove.x = x;
-      cove.y = y;
-      cove.w = cw;
-      cove.h = ch;
-      cove.side = cy < 0.48 ? 'top' : 'bottom';
-      cove.shoreH = Math.min(54, ch * 0.3);
-      cove.moorX = cx * W;
-      cove.moorY = cy * H + ch * (cove.side === 'top' ? 0.12 : 0.04);
+      const l = layouts[z];
+      if (!l) return;
+      cove.x = l.hit.x;
+      cove.y = l.hit.y;
+      cove.w = l.hit.width;
+      cove.h = l.hit.height;
+      cove.side = l.side;
+      cove.shoreH = l.shoreHeight;
+      cove.moorX = l.moorX;
+      cove.moorY = l.moorY;
+      cove.markerX = l.markerX;
+      cove.markerY = l.markerY;
+      cove.markerW = l.markerWidth;
+      cove.markerH = l.markerHeight;
       cove.hit.clear();
-      cove.hit.rect(0, 0, cw, ch).fill({ color: 0xffffff, alpha: 0.0001 });
-      cove.hit.position.set(x, y);
-      cove.hit.hitArea = new Rectangle(0, 0, cw, ch);
+      cove.hit.rect(0, 0, cove.w, cove.h).fill({ color: 0xffffff, alpha: 0.0001 });
+      cove.hit.position.set(cove.x, cove.y);
+      cove.hit.hitArea = new Rectangle(0, 0, cove.w, cove.h);
       cove.beamOrigin = {
-        x: x + cw * (cove.side === 'top' ? 0.72 : 0.28),
-        y: cove.side === 'top' ? y + ch * 0.3 : y + ch * 0.7,
+        x: cove.x + cove.w * (cove.side === 'top' ? 0.72 : 0.28),
+        y: cove.side === 'top' ? cove.y + cove.h * 0.3 : cove.y + cove.h * 0.7,
       };
       this.drawAnchorage(cove);
     });
+
+    // Every cove shares a card size, so one reticle serves all six.
+    const firstCove = this.coves[0];
+    if (firstCove) this.drawStormReticle(firstCove);
 
     this.drawChart(W, H);
     this.flashG.clear();
@@ -444,34 +487,138 @@ export class BayScene {
     this.redraw();
   }
 
-  /** Static anchorage mark: a faint zone disc + dashed mooring circle. */
+  /**
+   * Static zone plot: corner brackets around the seat, and a centre tick.
+   * Brackets rather than a closed box — an open frame sits behind the DOM
+   * card without drawing a second border around it.
+   */
   private drawAnchorage(cove: Cove): void {
-    const { land, moorX, moorY, w, h } = cove;
+    const { land } = cove;
     land.clear();
-    const rx = w * 0.36;
-    const ry = h * 0.34;
-    land.ellipse(moorX, moorY, rx, ry).fill({ color: 0xffffff, alpha: 0.015 });
-    dashedCircle(land, moorX, moorY, rx, ry, 26, CHART, 1.2, 0.85);
-    // anchor-point tick at the mooring center
-    land.circle(moorX, moorY, 2).fill({ color: CHART, alpha: 0.9 });
+    const f = markerFrame(cove, 12);
+    const arm = Math.min(18, Math.min(f.halfW, f.halfH) * 0.36);
+    land.rect(f.x, f.y, f.w, f.h).fill({ color: 0xffffff, alpha: 0.012 });
+    for (const [x, y, sx, sy] of [
+      [f.x, f.y, 1, 1],
+      [f.x + f.w, f.y, -1, 1],
+      [f.x, f.y + f.h, 1, -1],
+      [f.x + f.w, f.y + f.h, -1, -1],
+    ] as const) {
+      land
+        .moveTo(x + sx * arm, y)
+        .lineTo(x, y)
+        .lineTo(x, y + sy * arm)
+        .stroke({ color: CHART, width: 1 });
+    }
   }
 
-  /** Static sonar rings — the whole environment, drawn once per resize. */
+  /**
+   * The reticle brackets its target rather than sitting on it.
+   *
+   * Sized from the zone card plus a margin, so the card can never swallow it —
+   * which is exactly what happened when this was a fixed 88x52 box aimed at the
+   * middle of a 168x76 card. Bracketing is also the truer picture: a targeting
+   * reticle encloses what it is aimed at.
+   */
+  private drawStormReticle(cove: Cove): void {
+    const f = markerFrame(cove, 20);
+    this.stormReach = { halfW: f.halfW, halfH: f.halfH };
+
+    const g = this.stormReticle;
+    g.clear();
+    const arm = Math.min(30, Math.min(f.halfW, f.halfH) * 0.45);
+    for (const [sx, sy] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ] as const) {
+      const x = sx * f.halfW;
+      const y = sy * f.halfH;
+      g.moveTo(x - sx * arm, y)
+        .lineTo(x, y)
+        .lineTo(x, y - sy * arm)
+        .stroke({ color: DANGER, width: 2 });
+    }
+    // A hairline ties the four brackets together. Nothing is painted inside the
+    // frame: that is the card's territory, and a fill there would be invisible
+    // over a zone and a loud red slab over open board.
+    g.rect(-f.halfW, -f.halfH, f.halfW * 2, f.halfH * 2).stroke({
+      color: DANGER,
+      width: 1,
+      alpha: 0.3,
+    });
+
+    // The strike: a hard red column dropping from the bottom of the frame.
+    this.stormBolt.clear();
+    this.stormBolt.rect(-5, f.halfH, 10, 52).fill(DANGER);
+    this.stormBolt.rect(-1.5, f.halfH, 3, 60).fill(0xffffff);
+  }
+
+  /**
+   * The plot frame — drawn once per resize. Corner brackets, ruler ticks on
+   * every edge, and two axes through the origin that BREAK before the centre
+   * so the round's leading figure sits in clean space. This is the whole of
+   * the board's decoration: it says "this is a measured field", and it says
+   * nothing else.
+   */
   private drawChart(W: number, H: number): void {
     this.chartG.clear();
+    const m = 16;
     const cx = W / 2;
-    const cy = H * 0.5;
-    const maxR = Math.min(W, H) * 0.55;
-    for (const f of [0.35, 0.65, 1]) {
-      this.chartG.circle(cx, cy, maxR * f).stroke({ color: CHART, width: 1, alpha: 0.5 });
-    }
-    // bearing ticks on the outer ring
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2;
+    const cy = H / 2;
+    const gap = Math.min(W, H) * 0.19; // clear space for the centre readout
+
+    // frame: four corner brackets, never a closed box
+    const arm = Math.min(52, Math.min(W, H) * 0.07);
+    for (const [x, y, sx, sy] of [
+      [m, m, 1, 1],
+      [W - m, m, -1, 1],
+      [m, H - m, 1, -1],
+      [W - m, H - m, -1, -1],
+    ] as const) {
       this.chartG
-        .moveTo(cx + Math.cos(a) * maxR * 0.98, cy + Math.sin(a) * maxR * 0.98)
-        .lineTo(cx + Math.cos(a) * maxR * 1.02, cy + Math.sin(a) * maxR * 1.02)
-        .stroke({ color: CHART, width: 1, alpha: 0.6 });
+        .moveTo(x + sx * arm, y)
+        .lineTo(x, y)
+        .lineTo(x, y + sy * arm)
+        .stroke({ color: CHART, width: 1 });
+    }
+
+    // axes, interrupted at the origin
+    this.chartG.moveTo(m, cy).lineTo(cx - gap, cy).stroke({ color: CHART, width: 1, alpha: 0.7 });
+    this.chartG
+      .moveTo(cx + gap, cy)
+      .lineTo(W - m, cy)
+      .stroke({ color: CHART, width: 1, alpha: 0.7 });
+    this.chartG
+      .moveTo(cx, m)
+      .lineTo(cx, cy - gap * 0.75)
+      .stroke({ color: CHART, width: 1, alpha: 0.4 });
+    this.chartG
+      .moveTo(cx, cy + gap * 0.75)
+      .lineTo(cx, H - m)
+      .stroke({ color: CHART, width: 1, alpha: 0.4 });
+
+    // ruler ticks — every twelfth across, every eighth down, long on the beat
+    for (let i = 1; i < 12; i++) {
+      const x = m + ((W - 2 * m) * i) / 12;
+      const long = i % 3 === 0;
+      const len = long ? 9 : 5;
+      this.chartG.moveTo(x, m).lineTo(x, m + len).stroke({ color: CHART, width: 1, alpha: long ? 0.9 : 0.45 });
+      this.chartG
+        .moveTo(x, H - m)
+        .lineTo(x, H - m - len)
+        .stroke({ color: CHART, width: 1, alpha: long ? 0.9 : 0.45 });
+    }
+    for (let i = 1; i < 8; i++) {
+      const y = m + ((H - 2 * m) * i) / 8;
+      const long = i % 2 === 0;
+      const len = long ? 9 : 5;
+      this.chartG.moveTo(m, y).lineTo(m + len, y).stroke({ color: CHART, width: 1, alpha: long ? 0.9 : 0.45 });
+      this.chartG
+        .moveTo(W - m, y)
+        .lineTo(W - m - len, y)
+        .stroke({ color: CHART, width: 1, alpha: long ? 0.9 : 0.45 });
     }
   }
 
@@ -492,18 +639,12 @@ export class BayScene {
       const hovered = this.hoveredZone === z;
       cove.selection.clear();
       if (mine || (hovered && st.phase === 'ANCHOR_OPEN')) {
+        // Just outside the card, inside the static plot brackets.
+        const f = markerFrame(cove, 5);
+        const color = struck ? DANGER : FOCUS;
         cove.selection
-          .ellipse(cove.moorX, cove.moorY, cove.w * 0.36, cove.h * 0.34)
-          .stroke({
-            color: struck ? DANGER : FOCUS,
-            width: mine ? 2.5 : 1.5,
-            alpha: mine ? 0.95 : 0.55,
-          });
-        if (mine) {
-          cove.selection
-            .ellipse(cove.moorX, cove.moorY, cove.w * 0.36, cove.h * 0.34)
-            .fill({ color: struck ? DANGER : FOCUS, alpha: 0.05 });
-        }
+          .rect(f.x, f.y, f.w, f.h)
+          .stroke({ color, width: mine ? 2 : 1, alpha: mine ? 1 : 0.5 });
       }
 
       // other players' boats — crowding as literal fleets (public boatCount)
@@ -535,7 +676,7 @@ export class BayScene {
       const mDir = cove.side === 'top' ? -1 : 1;
       const kinds: { n: number; color: number; swallow: boolean; rect: boolean }[] = [
         { n: sig.RALLY, color: SAFE, swallow: false, rect: false },
-        { n: sig.FLEE, color: 0xff9948, swallow: true, rect: false },
+        { n: sig.FLEE, color: AMBER, swallow: true, rect: false },
         { n: sig.HOLD, color: FOCUS, swallow: false, rect: true },
       ];
       const anyFlags = kinds.some((k) => k.n > 0);
@@ -543,7 +684,7 @@ export class BayScene {
         cove.mast
           .moveTo(mx, mBase)
           .lineTo(mx, mBase + mDir * -34)
-          .stroke({ color: 0x33465f, width: 2 });
+          .stroke({ color: ROPE, width: 2 });
         let fy = mBase + mDir * -32;
         for (const k of kinds) {
           if (!k.n) continue;
@@ -569,33 +710,24 @@ export class BayScene {
         st.struckZone !== z &&
         (st.phase === 'RESOLVED' || st.phase === 'COOLDOWN');
       if (struck) {
+        // "This one." Fill, hard frame and a struck-through diagonal — three
+        // signals, none of them colour alone, all of them legible with motion
+        // disabled and at a glance from across a desk.
+        const f = markerFrame(cove, 20);
+        cove.wreckG.rect(f.x, f.y, f.w, f.h).fill({ color: DANGER, alpha: 0.14 });
+        cove.wreckG.rect(f.x, f.y, f.w, f.h).stroke({ color: DANGER, width: 2.5 });
         cove.wreckG
-          .ellipse(cove.moorX, cove.moorY, cove.w * 0.36, cove.h * 0.34)
-          .fill({ color: 0x3a0d16, alpha: 0.4 });
-        // X buoys
-        for (const [bx, by] of [
-          [cove.moorX - 26, cove.moorY + 10],
-          [cove.moorX + 24, cove.moorY - 6],
-        ] as const) {
-          cove.wreckG.circle(bx, by, 8).fill({ color: 0x1a0c12, alpha: 0.9 });
-          cove.wreckG
-            .moveTo(bx - 4, by - 4)
-            .lineTo(bx + 4, by + 4)
-            .stroke({ color: DANGER, width: 2.5 });
-          cove.wreckG
-            .moveTo(bx + 4, by - 4)
-            .lineTo(bx - 4, by + 4)
-            .stroke({ color: DANGER, width: 2.5 });
-        }
-        // broken mast
+          .moveTo(f.x, f.y)
+          .lineTo(f.x + f.w, f.y + f.h)
+          .stroke({ color: DANGER, width: 1.5, alpha: 0.6 });
         cove.wreckG
-          .moveTo(cove.moorX - 4, cove.moorY)
-          .lineTo(cove.moorX + 6, cove.moorY - 14)
-          .stroke({ color: 0x081420, width: 3 });
+          .moveTo(f.x + f.w, f.y)
+          .lineTo(f.x, f.y + f.h)
+          .stroke({ color: DANGER, width: 1.5, alpha: 0.6 });
       } else if (survived) {
-        // small green safety lamp at the landmark
+        // survived: one small green tick at the plot's corner
         cove.wreckG
-          .circle(cove.beamOrigin.x, cove.beamOrigin.y, 3.5)
+          .rect(cove.beamOrigin.x - 3, cove.beamOrigin.y - 3, 6, 6)
           .fill({ color: SAFE, alpha: 0.95 });
       }
     });
@@ -615,6 +747,8 @@ export class BayScene {
     // cargo transfer: crates stream from the wreck to every surviving manned cove
     const from = this.coves[struck];
     if (!from) return;
+    // the shockwave that answers "which zone got hit?" — fires as the bolt lands
+    this.strikeImpact = { x: from.moorX, y: from.moorY, start: Date.now() + (this.reduced ? 0 : 150) };
     const now = Date.now();
     let stagger = 620; // let the bolt land first
     this.coves.forEach((cove, z) => {
@@ -626,9 +760,10 @@ export class BayScene {
       const n = Math.min(3, Math.max(1, Math.round((this.state.boatCounts[z] ?? 1) / 3)));
       for (let i = 0; i < n; i++) {
         const g = new Graphics();
-        const c = mine ? AMBER : CRATE;
-        g.roundRect(-4, -4, 8, 8, 1.5).fill(c);
-        g.moveTo(-4, 0).lineTo(4, 0).stroke({ color: 0x000000, width: 1, alpha: 0.35 });
+        // Money moving toward YOU is white; money moving to other players is
+        // grey. Nothing here is gold — a payout is a number, not a treasure.
+        const c = mine ? FOCUS : CRATE;
+        g.rect(-3.5, -3.5, 7, 7).fill(c);
         this.cargoC.addChild(g);
         const midX = (from.moorX + cove.moorX) / 2;
         const midY = Math.max(from.moorY, cove.moorY) + 46;
@@ -652,6 +787,8 @@ export class BayScene {
   private tick(): void {
     const st = this.state;
     const now = Date.now();
+    const sinceLastTick = Math.min(64, Math.max(0, now - this.lastTickAt));
+    this.lastTickAt = now;
     const W = this.app.screen.width;
     const H = this.app.screen.height;
 
@@ -668,23 +805,24 @@ export class BayScene {
             : 'night';
     this.sky = lerpColor(this.sky, MOOD[mood], 0.05);
     this.skyG.clear();
-    const atmosphereAlpha =
-      mood === 'storm' ? 0.22 : mood === 'fog' ? 0.14 : mood === 'golden' ? 0.06 : 0.08;
+    // Barely there. The phase is told by the reticle, the shutter and the
+    // colour of the countdown — the tint only keeps the board from feeling
+    // identical in every phase.
+    const atmosphereAlpha = mood === 'storm' ? 0.3 : mood === 'fog' ? 0.16 : 0.1;
     this.skyG.rect(0, 0, W, H).fill({ color: this.sky, alpha: atmosphereAlpha });
 
-    // sparse drifting swell lines — barely-there water motion
+    /*
+     * Sweep line. One horizontal scan travelling down the plot while bets are
+     * open, the way a live channel shows it is live. It stops the moment the
+     * table seals, which is the point: motion here means "still open".
+     */
     this.wavesG.clear();
-    if (!this.reduced) {
-      const rows = 4;
-      for (let r = 0; r < rows; r++) {
-        const yBase = (H * (r + 0.5)) / rows;
-        const amp = st.weatherId === 'HIGH_SWELL' && st.phase !== 'ANCHOR_OPEN' ? 3 : 1.6;
-        this.wavesG.moveTo(0, yBase);
-        for (let x = 0; x <= W; x += 16) {
-          this.wavesG.lineTo(x, yBase + Math.sin(now / 1100 + x / 52 + r * 1.9) * amp);
-        }
-        this.wavesG.stroke({ color: 0x1b3050, width: 1, alpha: 0.22 });
-      }
+    if (!this.reduced && st.phase === 'ANCHOR_OPEN' && !st.fogActive) {
+      const sweepY = ((now / 26) % (H + 160)) - 80;
+      this.wavesG
+        .moveTo(16, sweepY)
+        .lineTo(W - 16, sweepY)
+        .stroke({ color: 0xffffff, width: 1, alpha: 0.05 });
     }
 
     // fog
@@ -696,59 +834,53 @@ export class BayScene {
     this.fogAlpha += (fogTarget - this.fogAlpha) * (this.reduced ? 1 : 0.08);
     this.fogC.alpha = this.fogAlpha;
     this.fogC.children.forEach((p, i) => {
-      p.x += Math.sin(now / 4000 + i) * 0.15;
+      p.x += Math.sin(now / 4000 + i) * 0.12;
     });
 
-    // boats bob; freeze bobbing when locked (roped down)
-    const bobAmp = st.phase === 'ANCHOR_OPEN' ? 2.4 : 0.7;
     this.coves.forEach((cove, z) => {
       const struck = st.struckZone === z && (st.phase === 'RESOLVED' || st.phase === 'COOLDOWN');
       const n = cove.fleet.children.length;
+      /*
+       * Tokens sit on an even row BELOW the zone's frame — a queue, not a
+       * scatter, and out from under the card. Drawn at the mooring point they
+       * were inside the DOM card's rectangle, so the crowd was reduced to a few
+       * grey pixels poking out under the card's bottom edge. They do not bob
+       * either: a data mark that drifts is a data mark you cannot count.
+       */
+      const plotFrame = markerFrame(cove, 12);
+      const tokenRowY = plotFrame.y + plotFrame.h + 10;
       cove.fleet.children.forEach((b, i) => {
         const slot = i - (n - 1) / 2;
-        b.position.set(
-          cove.moorX + slot * 28 + (i % 2) * 7,
-          cove.moorY + 12 + Math.sin(now / 520 + i * 1.3 + z) * bobAmp,
-        );
-        b.rotation = struck ? 0.45 : Math.sin(now / 640 + i) * 0.05;
-        b.alpha = struck ? 0.4 : st.fogActive ? 0.3 : 1;
-        b.scale.y = struck ? 0.85 : 1;
+        b.position.set(cove.markerX + slot * 13, tokenRowY);
+        b.rotation = 0;
+        b.alpha = struck ? 0.3 : st.fogActive ? 0.35 : 1;
+        b.scale.set(1);
       });
 
       // my boat: bob, halo while a fog order is available, seal once committed, rope when locked
       if (cove.myBoat.visible) {
         const mine = st.myZones.find((m) => m.zone === z);
-        cove.myBoat.position.set(
-          cove.moorX - 2,
-          cove.moorY - 6 + Math.sin(now / 470 + z) * (struck ? 0 : bobAmp),
-        );
-        cove.myBoat.rotation = struck ? 0.5 : Math.sin(now / 600 + z) * 0.04;
+        // Your own token gets its own line under the crowd, stem pointing up at
+        // the card it is staked on — visible, and unmistakably not one of them.
+        cove.myBoat.position.set(cove.markerX, tokenRowY + 18);
+        cove.myBoat.rotation = 0;
         cove.myBoat.alpha = struck ? 0.55 : 1;
         cove.myHalo.clear();
         cove.mySeal.clear();
         cove.myRope.clear();
+        // One last move still available: a white bracket opens around your
+        // token. Spent: the bracket closes to a solid bar.
         if (st.fogActive && !st.finalOrderUsed && mine?.primary) {
-          const pulse = 14 + Math.sin(now / 300) * 2.5;
-          cove.myHalo.circle(0, -4, pulse).stroke({ color: FOCUS, width: 2, alpha: 0.85 });
+          const r = 15 + Math.sin(now / 320) * 2;
+          cove.myHalo.rect(-r, -r - 6, r * 2, r * 2).stroke({ color: FOCUS, width: 1.5, alpha: 0.9 });
         }
         if (st.fogActive && st.finalOrderUsed && mine?.primary) {
-          cove.mySeal.circle(12, -16, 7).fill({ color: 0x142438, alpha: 0.9 });
-          cove.mySeal.circle(12, -16, 7).stroke({ color: FOCUS, width: 2 });
-          cove.mySeal
-            .moveTo(8.5, -16)
-            .lineTo(11, -13.5)
-            .lineTo(15.5, -19)
-            .stroke({ color: FOCUS, width: 2 });
+          cove.mySeal.rect(-11, -30, 22, 3).fill({ color: FOCUS, alpha: 0.9 });
         }
+        // Locked: a grey tie-bar under your token. Your position is committed
+        // and the board says so without a word.
         if (st.phase === 'LOCKED_STORM') {
-          const shoreY =
-            cove.side === 'top'
-              ? -(cove.moorY - (cove.y + cove.shoreH))
-              : cove.y + cove.h - cove.shoreH - cove.moorY;
-          cove.myRope
-            .moveTo(-8, 4)
-            .quadraticCurveTo(-20, shoreY / 2 + 8, -26, shoreY + 2)
-            .stroke({ color: ROPE, width: 2, alpha: 0.9 });
+          cove.myRope.rect(-13, 4, 26, 2).fill({ color: ROPE, alpha: 0.9 });
         }
       }
 
@@ -767,24 +899,24 @@ export class BayScene {
         cove.side === 'top' ? cove.y + cove.shoreH + 8 : cove.y + cove.h - cove.shoreH - 58;
       const gH = 46;
       cove.gauge.clear();
-      cove.gauge.roundRect(gx, gTop, 10, gH, 4).fill({ color: 0x0b1626, alpha: 0.85 });
-      cove.gauge.roundRect(gx, gTop, 10, gH, 4).stroke({ color: LINE, width: 1 });
-      const fillH = Math.max(4, gH * frac);
+      // Flat fill gauge: a track, a level, and a tick for the trend.
+      cove.gauge.rect(gx, gTop, 8, gH).fill({ color: 0x000000, alpha: 0.5 });
+      cove.gauge.rect(gx, gTop, 8, gH).stroke({ color: LINE, width: 1 });
+      const fillH = Math.max(3, gH * frac);
       cove.gauge
-        .roundRect(gx + 2, gTop + gH - fillH, 6, fillH - 2, 3)
-        .fill({ color: postLock ? FOCUS : 0x3f74d9, alpha: frozen ? 0.5 : 0.95 });
-      // trend buoy above the post (▲ rising / ▼ falling / – stable)
+        .rect(gx, gTop + gH - fillH, 8, fillH)
+        .fill({ color: DIM, alpha: frozen ? 0.4 : postLock ? 0.95 : 0.75 });
       if (showTide && !frozen) {
-        const ty = gTop - 10;
+        const ty = gTop - 9;
         if (report.trend === 'rising')
-          cove.gauge.poly([gx + 1, ty + 6, gx + 9, ty + 6, gx + 5, ty]).fill(0x9fd0ff);
+          cove.gauge.poly([gx, ty + 6, gx + 8, ty + 6, gx + 4, ty]).fill(DIM);
         else if (report.trend === 'falling')
-          cove.gauge.poly([gx + 1, ty, gx + 9, ty, gx + 5, ty + 6]).fill(0x7d90ad);
-        else cove.gauge.rect(gx + 1, ty + 2, 8, 2.5).fill({ color: 0x51678a });
+          cove.gauge.poly([gx, ty, gx + 8, ty, gx + 4, ty + 6]).fill(0x5e5e5e);
+        else cove.gauge.rect(gx, ty + 2, 8, 2).fill({ color: 0x5e5e5e });
       } else if (frozen) {
-        // frozen gauge: pause bars — information is intentionally stopped
-        cove.gauge.rect(gx + 1, gTop - 10, 3, 8).fill(0xaebccf);
-        cove.gauge.rect(gx + 6, gTop - 10, 3, 8).fill(0xaebccf);
+        // frozen: pause bars — information is intentionally stopped
+        cove.gauge.rect(gx, gTop - 9, 3, 7).fill(AMBER);
+        cove.gauge.rect(gx + 5, gTop - 9, 3, 7).fill(AMBER);
       }
 
       // lighthouse safety beams after the strike
@@ -793,66 +925,100 @@ export class BayScene {
         st.struckZone !== null &&
         st.struckZone !== z &&
         (st.phase === 'RESOLVED' || st.phase === 'COOLDOWN');
-      if (survived && this.beamStart && now > this.beamStart && now < this.beamStart + 1700) {
-        const t = (now - this.beamStart) / 1700;
-        const ang = Math.sin(t * Math.PI * 2) * 0.5 + (cove.side === 'top' ? 0.6 : -0.6);
-        const ox = cove.beamOrigin.x;
-        const oy = cove.beamOrigin.y;
-        const len = 90;
+      if (survived && this.beamStart && now > this.beamStart && now < this.beamStart + 1400) {
+        // survived: a green underline that draws itself once, then stops
+        const t = Math.min(1, (now - this.beamStart) / 500);
+        const f = markerFrame(cove, 12);
+        cove.beam.rect(f.x, f.y + f.h, f.w * t, 2).fill({ color: SAFE, alpha: 0.85 });
+      } else if (struck && !this.reduced) {
+        // the struck plot keeps a slow red pulse until the next round opens
+        const pulse = 0.5 + 0.5 * Math.sin(now / 300);
+        const f = markerFrame(cove, 28);
         cove.beam
-          .poly([
-            ox,
-            oy,
-            ox + Math.cos(ang - 0.09) * len,
-            oy + Math.sin(ang - 0.09) * len,
-            ox + Math.cos(ang + 0.09) * len,
-            oy + Math.sin(ang + 0.09) * len,
-          ])
-          .fill({ color: SAFE, alpha: 0.16 });
+          .rect(f.x, f.y, f.w, f.h)
+          .stroke({ color: DANGER, width: 1 + pulse * 2, alpha: 0.25 + pulse * 0.4 });
       }
     });
 
-    // storm motion: prowls between feints while locked, lunges into the wreck
+    /*
+     * Storm motion. The reticle has exactly six possible positions — the six
+     * zone plots — and it SNAPS between them. It never slides, so there is no
+     * frame in which it sits between harbours, drifts across the countdown, or
+     * hangs off the board. Re-acquiring is carried by a 160ms lock-on instead
+     * of by travel, which is both the stricter reading of "it moves between
+     * zones" and the more instrument-like one.
+     */
     if (this.stormC.visible) {
       let target: { x: number; y: number } | null = null;
+      let legKey = -1;
       if (st.phase === 'LOCKED_STORM' && st.storm) {
-        const which = now % 3000 < 1500 ? st.storm.feints[0] : st.storm.feints[1];
-        const cove = this.coves[which];
-        if (cove) target = { x: cove.moorX, y: cove.moorY - 34 };
+        // Restart the leg clock whenever a new storm window opens, so the
+        // patrol is timed against THIS phase rather than the wall clock.
+        if (this.stormLeg.endsAt !== st.storm.endsAt) {
+          this.stormLeg = { endsAt: st.storm.endsAt, startedAt: now };
+        }
+        // Route rules and the reason they exist live in ../stormPath.ts.
+        const zones = stormRouteZones(st.storm.feints, ZONE_COUNT);
+        const leg = stormRouteLeg(zones.length, now - this.stormLeg.startedAt);
+        const zone = zones[leg];
+        const cove = zone === undefined ? undefined : this.coves[zone];
+        if (cove) {
+          // Dead centre of the card: the reticle frames it, so aiming at the
+          // mooring point would leave the frame hanging low over the zone.
+          target = { x: cove.markerX, y: cove.markerY };
+          legKey = leg;
+        }
       } else if (st.struckZone !== null) {
         const cove = this.coves[st.struckZone];
-        if (cove) target = { x: cove.moorX, y: cove.moorY - 26 };
-      }
-      if (target) {
-        if (this.stormPos.x < -100) this.stormPos = { x: W / 2, y: 60 };
-        const speed =
-          st.phase === 'RESOLVED' ? 0.28 : st.weatherId === 'HIGH_SWELL' ? 0.09 : 0.06;
-        this.stormPos.x += (target.x - this.stormPos.x) * speed;
-        this.stormPos.y += (target.y - this.stormPos.y) * speed;
-      }
-      this.stormC.position.set(
-        this.stormPos.x + (this.reduced ? 0 : Math.sin(now / 700) * 4),
-        this.stormPos.y + (this.reduced ? 0 : Math.sin(now / 900) * 2),
-      );
-      this.churn.position.set(0, 42);
-      // rain
-      this.stormRain.clear();
-      if (st.phase !== 'COOLDOWN') {
-        const drop = (now / 6) % 18;
-        for (let i = -2; i <= 2; i++) {
-          this.stormRain
-            .moveTo(i * 16 - 4, 20 + drop)
-            .lineTo(i * 16 - 8, 32 + drop)
-            .stroke({ color: 0x8fa6c4, width: 1.4, alpha: 0.5 });
+        if (cove) {
+          target = { x: cove.markerX, y: cove.markerY };
+          legKey = ZONE_COUNT + st.struckZone;
         }
       }
-    } else {
-      this.stormPos = { x: -200, y: -200 };
+      if (target) {
+        this.stormPos = target;
+        if (this.stormAcquire.legKey !== legKey) {
+          this.stormAcquire = { legKey, at: now };
+        }
+      }
+      // Before the first target exists there is nowhere legitimate to draw, and
+      // the sentinel is off-board. `renderable` skips the draw without touching
+      // `visible`, which redraw() owns.
+      this.stormC.renderable = this.stormPos.x >= 0;
+      this.stormC.position.set(this.stormPos.x, this.stormPos.y);
+      // Lock-on: a brief settle from slightly wide, in the 120-180ms band the
+      // rest of the interface uses for a press. No idle jitter — a reticle that
+      // trembles on its target reads as noise, not as aim.
+      const acquire = this.reduced
+        ? 1
+        : Math.min(1, (now - this.stormAcquire.at) / FEINT_ACQUIRE_MS);
+      const ease = 1 - (1 - acquire) ** 3;
+      this.stormC.scale.set(1 + (1 - ease) * 0.18);
+      /*
+       * Once the round resolves the strike frame takes over the struck zone, so
+       * the reticle stands down rather than stacking a second red box on top of
+       * it. Eased, not cut, so the lock-on visibly becomes the hit.
+       */
+      const reticleTarget = st.phase === 'LOCKED_STORM' ? 1 : 0;
+      this.stormReticle.alpha +=
+        (reticleTarget - this.stormReticle.alpha) *
+        (this.reduced ? 1 : 1 - Math.exp(-sinceLastTick / 90));
+
+      // The aiming line: a dashed red drop-line below the frame, running
+      // downward while the table is sealed.
+      this.stormRain.clear();
+      if (st.phase === 'LOCKED_STORM') {
+        const drop = (now / 9) % 12;
+        for (let i = 0; i < 4; i++) {
+          const y = this.stormReach.halfH + 6 + drop + i * 12;
+          this.stormRain.rect(-1, y, 2, 6).fill({ color: DANGER, alpha: 0.45 });
+        }
+      }
     }
 
     // strike flash
     if (this.flashUntil > now) {
-      this.flashG.alpha = 0.22 * ((this.flashUntil - now) / 200);
+      this.flashG.alpha = 0.1 * ((this.flashUntil - now) / 200);
     } else {
       this.flashG.alpha = 0;
     }
@@ -894,9 +1060,28 @@ export class BayScene {
     this.rippleFx = this.rippleFx.filter((r) => now - r.start < 500);
     for (const r of this.rippleFx) {
       const t = (now - r.start) / 500;
+      const rr = 6 + t * 16;
       this.ripples
-        .circle(r.x, r.y, 6 + t * 16)
-        .stroke({ color: r.amber ? AMBER : 0x9fd0ff, width: 1.6, alpha: (1 - t) * 0.8 });
+        .rect(r.x - rr, r.y - rr, rr * 2, rr * 2)
+        .stroke({ color: r.amber ? FOCUS : DIM, width: 1.4, alpha: (1 - t) * 0.7 });
+    }
+
+    // strike impact shockwave — a triple red ring bursting from the struck zone
+    // the instant the bolt lands, so the eye is pulled straight to the answer.
+    if (this.strikeImpact) {
+      const t = (now - this.strikeImpact.start) / 900;
+      if (t >= 1) {
+        this.strikeImpact = null;
+      } else if (t >= 0) {
+        for (let k = 0; k < 3; k++) {
+          const tt = t - k * 0.14;
+          if (tt < 0 || tt > 1) continue;
+          const rr = 8 + tt * 78;
+          this.ripples
+            .rect(this.strikeImpact.x - rr, this.strikeImpact.y - rr, rr * 2, rr * 2)
+            .stroke({ color: DANGER, width: 3 - k, alpha: (1 - tt) * 0.7 });
+        }
+      }
     }
   }
 }
