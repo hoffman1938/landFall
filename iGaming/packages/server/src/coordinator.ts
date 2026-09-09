@@ -63,6 +63,7 @@ import {
   type WreckWakeReplay,
 } from '@landfall/core';
 import type { ChainHandle } from './chain.js';
+import { monotonicMs } from './clock.js';
 import type { GameRepository, SkipperRecordRow } from './db/repository.js';
 import { LimitsService, utcDayKey } from './limits.js';
 import { ReceiptSigner, hashActionPayload } from './receipts.js';
@@ -244,9 +245,9 @@ export class RoundCoordinator {
    */
   private seedMinor: number;
   private handleEmaMinor: number | null = null;
-  private timer: NodeJS.Timeout | null = null;
-  private tideTimer: NodeJS.Timeout | null = null;
-  private fogTimer: NodeJS.Timeout | null = null;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private tideTimer: ReturnType<typeof setTimeout> | null = null;
+  private fogTimer: ReturnType<typeof setTimeout> | null = null;
   private fogStartsAt = 0;
   private fogStarted = false;
   private lastReportTotals: number[] | null = null;
@@ -330,9 +331,9 @@ export class RoundCoordinator {
     settlement: { rakeMinor: number; houseDeltaMinor: number; salvageTotalMinor?: number; powerCapped: boolean },
     handleMinor: number,
     powerLabel: string,
-    startedAt: bigint,
+    startedAt: number,
   ): void {
-    const seconds = Number(process.hrtime.bigint() - startedAt) / 1e9;
+    const seconds = (monotonicMs() - startedAt) / 1000;
     const room = { room: this.cfg.roomId };
 
     metrics.counter('landfall_rounds_settled_total', 'Rounds settled.', room);
@@ -943,7 +944,7 @@ export class RoundCoordinator {
   }
 
   private resolve(struckZone: number): void {
-    const settleStartedAt = process.hrtime.bigint();
+    const settleStartedAt = monotonicMs();
     this.setPhase('RESOLVED', this.timings.resolvedMs);
     const snapshot = this.lockSnapshot!;
     // Storm Power: the same digest decides how hard the storm hits (salvage ×M),

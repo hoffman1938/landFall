@@ -12,6 +12,20 @@
       "runtimeExecutable": "C:/Users/gtsulaia/Desktop/landFall/.claude/run-web.cmd",
       "runtimeArgs": [],
       "port": 5173
+    },
+    {
+      "name": "landfall-worker",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "wrangler",
+        "dev",
+        "-c",
+        "wrangler.jsonc",
+        "--port",
+        "8788",
+        "--local"
+      ],
+      "port": 8788
     }
   ]
 }

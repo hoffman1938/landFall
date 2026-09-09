@@ -8,7 +8,7 @@ import { ZONE_COUNT, drawZone, stormPowerFromRoll, weatherFromRoll } from '@land
 import { DEFAULT_ECONOMY, type EconomyConfig } from './coordinator.js';
 import type { Db } from './db/index.js';
 import { rounds, surgeEvents } from './db/schema.js';
-import { INSTANCE_ID } from './log.js';
+import { instanceId } from './log.js';
 import { metrics } from './metrics.js';
 
 /**
@@ -41,7 +41,7 @@ export function createApp(
     c.json({
       ok: true,
       game: 'landfall',
-      instance: INSTANCE_ID,
+      instance: instanceId(),
       uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
     }),
   );
@@ -63,7 +63,7 @@ export function createApp(
     const rooms = ops?.ready() ?? { ready: true };
     const ready = dbOk && rooms.ready;
     return c.json(
-      { ready, db: dbOk, rooms: rooms.ready, reason: rooms.reason, instance: INSTANCE_ID },
+      { ready, db: dbOk, rooms: rooms.ready, reason: rooms.reason, instance: instanceId() },
       ready ? 200 : 503,
     );
   });

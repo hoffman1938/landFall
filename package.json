@@ -1,0 +1,14 @@
+{
+  "name": "landfall-deploy",
+  "private": true,
+  "description": "Cloudflare Workers deployment wrapper for the LANDFALL workspace in iGaming/",
+  "scripts": {
+    "build": "pnpm --dir iGaming install --frozen-lockfile && pnpm --dir iGaming --filter @landfall/web build",
+    "deploy": "wrangler deploy",
+    "check": "wrangler deploy --dry-run"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "packageManager": "pnpm@9.15.9"
+}

@@ -26,7 +26,8 @@ import {
   type Timings,
 } from '../src/coordinator.js';
 import { DrizzleSqliteRepository } from '../src/db/repository.js';
-import { loadRoomConfigs, resolveRoomConfig } from '../src/rooms.js';
+import { loadRoomConfigs } from '../src/rooms-file.js';
+import { resolveRoomConfig } from '../src/rooms.js';
 import { BOT_BANKROLL_STAKE_MULTIPLE, BotManager } from '../src/bots.js';
 
 const TERMINAL = 'e'.repeat(64);

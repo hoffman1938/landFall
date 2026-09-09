@@ -9,10 +9,10 @@
  * anywhere inside (including the core conservation assert) must roll back all
  * of it. Implementations must be synchronous or provide equivalent isolation.
  */
-import { randomBytes } from 'node:crypto';
 import { and, count, desc, eq } from 'drizzle-orm';
 import type { ActionReceipt } from '@landfall/core';
-import type { Db, Sqlite } from './index.js';
+import type { Db } from './index.js';
+import { randomHex } from '../random.js';
 import {
   actionReceipts,
   actionTelemetry,
@@ -156,14 +156,28 @@ export interface TelemetryInsert {
   detail: string | null;
 }
 
+/**
+ * The synchronous transaction primitive — the one thing the two SQLite hosts
+ * spell differently. `better-sqlite3` hands back a wrapped function to call;
+ * Durable Object storage runs the callback directly. Both are synchronous and
+ * both roll back on a throw, which is exactly what the ATOMICITY CONTRACT
+ * above requires, so the repository accepts either and normalises here rather
+ * than existing twice.
+ */
+export type TransactionHost =
+  | { transaction<T>(fn: () => T): () => T }
+  | { transactionSync<T>(fn: () => T): T };
+
 export class DrizzleSqliteRepository implements GameRepository {
   constructor(
     private db: Db,
-    private sqlite: Sqlite,
+    private txHost: TransactionHost,
   ) {}
 
   inTransaction<T>(fn: () => T): T {
-    return this.sqlite.transaction(fn)();
+    return 'transactionSync' in this.txHost
+      ? this.txHost.transactionSync(fn)
+      : this.txHost.transaction(fn)();
   }
 
   getPlayer(id: string): PlayerRow | undefined {
@@ -204,11 +218,17 @@ export class DrizzleSqliteRepository implements GameRepository {
   }
 
   insertRound(roomId: string, chainIndex: number, prevChainValue: string): number {
-    const res = this.db
+    // RETURNING, not the driver's `lastInsertRowid`: Durable Object SQLite hands
+    // back a cursor that carries no rowid, so this is the one spelling both
+    // SQLite hosts implement. The round id is the settlement's idempotency key,
+    // so reading it back wrong is not a failure mode worth leaving open.
+    const row = this.db
       .insert(rounds)
       .values({ roomId, chainIndex, prevChainValue, createdAt: Date.now() })
-      .run();
-    return Number(res.lastInsertRowid);
+      .returning({ id: rounds.id })
+      .get();
+    if (!row) throw new Error('insertRound: insert returned no row');
+    return row.id;
   }
 
   setRoundLockSnapshot(roundId: number, snapshotJson: string): void {
@@ -329,7 +349,7 @@ export class DrizzleSqliteRepository implements GameRepository {
   getOrCreateReceiptKey(): string {
     const row = this.db.select().from(serverSecrets).where(eq(serverSecrets.id, 1)).get();
     if (row) return row.receiptKeyHex;
-    const keyHex = randomBytes(32).toString('hex');
+    const keyHex = randomHex(32);
     this.db.insert(serverSecrets).values({ id: 1, receiptKeyHex: keyHex }).run();
     return keyHex;
   }

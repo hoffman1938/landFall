@@ -9,11 +9,12 @@
  * by ops/regulator against the persisted key, so "the server never got my
  * order" / "the server backdated my order" disputes are decidable.
  */
-import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import type { ActionReceipt } from '@landfall/core';
 import type { Db } from './db/index.js';
 import { serverSecrets } from './db/schema.js';
+import { randomHex } from './random.js';
 
 /** Canonical string the signature covers — order matters, documented here once. */
 function canonical(r: Omit<ActionReceipt, 'sigHex'>): string {
@@ -56,7 +57,7 @@ export function hashActionPayload(payload: unknown): string {
 export function ensureReceiptKey(db: Db): string {
   const row = db.select().from(serverSecrets).where(eq(serverSecrets.id, 1)).get();
   if (row) return row.receiptKeyHex;
-  const keyHex = randomBytes(32).toString('hex');
+  const keyHex = randomHex(32);
   db.insert(serverSecrets).values({ id: 1, receiptKeyHex: keyHex }).run();
   return keyHex;
 }

@@ -1,0 +1,9 @@
+# Deployment wrapper artifacts (the workspace itself is iGaming/, which has its
+# own .gitignore).
+node_modules/
+dist/
+.DS_Store
+
+# Wrangler's local state: build cache, and the local Durable Object SQLite used
+# by `wrangler dev`. Never commit it — it is a real database with real rounds in it.
+.wrangler/

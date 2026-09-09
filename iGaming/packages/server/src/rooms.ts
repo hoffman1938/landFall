@@ -11,8 +11,6 @@
  * and live beside the stake tiers for the same reason: a bot has to be able to
  * afford the table it sits at, and that number is different in every room.
  */
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { ZONE_COUNT, liquidityLevel, surgeFloorFor, validateRakeConfig } from '@landfall/core';
 import { defaultBotBankrollMinor } from './bots.js';
 import type { ChainHandle } from './chain.js';
@@ -144,22 +142,19 @@ export function resolveRoomConfig(
   return cfg;
 }
 
-export function loadRoomConfigs(
+/**
+ * Resolve an already-parsed rooms document. Split from `loadRoomConfigs` so a
+ * host with no filesystem (Cloudflare Workers, where the config is bundled)
+ * gets the identical validation — including the C5 bots policy — instead of a
+ * second, laxer code path.
+ */
+export function resolveRoomConfigs(
+  parsed: { rooms: RoomConfigJson[] },
   demo: boolean,
   timings: Timings,
   surgeProb: number,
   baseEcon = DEFAULT_ECONOMY,
 ): RoomConfig[] {
-  let raw: string;
-  if (process.env.LANDFALL_ROOMS_JSON) {
-    raw = process.env.LANDFALL_ROOMS_JSON;
-  } else {
-    const file =
-      process.env.LANDFALL_ROOMS_FILE ??
-      fileURLToPath(new URL('../config/rooms.json', import.meta.url));
-    raw = readFileSync(file, 'utf8');
-  }
-  const parsed = JSON.parse(raw) as { rooms: RoomConfigJson[] };
   if (!Array.isArray(parsed.rooms) || parsed.rooms.length === 0) {
     throw new Error('rooms config must contain at least one room');
   }

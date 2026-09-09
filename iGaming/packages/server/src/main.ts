@@ -1,22 +1,21 @@
 import { serve } from '@hono/node-server';
-import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { eq } from 'drizzle-orm';
 import { DEFAULT_TIMINGS, SURGE_PROB, validateRakeConfig } from '@landfall/core';
 import { createApp } from './app.js';
-import { BotManager, DEFAULT_BOT_COUNT } from './bots.js';
+import { seatBots } from './bots.js';
 import { ensureChain } from './chain.js';
 import { ChatService } from './chat.js';
-import { DEFAULT_ECONOMY, type CoordinatorEvents, type EconomyConfig, type Timings } from './coordinator.js';
+import { DEFAULT_ECONOMY, type EconomyConfig, type Timings } from './coordinator.js';
 import { openDb } from './db/index.js';
 import { DrizzleSqliteRepository } from './db/repository.js';
-import { players } from './db/schema.js';
+import { ensureHousePlayer } from './house.js';
 import { Hub } from './hub.js';
 import { LimitsService } from './limits.js';
-import { INSTANCE_ID, log } from './log.js';
+import { instanceId, log } from './log.js';
 import { metrics } from './metrics.js';
-import { RoomManager, isDemoEnv, loadRoomConfigs } from './rooms.js';
+import { loadRoomConfigs } from './rooms-file.js';
+import { RoomManager, isDemoEnv } from './rooms.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
 // fileURLToPath (not URL.pathname) so the path is valid on Windows too.
@@ -52,19 +51,7 @@ const { db, sqlite } = openDb(DB_FILE);
 const repo = new DrizzleSqliteRepository(db, sqlite);
 
 // House player (owns seed stakes + rake; a real row so conservation is auditable in the DB).
-let house = db.select().from(players).where(eq(players.isHouse, true)).get();
-if (!house) {
-  house = {
-    id: randomUUID(),
-    name: 'HOUSE',
-    balanceMinor: 10_000_000_00,
-    isHouse: true,
-    isBot: false,
-    lastRoomId: null,
-    createdAt: Date.now(),
-  };
-  db.insert(players).values(house).run();
-}
+ensureHousePlayer(db);
 
 const chain = ensureChain(db);
 const chat = new ChatService(db);
@@ -77,13 +64,7 @@ const surgeProb = Number(process.env.LANDFALL_SURGE_PROB ?? SURGE_PROB);
 // Rooms (C1/C2): tier configs from server config; bots policy enforced at load (C5).
 const demo = isDemoEnv();
 const roomConfigs = loadRoomConfigs(demo, timings, surgeProb, econ);
-const makeEvents = (roomId: string): CoordinatorEvents => ({
-  broadcast: (msg) => hub.broadcastToRoom(roomId, msg),
-  sendToPlayer: (playerId, msg) => hub.sendToPlayerInRoom(roomId, playerId, msg),
-  broadcastLandfall: (build) => hub.broadcastLandfallToRoom(roomId, build),
-  systemMessage: (text) => hub.systemMessageToRoom(roomId, text),
-});
-const rooms = new RoomManager(repo, chain, roomConfigs, makeEvents, limits);
+const rooms = new RoomManager(repo, chain, roomConfigs, (roomId) => hub.events(roomId), limits);
 hub.rooms = rooms;
 
 // Rooms are "ready" once the loop is actually running; an instance whose game
@@ -102,7 +83,7 @@ const app = createApp(db, chain.commitment, surgeProb, econ, {
 });
 
 const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
-  log.info('rest listening', { port: info.port, db: DB_FILE, instance: INSTANCE_ID });
+  log.info('rest listening', { port: info.port, db: DB_FILE, instance: instanceId() });
   log.info('chain committed', { commitment: chain.commitment });
   log.info('timings configured', { ...timings });
   log.info('rooms configured', {
@@ -136,19 +117,11 @@ const botOverride = botsEnv === undefined ? null : Number(botsEnv);
 if (botOverride !== null && (!Number.isInteger(botOverride) || botOverride < 0)) {
   throw new Error(`LANDFALL_BOTS must be a non-negative integer, got "${botsEnv}"`);
 }
-const botManagers: BotManager[] = [];
-const botSeating: { roomId: string; count: number }[] = [];
-if (botOverride !== 0) {
-  for (const room of rooms.rooms.values()) {
-    if (!room.cfg.botsAllowed) continue;
-    const count = botOverride ?? room.cfg.botCount ?? DEFAULT_BOT_COUNT;
-    if (count <= 0) continue;
-    const manager = new BotManager(db, room, count);
-    manager.start();
-    botManagers.push(manager);
-    botSeating.push({ roomId: room.cfg.roomId, count });
-  }
-}
+const { managers: botManagers, seating: botSeating } = seatBots(
+  db,
+  rooms.rooms.values(),
+  botOverride,
+);
 
 if (botManagers.length > 0) {
   log.info('practice bots started', { rooms: botManagers.length, seating: botSeating });

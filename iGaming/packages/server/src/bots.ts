@@ -50,8 +50,8 @@ export function defaultBotBankrollMinor(maxStakeMinor: number): number {
 
 export class BotManager {
   private bots: Bot[] = [];
-  private poll: NodeJS.Timeout | null = null;
-  private pending: NodeJS.Timeout[] = [];
+  private poll: ReturnType<typeof setInterval> | null = null;
+  private pending: ReturnType<typeof setTimeout>[] = [];
   private lastRound = 0;
   /** Per-tier stake ladder (D3/C2): multiples of the room's min stake, clamped
    *  to the tier ceiling — a min-stake human is always visible in the pools, and
@@ -93,7 +93,13 @@ export class BotManager {
 
   stop(): void {
     if (this.poll) clearInterval(this.poll);
+    this.poll = null;
     for (const t of this.pending) clearTimeout(t);
+    this.pending = [];
+    // Cleared so a later start() re-seats rather than doubling the table. The
+    // Node host stops only at shutdown, but the Workers host parks the room
+    // whenever the last player leaves and restarts it when one returns.
+    this.bots = [];
   }
 
   /** Bots have stable per-room ids so they persist across server restarts,
@@ -239,4 +245,33 @@ export class BotManager {
         .run();
     }
   }
+}
+
+/**
+ * Seat practice bots across every room whose config allows them.
+ *
+ * Shared by both hosts because this is where the C5 bots policy meets the
+ * per-tier head-counts: rooms that forbid bots are skipped, `override`
+ * (LANDFALL_BOTS) replaces every room's count, and 0 disables bots outright.
+ * The rooms loader has already refused `botsAllowed` outside demo, so anything
+ * reaching here is permitted by construction.
+ */
+export function seatBots(
+  db: Db,
+  rooms: Iterable<RoundCoordinator>,
+  override: number | null,
+): { managers: BotManager[]; seating: { roomId: string; count: number }[] } {
+  const managers: BotManager[] = [];
+  const seating: { roomId: string; count: number }[] = [];
+  if (override === 0) return { managers, seating };
+  for (const room of rooms) {
+    if (!room.cfg.botsAllowed) continue;
+    const count = override ?? room.cfg.botCount ?? DEFAULT_BOT_COUNT;
+    if (count <= 0) continue;
+    const manager = new BotManager(db, room, count);
+    manager.start();
+    managers.push(manager);
+    seating.push({ roomId: room.cfg.roomId, count });
+  }
+  return { managers, seating };
 }

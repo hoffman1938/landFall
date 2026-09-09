@@ -24,7 +24,7 @@
  * Everything is process-local — with several instances, aggregate in the
  * scraper by the `instance` label rather than trying to share state here.
  */
-import { INSTANCE_ID } from './log.js';
+import { instanceId } from './log.js';
 
 type Labels = Record<string, string>;
 
@@ -43,7 +43,7 @@ function labelKey(labels: Labels): string {
 }
 
 function renderLabels(labels: Labels): string {
-  const all = { instance: INSTANCE_ID, ...labels };
+  const all = { instance: instanceId(), ...labels };
   const body = Object.entries(all)
     .map(([k, v]) => `${k}="${String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
     .join(',');

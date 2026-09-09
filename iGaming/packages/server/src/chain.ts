@@ -4,12 +4,12 @@
  * it is never logged and never sent anywhere. Seeds are recomputed on demand
  * (SHA256^n is sub-millisecond at n<=10k) and consumed strictly in order.
  */
-import { randomBytes } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { chainCommitment, roundSeed, SEED_CHAIN_LENGTH } from '@landfall/core';
 import type { Db } from './db/index.js';
 import { chainState } from './db/schema.js';
 import { log } from './log.js';
+import { randomHex } from './random.js';
 
 export interface ChainHandle {
   commitment: string;
@@ -21,7 +21,7 @@ export interface ChainHandle {
 export function ensureChain(db: Db): ChainHandle {
   let row = db.select().from(chainState).where(eq(chainState.id, 1)).get();
   if (!row || row.nextIndex > row.length) {
-    const terminalHex = randomBytes(32).toString('hex');
+    const terminalHex = randomHex(32);
     const commitment = chainCommitment(terminalHex, SEED_CHAIN_LENGTH);
     const fresh = { id: 1, terminalHex, length: SEED_CHAIN_LENGTH, commitment, nextIndex: 1 };
     db.insert(chainState)

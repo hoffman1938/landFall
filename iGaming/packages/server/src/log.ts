@@ -13,7 +13,7 @@
  * Money is logged in minor units, named `*Minor`, exactly as everywhere else —
  * a log line that silently switched to credits would be a reconciliation trap.
  */
-import { randomUUID } from 'node:crypto';
+import { randomHex } from './random.js';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -26,13 +26,22 @@ function resolveLevel(): LogLevel {
   return raw in LEVEL_ORDER ? (raw as LogLevel) : 'info';
 }
 
+let cachedInstanceId: string | null = null;
+
 /**
  * Instance identity. Supplied by the orchestrator where there is one (a k8s
  * pod name, an ECS task id); a random suffix otherwise so two processes on one
  * machine never collide in the logs.
+ *
+ * Computed on first use rather than at module load. Cloudflare Workers forbid
+ * generating random values in global scope — a module-level random id crashes
+ * the Worker before it serves a single request — and this module is imported by
+ * both hosts.
  */
-export const INSTANCE_ID =
-  process.env.LANDFALL_INSTANCE_ID ?? `landfall-${randomUUID().slice(0, 8)}`;
+export function instanceId(): string {
+  cachedInstanceId ??= process.env.LANDFALL_INSTANCE_ID ?? `landfall-${randomHex(4)}`;
+  return cachedInstanceId;
+}
 
 const minLevel = LEVEL_ORDER[resolveLevel()];
 const asJson = (process.env.LANDFALL_LOG_FORMAT ?? 'json').toLowerCase() !== 'text';
@@ -84,7 +93,7 @@ export class Logger {
       ts: new Date().toISOString(),
       level,
       msg,
-      instance: INSTANCE_ID,
+      instance: instanceId(),
       ...merged,
     };
     // eslint-disable-next-line no-console -- the log sink itself

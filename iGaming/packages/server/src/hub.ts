@@ -6,7 +6,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
-import type { WebSocket, WebSocketServer } from 'ws';
+import type { WebSocketServer } from 'ws';
 import {
   STARTING_BALANCE_MINOR,
   clientMessage,
@@ -17,7 +17,7 @@ import {
   type SkipperRecordPublic,
 } from '@landfall/core';
 import type { ChatService } from './chat.js';
-import type { RoundCoordinator } from './coordinator.js';
+import type { CoordinatorEvents, RoundCoordinator } from './coordinator.js';
 import type { Db } from './db/index.js';
 import type { LimitsService } from './limits.js';
 import type { RoomManager } from './rooms.js';
@@ -26,15 +26,39 @@ import { metrics } from './metrics.js';
 import { chatMessages, players, skipperRecords } from './db/schema.js';
 import { randomName } from './names.js';
 
+/**
+ * The transport surface the hub needs from a socket.
+ *
+ * `ws` on Node and the native WebSocket inside a Durable Object disagree about
+ * how you *listen* to a socket, but they agree on this much. Keeping the hub
+ * behind this interface is what lets session management, room routing and every
+ * game message exist exactly once, with each host contributing only an adapter
+ * (software-architecture.md §4, step 6) — the alternative is a second copy of
+ * the protocol per runtime, which is how the two drift apart.
+ */
+export interface HubSocket {
+  send(data: string): void;
+  /** False once the socket can no longer carry a frame. */
+  readonly open: boolean;
+}
+
+/** A live connection. The host adapter drives these as its socket fires. */
+export interface HubConnection {
+  /** Feed one inbound text frame. */
+  message(text: string): void;
+  /** The socket closed or errored — release the session. */
+  close(): void;
+}
+
 interface Session {
-  ws: WebSocket;
+  ws: HubSocket;
   playerId: string | null;
   name: string | null;
   roomId: string | null;
   /** Session clock (F2) + reality-check elapsed base (F1). */
   startedAt: number;
   /** F1: per-connection reality-check interval, driven by the player's cadence. */
-  realityTimer: NodeJS.Timeout | null;
+  realityTimer: ReturnType<typeof setInterval> | null;
 }
 
 export class Hub {
@@ -50,36 +74,74 @@ export class Hub {
   /** Wired after construction (hub and rooms reference each other). */
   rooms!: RoomManager;
 
+  /**
+   * The coordinator's outbound edge for one room. Every send a round makes goes
+   * through here, and every one of them is room-scoped — which is the whole
+   * point of C1, so it is defined once on the hub rather than re-assembled by
+   * each host.
+   */
+  events(roomId: string): CoordinatorEvents {
+    return {
+      broadcast: (msg) => this.broadcastToRoom(roomId, msg),
+      sendToPlayer: (playerId, msg) => this.sendToPlayerInRoom(roomId, playerId, msg),
+      broadcastLandfall: (build) => this.broadcastLandfallToRoom(roomId, build),
+      systemMessage: (text) => this.systemMessageToRoom(roomId, text),
+    };
+  }
+
+  /**
+   * Register a socket and hand back the callbacks its host must drive. The
+   * whole protocol lives behind this; a host adapter only translates its own
+   * socket events into `message` and `close`.
+   */
+  connect(socket: HubSocket): HubConnection {
+    const session: Session = {
+      ws: socket,
+      playerId: null,
+      name: null,
+      roomId: null,
+      startedAt: Date.now(),
+      realityTimer: null,
+    };
+    this.sessions.add(session);
+    metrics.counter('landfall_ws_connections_total', 'WebSocket connections accepted.');
+    return {
+      message: (text) => {
+        metrics.counter('landfall_ws_messages_total', 'WebSocket messages received.');
+        this.onMessage(session, text);
+      },
+      close: () => {
+        this.dropSession(session);
+        // A departed player changes the lobby's human counts either way, so the
+        // errored path broadcasts too — the counts are the routing signal.
+        this.broadcastRoomList();
+      },
+    };
+  }
+
+  /** Node host adapter: the `ws` package. */
   attach(wss: WebSocketServer): void {
     wss.on('connection', (ws) => {
-      const session: Session = {
-        ws,
-        playerId: null,
-        name: null,
-        roomId: null,
-        startedAt: Date.now(),
-        realityTimer: null,
-      };
-      this.sessions.add(session);
-      metrics.counter('landfall_ws_connections_total', 'WebSocket connections accepted.');
+      const conn = this.connect({
+        send: (data) => ws.send(data),
+        get open() {
+          return ws.readyState === ws.OPEN;
+        },
+      });
       ws.on('message', (raw) => {
-        metrics.counter('landfall_ws_messages_total', 'WebSocket messages received.');
         // `RawData` is Buffer | ArrayBuffer | Buffer[]. A fragmented frame
         // arrives as an ARRAY, and Array.prototype.toString would comma-join
         // the fragments into unparseable JSON — concatenate instead.
         const text = Array.isArray(raw)
           ? Buffer.concat(raw).toString('utf8')
           : Buffer.from(raw as ArrayBuffer).toString('utf8');
-        this.onMessage(session, text);
+        conn.message(text);
       });
-      ws.on('close', () => {
-        this.dropSession(session);
-        this.broadcastRoomList();
-      });
+      ws.on('close', () => conn.close());
       ws.on('error', (err) => {
-        log.warn('websocket error', { playerId: session.playerId, room: session.roomId, err });
+        log.warn('websocket error', { err });
         metrics.counter('landfall_ws_errors_total', 'WebSocket transport errors.');
-        this.dropSession(session);
+        conn.close();
       });
     });
   }
@@ -103,7 +165,7 @@ export class Hub {
     const minutes = this.limits.getState(session.playerId).realityCheckMinutes;
     if (!minutes) return;
     session.realityTimer = setInterval(() => {
-      if (!session.playerId || session.ws.readyState !== session.ws.OPEN) return;
+      if (!session.playerId || !session.ws.open) return;
       const now = Date.now();
       this.send(session, {
         type: 'REALITY_CHECK',
@@ -118,18 +180,14 @@ export class Hub {
   broadcastToRoom(roomId: string, msg: unknown): void {
     const data = JSON.stringify(msg);
     for (const s of this.sessions) {
-      if (s.playerId && s.roomId === roomId && s.ws.readyState === s.ws.OPEN) s.ws.send(data);
+      if (s.playerId && s.roomId === roomId && s.ws.open) s.ws.send(data);
     }
   }
 
   sendToPlayerInRoom(roomId: string, playerId: string, msg: unknown): void {
     const data = JSON.stringify(msg);
     for (const s of this.sessions) {
-      if (
-        s.playerId === playerId &&
-        s.roomId === roomId &&
-        s.ws.readyState === s.ws.OPEN
-      ) {
+      if (s.playerId === playerId && s.roomId === roomId && s.ws.open) {
         s.ws.send(data);
       }
     }
@@ -137,7 +195,7 @@ export class Hub {
 
   broadcastLandfallToRoom(roomId: string, build: (playerId: string) => unknown): void {
     for (const s of this.sessions) {
-      if (s.playerId && s.roomId === roomId && s.ws.readyState === s.ws.OPEN) {
+      if (s.playerId && s.roomId === roomId && s.ws.open) {
         s.ws.send(JSON.stringify(build(s.playerId)));
       }
     }
@@ -180,7 +238,7 @@ export class Hub {
   private broadcastRoomList(): void {
     const msg = JSON.stringify({ type: 'ROOM_LIST', rooms: this.roomList() } satisfies ServerMessage);
     for (const s of this.sessions) {
-      if (s.playerId && s.ws.readyState === s.ws.OPEN) s.ws.send(msg);
+      if (s.playerId && s.ws.open) s.ws.send(msg);
     }
   }
 
@@ -435,7 +493,7 @@ export class Hub {
   }
 
   private send(session: Session, msg: ServerMessage): void {
-    if (session.ws.readyState === session.ws.OPEN) session.ws.send(JSON.stringify(msg));
+    if (session.ws.open) session.ws.send(JSON.stringify(msg));
   }
 
   private error(session: Session, code: string, message: string, receipt?: ActionReceipt): void {

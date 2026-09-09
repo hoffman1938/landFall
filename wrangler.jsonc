@@ -1,0 +1,48 @@
+{
+  "$schema": "./iGaming/node_modules/wrangler/config-schema.json",
+  "name": "landfall",
+
+  // The Worker source lives in the pnpm workspace under iGaming/; wrangler
+  // resolves every path in this file relative to the file itself, so the
+  // config can sit at the repository root where Cloudflare's GitHub builds
+  // look for it by default.
+  "main": "iGaming/packages/edge/src/worker.ts",
+
+  "compatibility_date": "2026-09-09",
+  // The game's crypto (seed chain, HMAC receipts) is written against node:crypto
+  // and shared verbatim with the Node host.
+  "compatibility_flags": ["nodejs_compat"],
+
+  "workers_dev": true,
+  // Per-version preview URLs, so a deployment can be played before it takes
+  // over the production hostname.
+  "preview_urls": true,
+  "observability": { "enabled": true },
+
+  "assets": {
+    "directory": "iGaming/packages/web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // Without this the SPA fallback would answer /api/* and /ws with index.html
+    // instead of letting the Worker route them to the game.
+    "run_worker_first": ["/api/*", "/ws"]
+  },
+
+  "durable_objects": {
+    "bindings": [{ "name": "LANDFALL_GAME", "class_name": "LandfallGame" }]
+  },
+  // Declares the class and its storage backend. This Worker's namespace was
+  // created through the declarative `exports` flow, and Cloudflare refuses a
+  // revert to the older `migrations` array once that has happened.
+  // SQLite-backed: the Durable Object *is* the game's database.
+  "exports": {
+    "LandfallGame": { "type": "durable-object", "storage": "sqlite" }
+  },
+
+  "vars": {
+    // Practice bots are gated on this exact value (C5). The shipped rooms.json
+    // requests bots in every tier, so this build is the educational/demo one —
+    // a non-demo deployment must ship a rooms.json with botsAllowed:false.
+    "LANDFALL_ENV": "demo"
+  }
+}
