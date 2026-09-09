@@ -65,7 +65,7 @@ export function RoundResultCard({ state }: { state: RoundState }) {
        * last four pixels on a 740x360 board. Refusing to shrink makes a card
        * that does not fit visibly not fit, which is a bug that can be found.
        */
-      className="lf-appear pointer-events-auto flex w-[min(94vw,27rem)] shrink-0 flex-col overflow-hidden rounded-lg border border-[var(--lf-line-2)] bg-[var(--lf-surface)]"
+      className="lf-appear pointer-events-none flex w-[min(94vw,27rem)] shrink-0 flex-col overflow-hidden rounded-lg border border-[var(--lf-line-2)] bg-[var(--lf-surface)]"
     >
       {/* 1 — which harbor. The largest thing on the card, always. */}
       <div
@@ -203,7 +203,7 @@ export function RoundResultCard({ state }: { state: RoundState }) {
         <button
           type="button"
           onClick={() => openVerify(lastLandfall.roundId)}
-          className={`ml-auto shrink-0 rounded-md border border-[var(--lf-line)] px-3 text-[13px] font-bold uppercase tracking-[0.1em] text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)] ${
+          className={`pointer-events-auto ml-auto shrink-0 rounded-md border border-[var(--lf-line)] px-3 text-[13px] font-bold uppercase tracking-[0.1em] text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)] ${
             shortBoard ? 'min-h-[40px]' : 'min-h-[44px]'
           } ${verifyGlow ? 'lf-verify-glow' : ''}`}
         >

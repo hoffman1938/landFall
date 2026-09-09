@@ -112,7 +112,7 @@ export function SignalFlagCard({ state }: { state: RoundState }) {
   return (
     <aside
       role="status"
-      className="lf-rise pointer-events-auto flex w-[min(92vw,20rem)] items-start gap-2.5 rounded-md border border-[var(--lf-line-2)] bg-[var(--lf-surface)] px-3 py-2.5"
+      className="lf-appear pointer-events-none flex w-[min(92vw,20rem)] items-start gap-2.5 rounded-md border border-[var(--lf-line-2)] bg-[var(--lf-surface)] px-3 py-2.5"
     >
       <span aria-hidden="true" className="mt-0.5 shrink-0 text-[var(--lf-dim)]">
         <Icon size={16} />
@@ -131,7 +131,7 @@ export function SignalFlagCard({ state }: { state: RoundState }) {
         type="button"
         onClick={() => setDismissed(true)}
         aria-label="Dismiss signal flag"
-        className="-mr-1 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center text-[var(--lf-mute)] transition-colors hover:text-[var(--lf-text)]"
+        className="pointer-events-auto -mr-1 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center text-[var(--lf-mute)] transition-colors hover:text-[var(--lf-text)]"
       >
         <XIcon size={14} />
       </button>

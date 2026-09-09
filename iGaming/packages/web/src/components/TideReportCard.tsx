@@ -48,7 +48,7 @@ export function TideReportCard({ report }: { report: TideReport | null }) {
       <section
         role="status"
         aria-label={`Tide report. ${tideSentence(direction)} ${TIDE_DISCLAIMER}`}
-        className="lf-appear lf-overlay pointer-events-auto flex w-[min(96vw,30rem)] items-center gap-2.5 rounded-md px-3 py-1.5"
+        className="lf-appear lf-overlay pointer-events-none flex w-[min(96vw,30rem)] items-center gap-2.5 rounded-md px-3 py-1.5"
       >
         <span className="lf-label-soft shrink-0">Tide</span>
         <span aria-hidden="true" className="lf-num shrink-0 text-[18px] leading-none">
@@ -66,7 +66,7 @@ export function TideReportCard({ report }: { report: TideReport | null }) {
     <section
       role="status"
       aria-label={`Tide report. ${tideSentence(direction)} ${TIDE_DISCLAIMER}`}
-      className="lf-appear lf-overlay pointer-events-auto w-[min(92vw,26rem)] rounded-lg px-5 py-4"
+      className="lf-appear lf-overlay pointer-events-none w-[min(92vw,26rem)] rounded-lg px-5 py-4"
     >
       <h2 className="lf-label">Tide report</h2>
 
@@ -106,7 +106,7 @@ export function TideReportCard({ report }: { report: TideReport | null }) {
         type="button"
         onClick={() => setDetailsOpen((open) => !open)}
         aria-expanded={detailsOpen}
-        className="mt-3 min-h-[44px] w-full rounded-md border border-[var(--lf-line)] px-3 text-[13px] font-bold uppercase tracking-[0.12em] text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
+        className="pointer-events-auto mt-3 min-h-[44px] w-full rounded-md border border-[var(--lf-line)] px-3 text-[13px] font-bold uppercase tracking-[0.12em] text-[var(--lf-dim)] transition-colors hover:border-[var(--lf-line-2)] hover:text-[var(--lf-text)]"
       >
         {detailsOpen ? 'Hide details' : 'Details'}
       </button>

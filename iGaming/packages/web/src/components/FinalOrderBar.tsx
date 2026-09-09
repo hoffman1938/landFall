@@ -82,7 +82,7 @@ export function FinalOrderBar({ state }: { state: RoundState }) {
   return (
     <section
       aria-label="Final order"
-      className="lf-appear lf-overlay pointer-events-auto w-[min(92vw,26rem)] rounded-lg px-4 py-3"
+      className="lf-appear lf-overlay pointer-events-none w-[min(92vw,26rem)] rounded-lg px-4 py-3"
     >
       <div className="flex items-baseline justify-between">
         <h2 className="lf-label">Final order</h2>
@@ -106,7 +106,7 @@ export function FinalOrderBar({ state }: { state: RoundState }) {
             audio.click('tap');
             setChoice('keep');
           }}
-          className={`flex min-h-[64px] flex-col items-center justify-center rounded-md border px-3 text-center transition-colors ${
+          className={`pointer-events-auto flex min-h-[64px] flex-col items-center justify-center rounded-md border px-3 text-center transition-colors ${
             choice === 'keep'
               ? 'border-white bg-white text-black'
               : 'border-[var(--lf-line-2)] bg-[var(--lf-surface-2)] text-[var(--lf-text)] hover:border-white'
@@ -133,7 +133,7 @@ export function FinalOrderBar({ state }: { state: RoundState }) {
             audio.click('tap');
             setChoice('change');
           }}
-          className={`flex min-h-[64px] flex-col items-center justify-center rounded-md border px-3 text-center transition-colors ${
+          className={`pointer-events-auto flex min-h-[64px] flex-col items-center justify-center rounded-md border px-3 text-center transition-colors ${
             choice === 'change'
               ? 'border-[var(--lf-warn)] text-[var(--lf-warn)]'
               : 'border-[var(--lf-line-2)] bg-[var(--lf-surface-2)] text-[var(--lf-text)] hover:border-white'

@@ -123,3 +123,47 @@ describe('components use the tokens', () => {
     expect(offenders.map((f) => f.slice(SRC.length + 1))).toEqual([]);
   });
 });
+
+/**
+ * The overlay pointer rule, guarded.
+ *
+ * The board's overlays float over six buttons that are live for most of the
+ * round. An overlay BODY that takes clicks is therefore a harbor that cannot be
+ * picked — found twice: the advanced offer covering four harbors during
+ * SELECTING (locally), and the tide report covering four during the fog window
+ * (in production, after the first deploy). The rule is that a body is
+ * information and only its own controls capture, so every floating card must
+ * declare `pointer-events-none` on its root.
+ */
+describe('overlay pointer rule', () => {
+  const FLOATING = [
+    'components/TideReportCard.tsx',
+    'components/FinalOrderBar.tsx',
+    'components/RoundResultCard.tsx',
+    'components/BoardNotices.tsx',
+    'components/TableIntro.tsx',
+    'components/SignalFlagCard.tsx',
+  ];
+
+  it('every floating card body is click-through', () => {
+    const offenders: string[] = [];
+    for (const rel of FLOATING) {
+      const text = readFileSync(join(SRC, rel), 'utf8');
+      if (/pointer-events-auto/.test(text) && !/pointer-events-none/.test(text)) {
+        offenders.push(`${rel}: has pointer-events-auto but never pointer-events-none`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('a card that opts a control back in still declares a click-through body', () => {
+    for (const rel of FLOATING) {
+      const text = readFileSync(join(SRC, rel), 'utf8');
+      const autos = (text.match(/pointer-events-auto/g) ?? []).length;
+      const nones = (text.match(/pointer-events-none/g) ?? []).length;
+      if (autos > 0) {
+        expect(nones, `${rel} opts controls in without a click-through body`).toBeGreaterThan(0);
+      }
+    }
+  });
+});
