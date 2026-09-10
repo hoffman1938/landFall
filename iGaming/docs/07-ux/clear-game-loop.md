@@ -141,6 +141,61 @@ confirming. When a previous bet exists, the dock offers it by name ("Repeat Harb
 which fills the draft and still requires the same explicit confirmation — a shortcut, never
 auto-bet.
 
+## Making the important text important
+
+A hierarchy pass, prompted by a plain observation: the sentences that carry the most meaning were
+the faintest things on the screen. The design brief's own scale puts important secondary values at
+18-28px and labels at 11-13px; almost everything in the second tier was sitting at 10-12px.
+
+The rule of the game — "if your harbor is hit your bet is lost; if it is safe your bet returns plus
+a share of the bank" — was 10px grey at the bottom of the deck, and now reads at 13px with the two
+outcomes coloured. **Cancel bet** was an 11px underlined word, the same weight as a footnote, for a
+time-limited decision on money already staked; it is a bordered button with the amount on it.
+The jackpot figure, the per-harbor payouts, the round's return, the session net, the feed and the
+toast all moved up a step, and the toast's dismiss control became a real target.
+
+Nothing here reaches for gradients, glass or glow. The screen was not short of decoration; it was
+short of contrast between what matters and what does not.
+
+## What the audit found
+
+A scripted pass over the rendered page at 1440x900, 1280x720, 1024x768, 768x1024, 390x844 and
+360x640, in the choosing, storm and result phases and with every dialog open, checking for document
+overflow, text clipped by an `overflow: hidden` ancestor, overlapping siblings within a layer,
+touch targets under 36px, missing accessible names, and WCAG AA contrast on every text node against
+its computed background. What it caught:
+
+- **1024x768 was broken** — the commonest laptop size there is. Below 1150px the table rail stacks
+  under the board; below 800px tall the short-laptop rule frees every vertical minimum so the deck
+  stays visible. Together the rail took 240px out of a column that had already given up its floors,
+  and the board collapsed to a strip with the deck drawn across the harbors. The game now keeps a
+  working height and the page scrolls.
+- **The "practice" tag was being truncated away** in the live feed. The nickname was a bare text
+  node in a flex row, so a long one pushed the tags out of an `ellipsis` box — cutting off exactly
+  the word that keeps the feed honest. Only the nickname truncates now.
+- **The phone top bar overlapped itself**, stacking table, jackpot and balance into one smear. It
+  is two rows below 700px.
+- **Two full-screen sheets could be open at once.** Rules, limits, history and Verify are not
+  `<dialog>` elements and have no z-order between them, so opening one over another left a close
+  button nobody could reach. Opening any one now closes the rest.
+- **The live feed was a screen-reader firehose** — `aria-live="polite"` on seven settled rows every
+  twenty seconds, talking over the player. It is a labelled log that can be read on purpose.
+- Touch targets under 36px (the quick-stake chips at 28px, the receipt button at 30px on phones)
+  and six sub-AA colour pairs, including a disabled stepper arrow at 3.03:1 that read as broken
+  rather than as quiet.
+
+A total loss also stopped itemising itself. "Stake returned 0.00 / Bank share 0.00 / Total returned
+0.00" is a worse answer to "what happened to my bet" than a sentence saying it.
+
+## Getting back out of the advanced view
+
+The advanced shell's exit was a 13px hairline label sharing a crowded bar with the wordmark, the
+jackpot, a room switcher and four icon buttons, and players reached for a page reload instead. It
+is an accent-bordered button that says where it goes. Behind it was a real dead end: the advanced
+sheet could set the mode back to `beginner`, which swapped that shell into its own beginner skin —
+one with a way in to the sheet and no way out to anywhere. Reading the mode back out as the exit
+makes "Back to the simple board" true, since the simple board is now the dashboard.
+
 ## Reveal and player understanding
 
 The normal result says whether **your** harbor survived and leads with the server-confirmed net change. The receipt separates stake returned, bank share, jackpot when applicable, and total returned. A short delayed emphasis reveals the actual share multiplier; it never invents a second random draw. The latest personal receipt remains available while later spectator rounds run. Missing reconnect receipts are identified rather than reconstructed from a prior bet.
@@ -169,7 +224,7 @@ A separate, pre-existing limitation remains: deployment, process termination, or
 
 Regression suites cover explicit confirmation, duplicate/pending clicks, amount bounds, table entry, exact phase deadlines, final-order restoration, same-round receipts, split rounding, bonus/cap/jackpot accounting, unknown receipts, graceful idle settlement, resumed rounds, and refused room switches. Local browser checks cover the example, real demo confirmation and settlement, persistent receipt, verification, menus, and desktop/mobile layout.
 
-Validation: 305 tests pass (70 core, 49 server, 186 web), workspace typecheck and lint pass, and the complete production build including the Worker dry run passes. The payout-preview suite cross-checks the preview against `settleRound()` itself on every struck harbor rather than against a restatement of its formula. Browser testing at 1440×900 and 390×844 covered the crowd meter, the locked payout preview, all four reveal beats on both a played and a spectated round, a chat message round-tripping through the server, the practice labels in the live feed, the round-statistics tab, and both entry paths through the
+Validation: 306 tests pass (70 core, 49 server, 187 web), workspace typecheck and lint pass, and the complete production build including the Worker dry run passes. The payout-preview suite cross-checks the preview against `settleRound()` itself on every struck harbor rather than against a restatement of its formula. Browser testing at 1440×900 and 390×844 covered the crowd meter, the locked payout preview, all four reveal beats on both a played and a spectated round, a chat message round-tripping through the server, the practice labels in the live feed, the round-statistics tab, and both entry paths through the
 table gate — first visit (guide then table) and returning visit (table only) — including a real
 table switch that reclamped the stake to the new tier's minimum. The jackpot meter was checked
 against the server's own `landfall_surge_pot_minor` gauge across several rounds, in both its calm

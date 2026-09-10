@@ -90,7 +90,16 @@ export function GameDock({ stage, canBet, maxMinor, result, reveal }: Props) {
     <div className="gd-dock">
       {stage === 'result' && receipt?.played && atLeast(reveal, 'outcome') ? (
         <div className="gd-return-strip" aria-label="Your payout breakdown">
-          {receipt.receiptKnown ? (
+          {/*
+            A total loss has nothing to itemise, and three zeroes in a row is a
+            worse answer than a sentence. Say what happened instead.
+          */}
+          {receipt.receiptKnown && receipt.totalReturnMinor === 0 ? (
+            <span className="gd-strip-line">
+              Your <b>{fmt(receipt.stakeMinor!)}</b> was on the harbor the storm hit, so none of it
+              returns. Every harbor had the same 1-in-6 chance.
+            </span>
+          ) : receipt.receiptKnown ? (
             <>
               <span>
                 Stake returned <b>{fmt(receipt.returnedStakeMinor!)}</b>
@@ -205,14 +214,29 @@ export function GameDock({ stage, canBet, maxMinor, result, reveal }: Props) {
         </div>
       </div>
       <div className="gd-dock-note">
-        <span>
-          {fleet && stage === 'choose'
-            ? `Accepted: Harbor ${fleet.primaryZone + 1}${fleet.mode === 'SPLIT' ? ` + ${fleet.secondaryZone! + 1}` : ''} · ${fmt(fleet.stakeMinor)}${dirty ? ' · edits need confirmation' : ''}`
-            : 'If hit: your bet is lost. If safe: your bet returns + a share of the bank.'}
+        {/*
+          The rule of the game, in the size the rule of the game deserves. This
+          sentence was 10px grey at the bottom of the deck — the faintest text
+          on a screen whose whole job is to explain what a bet does.
+        */}
+        <span className="gd-dock-rule">
+          {fleet && stage === 'choose' ? (
+            <>
+              Accepted: <b>Harbor {fleet.primaryZone + 1}</b>
+              {fleet.mode === 'SPLIT' ? <b> + {fleet.secondaryZone! + 1}</b> : null} for{' '}
+              <b>{fmt(fleet.stakeMinor)}</b>
+              {dirty ? <span className="gd-dock-warn"> · edits need confirmation</span> : null}
+            </>
+          ) : (
+            <>
+              If your harbor is <b className="is-hit">hit</b>, your bet is lost. If it is{' '}
+              <b className="is-safe">safe</b>, your bet returns plus a share of the bank.
+            </>
+          )}
         </span>
         {fleet && stage === 'choose' ? (
-          <button type="button" disabled={!canBet} onClick={cancel}>
-            Cancel bet
+          <button type="button" className="gd-cancel" disabled={!canBet} onClick={cancel}>
+            Cancel bet · {fmt(fleet.stakeMinor)}
           </button>
         ) : !fleet && stage === 'choose' && lastFleet ? (
           <button

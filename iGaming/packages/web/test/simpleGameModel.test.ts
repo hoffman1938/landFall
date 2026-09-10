@@ -89,6 +89,20 @@ describe('personal receipt', () => {
       personalResult(result({ struckZone: 1, yourResult: { outcome: 'WRECKED', netMinor: -500 } })),
     ).toMatchObject({ returnedStakeMinor: 0, shareMinor: 0, totalReturnMinor: 0, netMinor: -500 });
   });
+  it('reports a total loss as a zero total return, and a survival as a non-zero one', () => {
+    // The deck branches on exactly this to choose between an itemised receipt
+    // and a plain sentence: three zeroes in a row is a worse answer to "what
+    // happened to my bet" than saying it.
+    const lost = personalResult(
+      result({ struckZone: 1, yourResult: { outcome: 'WRECKED', netMinor: -500 } }),
+    );
+    const safe = personalResult(
+      result({ struckZone: 3, yourResult: { outcome: 'SAFE', netMinor: 119 } }),
+    );
+    expect(lost.totalReturnMinor).toBe(0);
+    expect(lost.stakeMinor).toBe(500);
+    expect(safe.totalReturnMinor).toBeGreaterThan(0);
+  });
   it('uses the server floor for a split primary and returns only its surviving part', () => {
     expect(
       personalResult(

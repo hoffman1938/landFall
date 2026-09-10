@@ -89,7 +89,13 @@ function LiveResults({ feed }: { feed: FeedRound[] }) {
           ? `${anchors.length} ${anchors.length === 1 ? 'fleet is' : 'fleets are'} in this round.`
           : 'Settled results appear here as each round ends.'}
       </p>
-      <div className="gd-feed-scroll" role="log" aria-label="Live results" aria-live="polite">
+      {/*
+        Not a live region. Seven settled rows arrive every twenty seconds, and
+        announcing all of them turns a screen reader into a firehose that talks
+        over the thing the player is actually doing. It stays a labelled log
+        that can be read on purpose.
+      */}
+      <div className="gd-feed-scroll" role="log" aria-label="Live results" aria-live="off">
         {feed.length === 0 ? (
           <p className="gd-empty">The first result will appear here.</p>
         ) : (
@@ -107,7 +113,14 @@ function LiveResults({ feed }: { feed: FeedRound[] }) {
                 {round.rows.map((row) => (
                   <li key={row.key} className={row.you ? 'is-you' : ''}>
                     <span className="gd-feed-name">
-                      {row.name}
+                      {/*
+                        The nickname is the only part allowed to be truncated.
+                        It used to be a bare text node in a flex row, so a long
+                        one pushed the tags out of the box and the ellipsis ate
+                        the "practice" label — cutting off precisely the word
+                        that keeps the feed honest.
+                      */}
+                      <span className="gd-feed-nick">{row.name}</span>
                       {row.you && <em>you</em>}
                       {row.bot && !row.you && <i title="Demo practice fleet">practice</i>}
                       {row.jackpot && <b>jackpot</b>}

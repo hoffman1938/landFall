@@ -68,7 +68,7 @@
   display: grid;
   place-items: center;
   background: #ff2f45;
-  color: white;
+  color: #0e0e0e;
   height: 34px;
   width: 34px;
   font-size: 24px;
@@ -245,10 +245,11 @@
   border-bottom: 1px solid #292929;
 }
 .gd-session dt {
-  color: #aaa;
+  color: #a8a8a8;
+  font-size: 12.5px;
 }
 .gd-session dd {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 700;
 }
 .gd-main-panel {
@@ -279,9 +280,9 @@
   background-size: 42px 42px;
 }
 .gd-board-heading {
-  padding: 21px 26px 8px;
+  padding: 16px 26px 6px;
   flex-shrink: 0;
-  min-height: 102px;
+  min-height: 90px;
 }
 .gd-board-heading h1 {
   font-size: clamp(23px, 2.3vw, 34px);
@@ -300,8 +301,8 @@
 .gd-field {
   position: relative;
   flex: 1;
-  padding: 25px 34px 16px;
-  min-height: 303px;
+  padding: 18px 34px 12px;
+  min-height: 284px;
 }
 .gd-coordinates {
   position: absolute;
@@ -311,7 +312,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 9px;
-  color: #767676;
+  color: #8f8f8f;
 }
 .gd-harbors {
   height: 100%;
@@ -479,8 +480,9 @@
   text-align: center;
 }
 .gd-readout-return {
-  font-size: 11px;
-  color: #aaa;
+  font-size: 14px;
+  font-weight: 600;
+  color: #cfcfcf;
   margin-top: 5px;
 }
 .gd-boost {
@@ -491,9 +493,10 @@
   background: #19140e;
   color: #ffb355;
   border-radius: 4px;
-  padding: 5px 7px;
-  font-size: 10px;
-  font-weight: 700;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   animation: gd-bonus 250ms var(--boost-delay, 450ms) both;
 }
 .gd-trajectory {
@@ -522,8 +525,8 @@
      panel, and an absolute caption printed itself across the band. */
   flex-shrink: 0;
   text-align: center;
-  font-size: 10px;
-  color: #909090;
+  font-size: 12.5px;
+  color: #a8a8a8;
   padding: 0 10px 11px;
 }
 .gd-dock {
@@ -564,7 +567,7 @@
   background: #292929;
 }
 .gd-stepper button:disabled {
-  color: #666;
+  color: #8a8a8a;
 }
 .gd-stepper input {
   width: 100%;
@@ -587,8 +590,8 @@
   border-color: #ff2f45;
 }
 .gd-control-hint {
-  color: #aaa;
-  font-size: 10px;
+  color: #a8a8a8;
+  font-size: 12px;
   text-align: center;
 }
 .gd-primary {
@@ -634,27 +637,64 @@
   border-color: #3a3a3a;
 }
 .gd-dock-note {
-  min-height: 29px;
+  min-height: 40px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   margin-top: 12px;
-  font-size: 10px;
-  color: #999;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #b8b8b8;
 }
+.gd-dock-rule > b {
+  font-weight: 700;
+  color: #f4f4f4;
+}
+.gd-dock-rule > b.is-hit {
+  color: #ff5d6e;
+}
+.gd-dock-rule > b.is-safe {
+  color: #17e07d;
+}
+.gd-dock-warn {
+  color: #e4b47b;
+  font-weight: 600;
+}
+/*
+  Cancelling a bet is a real, time-limited decision inside a ten-second window.
+  It was an 11px underlined word — the same weight as a footnote — so it read
+  as fine print rather than as the way out. Buttons that undo something the
+  player has money on are found by shape, not by squinting.
+*/
 .gd-dock-note button {
   flex-shrink: 0;
-  min-height: 32px;
-  padding: 0 4px;
-  color: #b5b5b5;
-  text-decoration: underline;
-  border: 0;
-  background: none;
-  font-size: 11px;
+  min-height: 40px;
+  padding: 0 15px;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  background: #1c1c1c;
+  color: #f4f4f4;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.gd-dock-note button:hover:not(:disabled) {
+  background: #262626;
+  border-color: #8a8a8a;
+}
+.gd-dock-note button.gd-cancel {
+  border-color: #6d2b34;
+  color: #ff8794;
+}
+.gd-dock-note button.gd-cancel:hover:not(:disabled) {
+  background: #2a1418;
+  border-color: #ff5d6e;
+  color: #ff5d6e;
 }
 .gd-dock-note button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
 }
 .gd-return-strip {
   display: flex;
@@ -662,8 +702,8 @@
   gap: 7px 20px;
   padding: 0 0 12px;
   margin-top: -4px;
-  font-size: 10px;
-  color: #aaa;
+  font-size: 12.5px;
+  color: #b8b8b8;
 }
 .gd-return-strip b {
   color: #eee;
@@ -671,7 +711,10 @@
 }
 .gd-return-strip small {
   width: 100%;
-  font-size: 10px;
+  font-size: 11.5px;
+}
+.gd-strip-line {
+  max-width: 62ch;
 }
 .gd-text-button {
   background: transparent;
@@ -745,9 +788,10 @@
 .gd-event-note {
   background: #19150e;
   border-top: 1px solid #4a3921;
-  padding: 8px 25px;
-  color: #e4b47b;
-  font-size: 11px;
+  padding: 11px 25px;
+  color: #f0c68f;
+  font-size: 13.5px;
+  font-weight: 600;
   line-height: 1.5;
 }
 .gd-event-note button {
@@ -761,6 +805,12 @@
   color: #bbb;
   border-color: #333;
 }
+/*
+  The toast carries the sentences a player most needs to read: a refused bet, a
+  refunded stake, a blocked table change. At 12px with an 11px underlined word
+  for a dismiss control it read like a footnote about something that had just
+  happened to their money.
+*/
 .gd-toast {
   position: fixed;
   left: 50%;
@@ -769,23 +819,43 @@
   z-index: var(--lf-z-notice);
   max-width: min(92vw, 620px);
   width: max-content;
-  padding: 12px 15px;
-  border-radius: 6px;
-  border: 1px solid #666;
-  background: #1a1a1a;
+  padding: 14px 14px 14px 18px;
+  border-radius: 8px;
+  border: 1px solid #6a6a6a;
+  background: #1c1c1c;
   display: flex;
-  gap: 18px;
+  gap: 16px;
   align-items: center;
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  animation: gd-toast-in 200ms ease-out both;
 }
 .gd-toast.is-error {
-  border-left: 3px solid #ff2f45;
+  border-color: #6d2b34;
+  border-left: 4px solid #ff5d6e;
+  background: #1f1416;
 }
 .gd-toast button {
-  border: 0;
-  background: none;
-  text-decoration: underline;
-  font-size: 11px;
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  background: #262626;
+  color: #f4f4f4;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.gd-toast button:hover {
+  background: #333;
+  border-color: #8a8a8a;
+}
+@keyframes gd-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
 }
 .gd-dialog {
   margin: auto;
@@ -1047,7 +1117,7 @@
   what relax — the harbors stay comfortably tappable at these sizes.
 */
 .gd-main-panel:has(.gd-event-note) .gd-field {
-  min-height: 266px;
+  min-height: 250px;
 }
 .gd-main-panel:has(.gd-event-note) .gd-harbors {
   min-height: 233px;
@@ -1075,13 +1145,13 @@
   border-color: #6a6a6a;
 }
 .gd-jackpot > small {
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.09em;
   color: #8f8f8f;
   white-space: nowrap;
 }
 .gd-jackpot > strong {
-  font-size: 15px;
+  font-size: 20px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1118,12 +1188,62 @@
     font-size: 9px;
   }
 }
-@media (max-width: 550px) {
-  .gd-jackpot {
-    padding: 5px 9px;
+
+/*
+  A phone harbor cell has room for the figure OR the status word, not both at
+  19px. During the storm the status is only ever "WAITING" on the five harbors
+  that are not yours, which is exactly what the number already tells you — so
+  the number wins and the word goes, except on the harbor holding your bet.
+  The unit label goes too: the caption under the board says what these are.
+*/
+@media (max-width: 700px) {
+  .gd-harbor-payout > em {
+    font-size: 17px;
   }
-  .gd-jackpot > strong {
-    font-size: 13px;
+  .gd-harbor-payout > i {
+    display: none;
+  }
+  .gd-harbor:not(.is-placed) .gd-harbor-foot:has(.gd-harbor-payout) small {
+    display: none;
+  }
+}
+
+/*
+  Two rows below 700px, not four items fighting over one.
+  Brand, balance and the menu keep the top line; the table and the jackpot take
+  a full line of their own underneath. Both are meant to be read at a glance,
+  and squeezing them beside the balance stacked all three on top of each other
+  into an unreadable smear on a phone.
+*/
+@media (max-width: 700px) {
+  .gd-topbar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .gd-brand {
+    order: 1;
+  }
+  .gd-balance {
+    order: 2;
+    margin-left: auto;
+  }
+  .gd-help-button {
+    order: 3;
+  }
+  .gd-menu-button {
+    order: 4;
+  }
+  .gd-table-button,
+  .gd-jackpot {
+    order: 5;
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
+  }
+  .gd-table-button > strong,
+  .gd-table-button > em {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
 }
 
@@ -1153,14 +1273,14 @@
   color: #8f8f8f;
 }
 .gd-table-button > strong {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   white-space: nowrap;
 }
 .gd-table-button > em {
   font-style: normal;
-  font-size: 10px;
-  color: #9a9a9a;
+  font-size: 11px;
+  color: #a8a8a8;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1257,18 +1377,7 @@
 .gd-table-row.is-picked .gd-table-afford {
   color: #b9b9b9;
 }
-@media (max-width: 800px) {
-  .gd-table-button > em {
-    display: none;
-  }
-}
 @media (max-width: 550px) {
-  .gd-table-button {
-    padding: 5px 9px;
-  }
-  .gd-table-button > small {
-    display: none;
-  }
   .gd-table-meta {
     grid-column: 1 / -1;
     justify-self: stretch;
@@ -1332,7 +1441,7 @@
 }
 .gd-harbor-payout > em {
   font-style: normal;
-  font-size: 16px;
+  font-size: 19px;
   line-height: 1.15;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1458,8 +1567,8 @@
   padding-top: 19px;
 }
 .gd-playing-for p {
-  color: #b9b9b9;
-  font-size: 12.5px;
+  color: #c2c2c2;
+  font-size: 13.5px;
   line-height: 1.6;
   margin: 8px 0 0;
 }
@@ -1472,7 +1581,7 @@
 }
 .gd-playing-for .gd-rail-value > em {
   font-style: normal;
-  font-size: 10px;
+  font-size: 11.5px;
   font-weight: 500;
   line-height: 1.4;
   letter-spacing: 0.03em;
@@ -1533,20 +1642,20 @@
 }
 .gd-panel-lede {
   margin: 0 0 10px;
-  font-size: 11px;
-  color: #9a9a9a;
+  font-size: 12.5px;
+  color: #a8a8a8;
   line-height: 1.5;
 }
 .gd-panel-note {
   margin: 10px 0 0;
-  font-size: 10px;
-  color: #7e7e7e;
+  font-size: 11.5px;
+  color: #949494;
   line-height: 1.55;
 }
 .gd-empty {
   margin: 18px 0;
-  font-size: 12px;
-  color: #7e7e7e;
+  font-size: 13px;
+  color: #949494;
   text-align: center;
 }
 
@@ -1571,7 +1680,7 @@
   align-items: baseline;
   gap: 6px;
   margin: 0;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 600;
 }
 .gd-feed-round h3 > span {
@@ -1594,8 +1703,8 @@
 }
 .gd-feed-tally {
   margin: 3px 0 8px;
-  font-size: 10px;
-  color: #7e7e7e;
+  font-size: 11.5px;
+  color: #949494;
 }
 .gd-feed-round ul {
   list-style: none;
@@ -1609,7 +1718,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 13px;
   min-width: 0;
 }
 .gd-feed-round li.is-you {
@@ -1625,8 +1734,13 @@
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
   color: #d0d0d0;
+}
+.gd-feed-nick {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .gd-feed-name > em,
 .gd-feed-name > i,
@@ -1656,9 +1770,10 @@
 .gd-feed-net {
   margin-left: auto;
   flex-shrink: 0;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
-  color: #9a9a9a;
+  color: #a8a8a8;
 }
 .gd-feed-net.is-win {
   color: #17e07d;
@@ -1668,8 +1783,8 @@
 }
 .gd-feed-more {
   margin: 7px 0 0;
-  font-size: 10px;
-  color: #8a8a8a;
+  font-size: 11px;
+  color: #949494;
 }
 
 /* --- chat ------------------------------------------------------------ */
@@ -1681,8 +1796,8 @@
   padding: 0 6px;
 }
 .gd-chat-scroll p {
-  margin: 0 0 8px;
-  font-size: 12px;
+  margin: 0 0 9px;
+  font-size: 13px;
   line-height: 1.5;
   color: #cfcfcf;
   overflow-wrap: anywhere;
@@ -1843,7 +1958,7 @@
 }
 .gd-quick-stakes button {
   flex: 1;
-  min-height: 28px;
+  min-height: 38px;
   border: 1px solid #343434;
   border-radius: 5px;
   background: #171717;
@@ -1858,7 +1973,7 @@
   border-color: #6a6a6a;
 }
 .gd-quick-stakes button:disabled {
-  color: #7a7a7a;
+  color: #8a8a8a;
   border-color: #262626;
 }
 .gd-dock-note button.gd-repeat {
@@ -2202,8 +2317,8 @@
   }
   .gd-last-result > button {
     padding-left: 10px;
-    font-size: 10px;
-    min-height: 30px;
+    font-size: 11px;
+    min-height: 40px;
     gap: 6px;
   }
   .gd-last-result > span:not(.gd-label) {
@@ -2489,6 +2604,39 @@
 @media (max-width: 550px) and (max-height: 760px) {
   .gd-field {
     min-height: 335px;
+  }
+}
+
+/*
+  The two narrow-screen rules used to fight each other.
+  Below 1150px the table rail stacks under the board; below 800px tall the
+  short-laptop rule frees every vertical minimum so the deck stays on screen.
+  Together — a 1024x768 window, the commonest laptop there is — the rail took
+  240px out of a column that had already given up its floors, and the board
+  collapsed to a strip with the dock drawn across the harbors.
+
+  The game keeps a working height and the page scrolls instead. The board and
+  the deck are what a player must be able to use; the table rail sitting just
+  below the fold is normal for this kind of screen, and it is one short scroll
+  away rather than on top of the bet.
+*/
+@media (max-width: 1150px) {
+  .gd-layout {
+    /* Board + deck, in full. Anything less clips the deck, and the deck is
+       where the bet is placed. */
+    grid-template-rows: minmax(556px, 1fr) auto;
+    /* Tall enough for both rows, so `.gd-app` scrolls instead of crushing the
+       stacked rail down to a clipped strip of its own tab bar. */
+    min-height: min-content;
+  }
+  .gd-main-panel {
+    min-height: 556px;
+  }
+  .gd-board {
+    min-height: 320px;
+  }
+  .gd-live-rail {
+    max-height: 210px;
   }
 }
 @media (max-width: 360px) {

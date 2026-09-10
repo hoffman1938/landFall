@@ -70,13 +70,20 @@ export function TopBar({ onSimple }: { onSimple?: () => void }) {
 
   return (
     <header className="relative z-[var(--lf-z-chrome)] flex h-12 shrink-0 items-center gap-2 border-b border-[var(--lf-line)] bg-[var(--lf-bg-2)] px-2 sm:px-3">
+      {/*
+        The way back out, at the weight of a way back out. This was a 13px
+        hairline-bordered label sharing a crowded bar with the wordmark, the
+        jackpot, a room switcher and four icon buttons — a player who came here
+        to look at one thing could not find the door and reached for a page
+        reload instead. Accent border, filled label, and it says where it goes.
+      */}
       {onSimple && (
         <button
           type="button"
           onClick={onSimple}
-          className="min-h-11 rounded-md border border-[var(--lf-line)] px-3 text-[13px] font-semibold"
+          className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-md border border-[var(--lf-accent)] bg-[var(--lf-accent)]/12 px-3 text-[13px] font-bold text-[var(--lf-text)] transition-colors hover:bg-[var(--lf-accent)] hover:text-black"
         >
-          Simple view
+          <span aria-hidden="true">←</span> Simple view
         </button>
       )}
       {/* The mark: one red square and the word. That is all the brand this

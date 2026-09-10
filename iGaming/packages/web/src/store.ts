@@ -324,6 +324,26 @@ function fleetOrderMessage(fleet: FleetPlanPublic): unknown {
   };
 }
 
+/**
+ * The four full-screen sheets are mutually exclusive.
+ *
+ * Rules, play limits, round history and Verify are separate components with
+ * separate flags, and none of them is a `<dialog>` — they predate the entry
+ * gate's native dialogs and paint themselves over the page instead. So two
+ * could be open at once with no z-order between them, and the one underneath
+ * kept a close button nobody could reach: opening Play limits on top of the
+ * rules sheet left the rules sheet's X sitting behind an opaque panel.
+ *
+ * Opening any one of them closes the rest. Closing one never opens anything,
+ * which is why this is spread only on the opening path.
+ */
+const soleSheet = {
+  rulesOpen: false,
+  limitsOpen: false,
+  wreckLogOpen: false,
+  verifyRoundId: null,
+} as const;
+
 export const useStore = create<State>((set, get) => {
   function send(msg: unknown): boolean {
     if (!ws || ws.readyState !== WebSocket.OPEN) return false;
@@ -944,10 +964,10 @@ export const useStore = create<State>((set, get) => {
       set({ stakeInputMinor: minor });
     },
     openVerify(roundId) {
-      set({ verifyRoundId: roundId, verifyGlow: false });
+      set({ ...(roundId === null ? {} : soleSheet), verifyRoundId: roundId, verifyGlow: false });
     },
     setRulesOpen(open) {
-      set({ rulesOpen: open });
+      set({ ...(open ? soleSheet : {}), rulesOpen: open });
     },
     openFlagPicker(zone, x, y) {
       set({ flagPickerAt: { zone, x, y } });
@@ -987,7 +1007,7 @@ export const useStore = create<State>((set, get) => {
       set({ skipperCard: null });
     },
     setWreckLogOpen(open) {
-      set({ wreckLogOpen: open });
+      set({ ...(open ? soleSheet : {}), wreckLogOpen: open });
     },
     sendLimits(patch) {
       send({ type: 'SET_LIMITS', ...patch });
@@ -996,7 +1016,7 @@ export const useStore = create<State>((set, get) => {
       send({ type: 'SET_EXCLUSION', minutes });
     },
     setLimitsOpen(open) {
-      set({ limitsOpen: open });
+      set({ ...(open ? soleSheet : {}), limitsOpen: open });
     },
     dismissRealityCheck() {
       set({ realityCheck: null });

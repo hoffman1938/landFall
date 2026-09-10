@@ -62,6 +62,24 @@ export default function AdvancedGame({ onSimple }: { onSimple(): void }) {
   const beginner = uiMode.mode === 'beginner';
   const topBand = useBoardTopBand();
 
+  /**
+   * "Back to the simple board" now means the dashboard.
+   *
+   * This shell predates it, and still carries its own beginner layout with its
+   * own top bar — one that has a way IN to the advanced sheet and no way out to
+   * anywhere. So a player who used the sheet's mode switch flipped this shell
+   * into its beginner skin and was stranded there: App's `advanced` flag stayed
+   * true, the only route back was a page reload, and the button that put them
+   * there was labelled as the way home.
+   *
+   * The two flags were always the same decision stored twice. Reading the mode
+   * back out as the exit makes the label true again and keeps them from
+   * disagreeing at all.
+   */
+  useEffect(() => {
+    if (uiMode.mode === 'beginner') onSimple();
+  }, [uiMode.mode, onSimple]);
+
   // Counts rounds and first-flag sightings for BOTH layouts (see the module).
   useDeckProgressTriggers();
 
