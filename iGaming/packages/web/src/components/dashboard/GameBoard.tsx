@@ -217,7 +217,6 @@ export function GameBoard({
             <Harbor
               key={zone}
               zone={zone}
-              stage={stage}
               selected={selected === zone}
               yours={placed.includes(zone)}
               canSelect={canSelect}
@@ -241,7 +240,10 @@ export function GameBoard({
             />
           </svg>
           <div
-            className={`gd-number ${figure.length > 7 ? 'gd-number--long' : ''}`}
+            className="gd-number"
+            // The real character count, so the size can be derived from it
+            // rather than guessed from a threshold. See dashboard.css.
+            style={{ '--gd-chars': figure.length } as CSSProperties}
             key={`${stage}-${result?.roundId ?? ''}-${outcomeShown}`}
           >
             {figure}
@@ -276,7 +278,6 @@ export function GameBoard({
 /** One harbor: identity, your stake, and its live meaning for this round. */
 function Harbor({
   zone,
-  stage,
   selected,
   yours,
   canSelect,
@@ -287,7 +288,6 @@ function Harbor({
   onSelect,
 }: {
   zone: number;
-  stage: 'choose' | 'storm' | 'result';
   selected: boolean;
   yours: boolean;
   canSelect: boolean;
@@ -300,17 +300,7 @@ function Harbor({
 }) {
   const hit = result?.struckZone === zone;
   const safe = result !== null && !hit;
-  const status = hit
-    ? 'HIT'
-    : safe
-      ? 'SAFE'
-      : yours
-        ? 'YOUR BET'
-        : selected
-          ? 'SELECTED'
-          : stage === 'choose'
-            ? ''
-            : 'WAITING';
+  const status = hit ? 'HIT' : safe ? 'SAFE' : yours ? 'YOUR BET' : selected ? 'SELECTED' : '';
 
   // Storm window. With a bet on the table the number is YOUR net if this harbor
   // is struck — the sign carries the meaning, and your own harbor is the only
@@ -340,19 +330,32 @@ function Harbor({
         yours ? 'is-placed' : ''
       } ${hit ? 'is-hit' : safe ? 'is-safe' : ''}`}
     >
-      <span className="gd-harbor-id">
-        <strong>{String(zone + 1).padStart(2, '0')}</strong>
-        <span>Harbor {zone + 1}</span>
+      {/*
+        Identity left, state right, figure on its own line underneath.
+        The state used to share the bottom line with the figure, which works
+        while a payout is "+2.88" and fails the moment it is "15000.00" — at a
+        high-stake table the number pushed its own unit label straight through
+        the word beside it. The figure now owns a full-width line, and the
+        state sits where nothing competes with it.
+      */}
+      <span className="gd-harbor-head">
+        <span className="gd-harbor-id">
+          <strong>{String(zone + 1).padStart(2, '0')}</strong>
+          <span>Harbor {zone + 1}</span>
+        </span>
+        <small>
+          {yours ? <LockIcon size={11} /> : selected || safe ? <CheckIcon size={11} /> : null}
+          {status}
+        </small>
       </span>
 
-      {/*
-        One row, not two. The cell has room for the harbor's identity and one
-        line of meaning; stacking the meter, the payout and the status made the
-        content taller than its grid row and spilled it over the card's edges.
-      */}
       <span className="gd-harbor-foot">
         {preview !== null ? (
           <span
+            // Same idea as the central readout: the figure's own length decides
+            // how big it can be, so a five-digit bank at a high-stake table
+            // fits the cell instead of running to its edges.
+            style={{ '--gd-fig-chars': preview.length } as CSSProperties}
             className={`gd-harbor-payout ${
               !betting
                 ? ''
@@ -373,13 +376,7 @@ function Harbor({
             </span>
             <i>{crowd.word}</i>
           </span>
-        ) : (
-          <span />
-        )}
-        <small>
-          {yours ? <LockIcon size={11} /> : selected || safe ? <CheckIcon size={11} /> : null}
-          {status}
-        </small>
+        ) : null}
       </span>
     </button>
   );

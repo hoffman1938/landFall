@@ -293,9 +293,14 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
                   {signed(range.best)}
                   <em>best of the five safe harbors</em>
                 </strong>
+                {/*
+                  Short on purpose. The full rule now reads at 13px across the
+                  deck, so repeating it here in a 190px column pushed the
+                  session figures off the bottom of the rail. What belongs here
+                  is the one number the rule does not carry: yours.
+                */}
                 <p>
-                  If the storm hits your harbor you lose {fmt(fleet.stakeMinor)}. Any other harbor
-                  returns your bet plus a share of its bank.
+                  If it is hit you lose <b>{fmt(fleet.stakeMinor)}</b>.
                 </p>
               </>
             ) : (

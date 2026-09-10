@@ -196,6 +196,43 @@ sheet could set the mode back to `beginner`, which swapped that shell into its o
 one with a way in to the sheet and no way out to anywhere. Reading the mode back out as the exit
 makes "Back to the simple board" true, since the simple board is now the dashboard.
 
+## Numbers that do not fit
+
+Every layout above was verified at a table whose payouts are two or three digits. At Leviathan
+Deep they are six, and three things broke at once — all of them the same bug, which is a box sized
+for the number somebody happened to be testing with.
+
+- **The readout figure ran outside its ring.** It had two sizes chosen by a character-count
+  threshold, which works for "07" and for "+12.26" and fails at "−10000.00". The figure now carries
+  its own length as `--gd-chars` and derives its size from it, with the old clamp as the ceiling,
+  so short figures are as large as they ever were and an eleven-character one still fits. Checked
+  from "02" up to "+1234567.89".
+- **"Returned 11353.85" printed through the label beneath it.** A circle has room for a figure and
+  one label; the third line moved under the ring.
+- **The per-harbor figure crowded its cell**, and the unit word beside it was pushed through the
+  state word. The same length-derived sizing now applies, in container-query units so each cell
+  scales the figure to the width it actually got.
+
+Fixing the cell exposed the real problem with it: "01" stacked above "Harbor 1" said the same
+thing twice and cost 21px of a row that did not have it — the content ran 14px taller than the row
+and `justify-content: center` split the difference over the card's top and bottom edges. They read
+as one line now, with the state beside them and the figure alone underneath. A container query
+drops the word on cells too narrow to hold it whole, because a truncated "Harb…" is worse than the
+number that is already the harbor's name everywhere else. "WAITING" went entirely: it was on the
+five harbors that are not yours, and it says nothing the figure has not already said.
+
+Also from the same pass: the stake field forced the stepper's own +/− buttons off its edge on a
+360px screen, the top bar needed its two-row treatment up to 860px rather than 700px (a 768px
+tablet overflowed the table name, the range and the jackpot), and the session figures were being
+pushed off the bottom of the left rail by a paragraph repeating a rule the deck now states in full.
+
+## Where the round's other action lives
+
+Cancel bet and Repeat last bet sat in the footnote row under the deck, reading as small print about
+the rules. Both are decisions taken in the same ten seconds as the confirm, so they are beside it
+now, in the same band and at the same height, with the amount on them. The footnote row keeps only
+the sentence it should always have been.
+
 ## Reveal and player understanding
 
 The normal result says whether **your** harbor survived and leads with the server-confirmed net change. The receipt separates stake returned, bank share, jackpot when applicable, and total returned. A short delayed emphasis reveals the actual share multiplier; it never invents a second random draw. The latest personal receipt remains available while later spectator rounds run. Missing reconnect receipts are identified rather than reconstructed from a prior bet.

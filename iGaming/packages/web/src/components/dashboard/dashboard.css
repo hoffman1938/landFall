@@ -189,14 +189,14 @@
   font-size: 12px;
   font-weight: 700;
   margin: 0;
-  padding-bottom: 16px;
+  padding-bottom: 12px;
   border-bottom: 1px solid #303030;
   letter-spacing: 0.045em;
 }
 .gd-rail-section {
   display: flex;
   flex-direction: column;
-  padding: 20px 0;
+  padding: 15px 0;
   border-bottom: 1px solid #292929;
 }
 .gd-label {
@@ -206,8 +206,8 @@
   font-weight: 500;
 }
 .gd-rail-value {
-  margin: 7px 0 17px;
-  padding: 9px 10px;
+  margin: 6px 0 12px;
+  padding: 8px 10px;
   border: 1px solid #343434;
   border-radius: 6px;
   background: #171717;
@@ -225,7 +225,7 @@
   display: block;
   font-size: 10px;
   color: #999;
-  margin-top: 14px;
+  margin-top: 10px;
 }
 .gd-session {
   margin-top: auto;
@@ -241,7 +241,7 @@
 .gd-session dd {
   font-size: 12px;
   margin: 0;
-  padding: 13px 0;
+  padding: 10px 0;
   border-bottom: 1px solid #292929;
 }
 .gd-session dt {
@@ -318,7 +318,9 @@
   height: 100%;
   min-height: 270px;
   display: grid;
-  grid-template-columns: minmax(115px, 165px) minmax(140px, 1fr) minmax(115px, 165px);
+  /* Wide enough that a desktop cell shows "01 Harbor 1" whole; the container
+     query above drops the word only where it genuinely will not fit. */
+  grid-template-columns: minmax(115px, 190px) minmax(140px, 1fr) minmax(115px, 190px);
   grid-template-rows: repeat(3, minmax(76px, 1fr));
   gap: 14px 10px;
   position: relative;
@@ -333,10 +335,12 @@
   background: #171717;
   border: 1px solid #393939;
   border-radius: 8px;
-  padding: 12px 18px;
+  padding: 10px 14px;
   min-width: 0;
   min-height: 76px;
   color: #ececec;
+  /* So the cell can decide for itself what fits in the width it got. */
+  container-type: inline-size;
 }
 .gd-harbor--0 {
   grid-column: 1;
@@ -362,28 +366,55 @@
   grid-column: 3;
   grid-row: 3;
 }
+.gd-harbor-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+/*
+  "01" and "Harbor 1" on one line. Stacked, they said the same thing twice and
+  cost 21px of a row that did not have it: the cell's content ran 14px taller
+  than the row it sits in, and `justify-content: center` split the difference
+  over the card's top and bottom edges. Side by side they read as one label and
+  the figure below them gets the room it needs.
+*/
 .gd-harbor-id {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 .gd-harbor strong {
-  font-size: 27px;
+  font-size: 22px;
   line-height: 1;
   font-weight: 750;
-  margin-bottom: 3px;
+  flex-shrink: 0;
 }
 .gd-harbor-id > span {
-  font-size: 13px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+/*
+  The word, only where it fits whole. A cell can be as narrow as 115px, where
+  "01" plus "Harbor 1" plus a state word cannot all be shown — and a truncated
+  "Harb..." is worse than the number alone, which is already the harbor's name
+  everywhere else on the screen and stays in the button's accessible label.
+*/
+@container (max-width: 139px) {
+  .gd-harbor-id > span {
+    display: none;
+  }
 }
 .gd-harbor small {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   font-size: 9px;
   color: #909090;
-  letter-spacing: 0.035em;
+  letter-spacing: 0.03em;
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -393,7 +424,7 @@
 }
 .gd-harbor.is-selected {
   border: 2px solid #f4f4f4;
-  padding: 11px 17px;
+  padding: 9px 13px;
   background: #1a1a1a;
 }
 .gd-harbor.is-selected small {
@@ -420,8 +451,9 @@
   color: #aaa;
 }
 .gd-readout {
-  width: clamp(150px, 15vw, 225px);
-  height: clamp(150px, 15vw, 225px);
+  --gd-ring: clamp(150px, 15vw, 225px);
+  width: var(--gd-ring);
+  height: var(--gd-ring);
   position: absolute;
   left: 50%;
   top: 49%;
@@ -451,16 +483,28 @@
   stroke: #ff2f45;
   transition: stroke-dasharray 250ms linear;
 }
+/*
+  The figure fits the ring, whatever it says.
+  It used to have two sizes chosen by a character-count threshold, which works
+  for "07" and for "+12.26" and breaks the moment a high-stake table settles:
+  "−10000.00" at the "long" size is wider than the circle it sits in, and the
+  number spilled out over the board. `--gd-chars` carries the real length and
+  the width falls out of it — a tabular digit in this face is about 0.62em, so
+  N of them fit the ring's usable chord when the size is chord / (N x 0.62).
+  The clamp stays as the ceiling, so short figures are as big as they ever were.
+*/
 .gd-number {
-  font-size: clamp(48px, 5.3vw, 80px);
+  font-size: min(
+    clamp(48px, 5.3vw, 80px),
+    calc(var(--gd-ring, 225px) * 0.78 / (var(--gd-chars, 2) * 0.62))
+  );
   font-weight: 800;
   letter-spacing: -0.06em;
   line-height: 1.05;
   position: relative;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
   animation: gd-settle 240ms ease-out;
-}
-.gd-number--long {
-  font-size: clamp(30px, 3vw, 48px);
 }
 .gd-readout.storm .gd-number {
   color: #ff2f45;
@@ -479,15 +523,24 @@
   color: #b3b3b3;
   text-align: center;
 }
+/*
+  Under the ring, not in it. A circle has room for the figure and one label;
+  a third line put "Returned 11353.85" straight through the label beneath it.
+*/
 .gd-readout-return {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
   font-size: 14px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   color: #cfcfcf;
-  margin-top: 5px;
 }
 .gd-boost {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 36px);
   white-space: nowrap;
   border: 1px solid #6b4a22;
   background: #19140e;
@@ -542,6 +595,54 @@
   gap: 28px;
   align-items: center;
 }
+/* With a secondary action present the band is three columns, not two. */
+.gd-bet-controls:has(.gd-secondary-group) {
+  grid-template-columns: minmax(150px, 0.8fr) minmax(180px, 1.1fr) minmax(150px, 0.55fr);
+  gap: 18px;
+}
+.gd-secondary-group > button {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  min-height: 66px;
+  padding: 10px 12px;
+  border-radius: 7px;
+  border: 1px solid #4a4a4a;
+  background: #1c1c1c;
+  color: #f4f4f4;
+  font: inherit;
+  line-height: 1.3;
+}
+.gd-secondary-group > button > strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+.gd-secondary-group > button > span {
+  font-size: 11.5px;
+  color: #a8a8a8;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.gd-secondary-group > button:hover:not(:disabled) {
+  background: #262626;
+  border-color: #8a8a8a;
+}
+.gd-secondary-group > button:disabled {
+  opacity: 0.45;
+}
+.gd-secondary-group > button.gd-cancel {
+  border-color: #6d2b34;
+}
+.gd-secondary-group > button.gd-cancel > strong {
+  color: #ff8794;
+}
+.gd-secondary-group > button.gd-cancel:hover:not(:disabled) {
+  background: #2a1418;
+  border-color: #ff5d6e;
+}
 .gd-stake-group {
   display: flex;
   flex-direction: column;
@@ -571,6 +672,8 @@
 }
 .gd-stepper input {
   width: 100%;
+  min-width: 0;
+  flex: 1;
   min-width: 0;
   border: 0;
   border-left: 1px solid #2b2b2b;
@@ -637,12 +740,10 @@
   border-color: #3a3a3a;
 }
 .gd-dock-note {
-  min-height: 40px;
+  min-height: 24px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 14px;
-  margin-top: 12px;
+  margin-top: 11px;
   font-size: 13px;
   line-height: 1.45;
   color: #b8b8b8;
@@ -661,41 +762,7 @@
   color: #e4b47b;
   font-weight: 600;
 }
-/*
-  Cancelling a bet is a real, time-limited decision inside a ten-second window.
-  It was an 11px underlined word — the same weight as a footnote — so it read
-  as fine print rather than as the way out. Buttons that undo something the
-  player has money on are found by shape, not by squinting.
-*/
-.gd-dock-note button {
-  flex-shrink: 0;
-  min-height: 40px;
-  padding: 0 15px;
-  border: 1px solid #4a4a4a;
-  border-radius: 6px;
-  background: #1c1c1c;
-  color: #f4f4f4;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.gd-dock-note button:hover:not(:disabled) {
-  background: #262626;
-  border-color: #8a8a8a;
-}
-.gd-dock-note button.gd-cancel {
-  border-color: #6d2b34;
-  color: #ff8794;
-}
-.gd-dock-note button.gd-cancel:hover:not(:disabled) {
-  background: #2a1418;
-  border-color: #ff5d6e;
-  color: #ff5d6e;
-}
-.gd-dock-note button:disabled {
-  opacity: 0.45;
-}
+
 .gd-return-strip {
   display: flex;
   flex-wrap: wrap;
@@ -1116,10 +1183,12 @@
   Its floors are the binding constraint, not its own min-height, so they are
   what relax — the harbors stay comfortably tappable at these sizes.
 */
-.gd-main-panel:has(.gd-event-note) .gd-field {
+.gd-main-panel:has(.gd-event-note) .gd-field,
+.gd-main-panel:has(.gd-return-strip) .gd-field {
   min-height: 250px;
 }
-.gd-main-panel:has(.gd-event-note) .gd-harbors {
+.gd-main-panel:has(.gd-event-note) .gd-harbors,
+.gd-main-panel:has(.gd-return-strip) .gd-harbors {
   min-height: 233px;
 }
 
@@ -1189,33 +1258,43 @@
   }
 }
 
+/* Under the two-column deck the secondary action takes a full row of its own. */
+@media (max-width: 900px) {
+  .gd-bet-controls:has(.gd-secondary-group) {
+    grid-template-columns: minmax(150px, 0.9fr) minmax(180px, 1.1fr);
+  }
+  .gd-secondary-group {
+    grid-column: 1 / -1;
+  }
+  .gd-secondary-group > button {
+    min-height: 50px;
+    flex-direction: row;
+    gap: 8px;
+  }
+}
+
 /*
-  A phone harbor cell has room for the figure OR the status word, not both at
-  19px. During the storm the status is only ever "WAITING" on the five harbors
-  that are not yours, which is exactly what the number already tells you — so
-  the number wins and the word goes, except on the harbor holding your bet.
-  The unit label goes too: the caption under the board says what these are.
+  A phone cell is narrow enough that the unit word beside the figure is the
+  first thing worth dropping; the caption under the board says what these
+  numbers are, and the figure itself is the point.
 */
 @media (max-width: 700px) {
   .gd-harbor-payout > em {
-    font-size: 17px;
+    font-size: min(17px, calc(100cqw / (var(--gd-fig-chars, 6) * 0.615)));
   }
   .gd-harbor-payout > i {
-    display: none;
-  }
-  .gd-harbor:not(.is-placed) .gd-harbor-foot:has(.gd-harbor-payout) small {
     display: none;
   }
 }
 
 /*
-  Two rows below 700px, not four items fighting over one.
+  Two rows below 860px, not four items fighting over one.
   Brand, balance and the menu keep the top line; the table and the jackpot take
   a full line of their own underneath. Both are meant to be read at a glance,
   and squeezing them beside the balance stacked all three on top of each other
   into an unreadable smear on a phone.
 */
-@media (max-width: 700px) {
+@media (max-width: 860px) {
   .gd-topbar {
     flex-wrap: wrap;
     row-gap: 8px;
@@ -1399,10 +1478,9 @@
 /* ===================================================================== */
 .gd-harbor-foot {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: baseline;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 5px;
   width: 100%;
   min-width: 0;
 }
@@ -1412,7 +1490,15 @@
   align-items: center;
   gap: 7px;
   min-width: 0;
-  flex: 1;
+  width: 100%;
+}
+/* The figure never shrinks and never wraps; the unit beside it yields first. */
+.gd-harbor-payout > em {
+  flex-shrink: 0;
+}
+.gd-harbor-payout > i {
+  min-width: 0;
+  overflow: hidden;
 }
 .gd-crowd-track {
   flex: 1;
@@ -1441,7 +1527,8 @@
 }
 .gd-harbor-payout > em {
   font-style: normal;
-  font-size: 19px;
+  /* 19px is the ceiling; a longer figure takes whatever the cell can give it. */
+  font-size: min(19px, calc(100cqw / (var(--gd-fig-chars, 6) * 0.615)));
   line-height: 1.15;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1564,13 +1651,17 @@
 /* ===================================================================== */
 .gd-playing-for {
   border: 0;
-  padding-top: 19px;
+  padding-top: 15px;
 }
 .gd-playing-for p {
   color: #c2c2c2;
   font-size: 13.5px;
   line-height: 1.6;
   margin: 8px 0 0;
+}
+.gd-playing-for p > b {
+  color: #f4f4f4;
+  font-variant-numeric: tabular-nums;
 }
 .gd-playing-for .gd-rail-value {
   display: flex;
@@ -1629,7 +1720,7 @@
   padding: 1px 4px;
   border-radius: 8px;
   background: #ff2f45;
-  color: #fff;
+  color: #0e0e0e;
   font-size: 10px;
   font-weight: 700;
 }
@@ -1765,7 +1856,7 @@
 }
 .gd-feed-name > b {
   background: #ff2f45;
-  color: #fff;
+  color: #0e0e0e;
 }
 .gd-feed-net {
   margin-left: auto;
@@ -2036,9 +2127,6 @@
   .gd-number {
     font-size: 62px;
   }
-  .gd-number--long {
-    font-size: 35px;
-  }
 }
 @media (max-width: 800px) {
   .gd-round-rail {
@@ -2220,9 +2308,6 @@
   }
   .gd-number {
     font-size: 48px;
-  }
-  .gd-number--long {
-    font-size: 29px;
   }
   .gd-readout-label {
     font-size: 7px;
@@ -2454,8 +2539,7 @@
     padding: 7px 12px;
   }
   .gd-harbor strong {
-    font-size: 24px;
-    margin-bottom: 4px;
+    font-size: 22px;
   }
   .gd-harbor-id > span {
     font-size: 11px;
@@ -2470,9 +2554,6 @@
   }
   .gd-number {
     font-size: 55px;
-  }
-  .gd-number--long {
-    font-size: 31px;
   }
   .gd-readout-label {
     font-size: 8px;
@@ -2544,9 +2625,6 @@
   }
   .gd-number {
     font-size: 42px;
-  }
-  .gd-number--long {
-    font-size: 27px;
   }
   .gd-readout-label {
     font-size: 6px;

@@ -86,6 +86,27 @@ export function GameDock({ stage, canBet, maxMinor, result, reveal }: Props) {
     sub = `Harbor ${zone + 1} · this round only`;
   }
 
+  const secondary =
+    fleet && stage === 'choose'
+      ? {
+          kind: 'cancel' as const,
+          label: 'Cancel bet',
+          sub: `${fmt(fleet.stakeMinor)} back to your balance`,
+          onClick: cancel,
+        }
+      : !fleet && stage === 'choose' && lastFleet
+        ? {
+            kind: 'repeat' as const,
+            label: 'Repeat last bet',
+            sub: `Harbor ${lastFleet.primaryZone + 1} · ${fmt(lastFleet.stakeMinor)}`,
+            onClick: () => {
+              setDraft(null);
+              setStake(Math.min(maxMinor, Math.max(min, lastFleet.stakeMinor)));
+              select(lastFleet.primaryZone);
+            },
+          }
+        : null;
+
   return (
     <div className="gd-dock">
       {stage === 'result' && receipt?.played && atLeast(reveal, 'outcome') ? (
@@ -212,6 +233,26 @@ export function GameDock({ stage, canBet, maxMinor, result, reveal }: Props) {
             <span>{sub}</span>
           </button>
         </div>
+        {/*
+          The round's other action, beside the main one rather than under it.
+          Cancelling a live bet and repeating the last one are both decisions
+          taken in the same ten seconds as the confirm, and both sat in the
+          footnote row below the deck where they read as small print about the
+          rules rather than as buttons.
+        */}
+        {secondary && (
+          <div className="gd-secondary-group">
+            <button
+              type="button"
+              className={secondary.kind === 'cancel' ? 'gd-cancel' : 'gd-repeat'}
+              disabled={!canBet}
+              onClick={secondary.onClick}
+            >
+              <strong>{secondary.label}</strong>
+              <span>{secondary.sub}</span>
+            </button>
+          </div>
+        )}
       </div>
       <div className="gd-dock-note">
         {/*
@@ -234,24 +275,6 @@ export function GameDock({ stage, canBet, maxMinor, result, reveal }: Props) {
             </>
           )}
         </span>
-        {fleet && stage === 'choose' ? (
-          <button type="button" className="gd-cancel" disabled={!canBet} onClick={cancel}>
-            Cancel bet · {fmt(fleet.stakeMinor)}
-          </button>
-        ) : !fleet && stage === 'choose' && lastFleet ? (
-          <button
-            type="button"
-            className="gd-repeat"
-            disabled={!canBet}
-            onClick={() => {
-              setDraft(null);
-              setStake(Math.min(maxMinor, Math.max(min, lastFleet.stakeMinor)));
-              select(lastFleet.primaryZone);
-            }}
-          >
-            Repeat Harbor {lastFleet.primaryZone + 1} · {fmt(lastFleet.stakeMinor)}
-          </button>
-        ) : null}
       </div>
     </div>
   );
