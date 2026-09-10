@@ -78,6 +78,33 @@ below it on phones where the game keeps the fold:
 
 Nothing in the rail ever overlays the harbors or the dock.
 
+## Choosing the table
+
+The stake tier is the most consequential setting in the game — it decides what a round costs and
+whose money a payout is made of — and nobody was choosing it. The server seats an unrouted player
+in the busiest table they can afford, which is the right rule for LIQUIDITY (five tiers split
+between a handful of players is five dead tables) and the wrong one for a person opening the game,
+because an opening balance of 50,000 covers the 5,000-minimum table. A returning player landed back
+in whatever room they last used, sticky in the same silent way. The dashboard then closed the entry
+gate on their behalf: the first-use guide dismissed straight into the current room, and a profile
+that had already seen the guide was dismissed without any dialog at all.
+
+The gate now has two steps. How-to-play runs on a first visit only; the table choice runs every
+visit, before the first bet. Each row carries the stake range, the real human population (bots are
+never counted) and what the balance actually covers, so the answer is informed rather than a guess.
+The table the player is already at is preselected, so a refresh costs one confirming tap, and the
+dialog has no close button — a question that has to be answered should not offer a control that
+does nothing.
+
+`tableChoice.ts` never ranks tables by what they earn. The suggestion is always the cheapest
+affordable table, marked "Best to start"; a table the balance cannot cover is shown with the reason
+rather than hidden, so the ladder is legible without being an invitation to climb it.
+
+The chosen table is also named in the top bar with its range, and that label is the control that
+changes it. Previously the room appeared only as 10px grey text in the session rail and a list
+buried in the menu, so a player could not tell which table they were on, that others existed, or
+why nobody beside them was betting a hundred times their stake.
+
 ## Getting a bet placed in ten seconds
 
 The betting window is ten seconds long and the stepper moves by the table minimum, so crossing a
@@ -115,4 +142,6 @@ A separate, pre-existing limitation remains: deployment, process termination, or
 
 Regression suites cover explicit confirmation, duplicate/pending clicks, amount bounds, table entry, exact phase deadlines, final-order restoration, same-round receipts, split rounding, bonus/cap/jackpot accounting, unknown receipts, graceful idle settlement, resumed rounds, and refused room switches. Local browser checks cover the example, real demo confirmation and settlement, persistent receipt, verification, menus, and desktop/mobile layout.
 
-Validation: 290 tests pass (70 core, 49 server, 171 web), workspace typecheck and lint pass, and the complete production build including the Worker dry run passes. The payout-preview suite cross-checks the preview against `settleRound()` itself on every struck harbor rather than against a restatement of its formula. Browser testing at 1440×900 and 390×844 covered the crowd meter, the locked payout preview, all four reveal beats on both a played and a spectated round, a chat message round-tripping through the server, the practice labels in the live feed, and the round-statistics tab. The mobile layout has no horizontal overflow and keeps the board and dock above the fold with the table rail beneath them. Every colour pair added here meets WCAG AA on the surface it sits on.
+Validation: 297 tests pass (70 core, 49 server, 178 web), workspace typecheck and lint pass, and the complete production build including the Worker dry run passes. The payout-preview suite cross-checks the preview against `settleRound()` itself on every struck harbor rather than against a restatement of its formula. Browser testing at 1440×900 and 390×844 covered the crowd meter, the locked payout preview, all four reveal beats on both a played and a spectated round, a chat message round-tripping through the server, the practice labels in the live feed, the round-statistics tab, and both entry paths through the
+table gate — first visit (guide then table) and returning visit (table only) — including a real
+table switch that reclamped the stake to the new tier's minimum. The mobile layout has no horizontal overflow and keeps the board and dock above the fold with the table rail beneath them. Every colour pair added here meets WCAG AA on the surface it sits on.

@@ -14,6 +14,7 @@ import { GameBoard } from './GameBoard';
 import { GameDock } from './GameDock';
 import { LiveRail } from './LiveRail';
 import { GameGuide, GameMenu, GUIDE_SEEN, ReceiptDialog } from './GameDialogs';
+import { TableChooser } from './TableChooser';
 import './dashboard.css';
 
 const VerifyModal = lazy(() => import('../VerifyModal').then((m) => ({ default: m.VerifyModal })));
@@ -61,6 +62,7 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
   const [now, setNow] = useState(Date.now);
   const [menu, setMenu] = useState(false);
   const [guide, setGuide] = useState(false);
+  const [tablePicker, setTablePicker] = useState(false);
   const [receipt, setReceipt] = useState<LandfallInfo | null>(null);
   const [guideSeen] = useState(() => {
     try {
@@ -69,14 +71,27 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
       return false;
     }
   });
+  /**
+   * The entry gate runs how-to-play (first visit only) and then the table
+   * choice, which every visit gets. The stake tier decides what a round costs
+   * and whose money a payout is made of; it used to be settled silently by the
+   * server's seating rule and a returning player's last room, so nobody ever
+   * actually chose it. The current table is preselected, so a refresh is one tap.
+   */
+  const [entryStep, setEntryStep] = useState<'guide' | 'table' | null>(() =>
+    guideSeen ? 'table' : 'guide',
+  );
+  // Both entry dialogs are gated on `welcomeOpen`, which starts false and is
+  // only raised by a handshake that decided this is a NEW session. That is what
+  // keeps a resumed session (the handshake carried a live fleet) and a later
+  // table switch from re-asking, and it is why the step must not be cleared on
+  // a timer or an effect: before the first WELCOME arrives there is nothing to
+  // distinguish "not asked yet" from "already settled".
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 200);
     return () => clearInterval(timer);
   }, []);
-  useEffect(() => {
-    if (guideSeen && welcomeOpen && connected && roomId) dismissWelcome(roomId);
-  }, [guideSeen, welcomeOpen, connected, roomId, dismissWelcome]);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(dismissToast, 6000);
@@ -111,8 +126,15 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
     limits?.stakePerRoundCapMinor ?? Infinity,
   );
   const excluded = !!limits?.excludedUntil && limits.excludedUntil > now;
-  const showGuide = guide || (welcomeOpen && !guideSeen);
-  const anyOverlay = showGuide || menu || receipt !== null || verifyRoundId !== null || historyOpen;
+  const showGuide = guide || (welcomeOpen && entryStep === 'guide');
+  const showTablePicker = tablePicker || (welcomeOpen && entryStep === 'table');
+  const anyOverlay =
+    showGuide ||
+    showTablePicker ||
+    menu ||
+    receipt !== null ||
+    verifyRoundId !== null ||
+    historyOpen;
   const canBet = model.canBet && !anyOverlay && !excluded;
   const placed = fleet
     ? [
@@ -131,7 +153,17 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
     ((selected !== null && selected !== fleet.primaryZone) || stake !== fleet.stakeMinor);
   const closeGuide = () => {
     setGuide(false);
-    if (welcomeOpen && roomId) dismissWelcome(roomId);
+    // From the entry gate the guide hands over to the table choice rather than
+    // dropping the player into whichever table the server picked.
+    if (welcomeOpen && entryStep === 'guide') setEntryStep('table');
+  };
+  const chooseTable = (chosenRoomId: string) => {
+    dismissWelcome(chosenRoomId);
+    // A refused switch (a bet still in play) deliberately leaves the gate open;
+    // the store's toast says why, so the step must not be marked done. Reading
+    // the store back is the only way to tell the two outcomes apart.
+    if (!useStore.getState().welcomeOpen) setEntryStep(null);
+    setTablePicker(false);
   };
   const record = lastPersonal ? personalResult(lastPersonal) : null;
 
@@ -183,6 +215,22 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
           <b>LANDFALL</b>
         </div>
         <span className="gd-demo">DEMO · VIRTUAL CREDITS</span>
+        <button
+          type="button"
+          className="gd-table-button"
+          onClick={() => setTablePicker(true)}
+          aria-label={
+            table
+              ? `Table ${table.name}, ${fmt(min)} to ${fmt(max)} per round. Change table.`
+              : 'Choose a table'
+          }
+        >
+          <small>TABLE</small>
+          <strong>{table?.name ?? 'Joining…'}</strong>
+          <em>
+            {fmt(min)} – {fmt(max)}
+          </em>
+        </button>
         <div className="gd-balance" aria-label={`Balance ${fmt(balance)} credits`}>
           <small>BALANCE</small>
           <strong>{fmt(balance)}</strong>
@@ -246,10 +294,7 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
                 of the hit harbor&apos;s bank. If yours is hit, your bet is lost.
               </p>
             )}
-            <span className="gd-table-caption">
-              {table?.name ?? 'Joining table…'}
-              {round ? ` · #${round.roundId}` : ''}
-            </span>
+            <span className="gd-table-caption">{round ? `Round #${round.roundId}` : ''}</span>
           </div>
           <div className="gd-session">
             <h2>SESSION</h2>
@@ -353,7 +398,23 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
           </button>
         </div>
       )}
-      {showGuide && <GameGuide onClose={closeGuide} />}
+      {showGuide && (
+        <GameGuide
+          onClose={closeGuide}
+          {...(welcomeOpen && entryStep === 'guide'
+            ? { nextLabel: 'Next: choose your table' }
+            : {})}
+        />
+      )}
+      {showTablePicker && !showGuide && (
+        <TableChooser
+          rooms={rooms}
+          currentRoomId={roomId}
+          balanceMinor={balance}
+          onChoose={chooseTable}
+          {...(tablePicker && !welcomeOpen ? { onBack: () => setTablePicker(false) } : {})}
+        />
+      )}
       {menu && (
         <GameMenu
           onClose={() => setMenu(false)}

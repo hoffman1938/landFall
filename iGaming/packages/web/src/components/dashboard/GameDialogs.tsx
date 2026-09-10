@@ -8,10 +8,17 @@ import { XIcon } from '../icons';
 export function GameDialog({
   title,
   onClose,
+  dismissible = true,
   children,
 }: {
   title: string;
   onClose(): void;
+  /**
+   * False for a dialog whose question has to be answered — the entry gate's
+   * table choice. A close button that does nothing is worse than no close
+   * button, so it is not rendered, and Escape does not dismiss.
+   */
+  dismissible?: boolean;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -33,10 +40,10 @@ export function GameDialog({
       aria-label={title}
       onCancel={(e) => {
         e.preventDefault();
-        close.current();
+        if (dismissible) close.current();
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) {
+        if (dismissible && e.target === e.currentTarget) {
           const r = e.currentTarget.getBoundingClientRect();
           if (
             e.clientX < r.left ||
@@ -50,9 +57,11 @@ export function GameDialog({
     >
       <header>
         <h2>{title}</h2>
-        <button type="button" aria-label={`Close ${title}`} onClick={onClose}>
-          <XIcon size={18} />
-        </button>
+        {dismissible && (
+          <button type="button" aria-label={`Close ${title}`} onClick={onClose}>
+            <XIcon size={18} />
+          </button>
+        )}
       </header>
       <div className="gd-dialog-content">{children}</div>
     </dialog>
@@ -61,7 +70,14 @@ export function GameDialog({
 
 export const GUIDE_SEEN = 'landfall.clear-loop-guide.v1';
 
-export function GameGuide({ onClose }: { onClose(): void }) {
+export function GameGuide({
+  onClose,
+  nextLabel,
+}: {
+  onClose(): void;
+  /** What the closing button promises — the entry gate goes on to the table. */
+  nextLabel?: string | undefined;
+}) {
   const [selected, setSelected] = useState<number | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [hitMine, setHitMine] = useState(false);
@@ -149,7 +165,7 @@ export function GameGuide({ onClose }: { onClose(): void }) {
         share, not your returned stake. Each harbor has the same 1-in-6 chance of being hit.
       </p>
       <button type="button" className="gd-primary is-ready" onClick={finish}>
-        {revealed ? 'Got it — open the game' : 'Skip example — open the game'}
+        {nextLabel ?? (revealed ? 'Got it — open the game' : 'Skip example — open the game')}
       </button>
       <p className="gd-fine-print">
         Virtual credits only. No real money. You can watch any round without placing a bet.
