@@ -3,6 +3,7 @@ import { audio } from '../../audio/engine';
 import { fmt, useStore } from '../../store';
 import type { LandfallInfo } from '../../store';
 import { personalResult } from '../../simpleGameModel';
+import { atLeast, type RevealStage } from '../../revealStages';
 import { LockIcon } from '../icons';
 
 interface Props {
@@ -10,9 +11,24 @@ interface Props {
   canBet: boolean;
   maxMinor: number;
   result: LandfallInfo | null;
+  /** The reveal beat the board is on, so the receipt lands with the number. */
+  reveal: RevealStage;
 }
 
-export function GameDock({ stage, canBet, maxMinor, result }: Props) {
+/**
+ * Three chips, not a keypad. The betting window is ten seconds long, and a
+ * stepper that moves by the table minimum needs forty presses to cross a tier —
+ * so the amount either gets typed (fiddly on a phone) or never changes. Halve,
+ * double and max cover almost every real adjustment in one tap, and each one
+ * still lands in a field the player can read and correct before confirming.
+ */
+const QUICK_STEPS: { label: string; of(stake: number, min: number, max: number): number }[] = [
+  { label: '½', of: (stake, min) => Math.max(min, Math.floor(stake / 2)) },
+  { label: '×2', of: (stake, _min, max) => Math.min(max, stake * 2) },
+  { label: 'MAX', of: (_stake, _min, max) => max },
+];
+
+export function GameDock({ stage, canBet, maxMinor, result, reveal }: Props) {
   const stake = useStore((s) => s.stakeInputMinor);
   const min = useStore((s) => s.roomMinStakeMinor);
   const fleet = useStore((s) => s.myFleet);
@@ -72,7 +88,7 @@ export function GameDock({ stage, canBet, maxMinor, result }: Props) {
 
   return (
     <div className="gd-dock">
-      {stage === 'result' && receipt?.played ? (
+      {stage === 'result' && receipt?.played && atLeast(reveal, 'outcome') ? (
         <div className="gd-return-strip" aria-label="Your payout breakdown">
           {receipt.receiptKnown ? (
             <>
@@ -146,6 +162,24 @@ export function GameDock({ stage, canBet, maxMinor, result }: Props) {
               +
             </button>
           </div>
+          <div className="gd-quick-stakes" role="group" aria-label="Quick bet amounts">
+            {QUICK_STEPS.map((step) => {
+              const next = step.of(stake, min, maxMinor);
+              return (
+                <button
+                  key={step.label}
+                  type="button"
+                  disabled={!canBet || next === stake || next < min || next > maxMinor}
+                  onClick={() => {
+                    setDraft(null);
+                    setStake(next);
+                  }}
+                >
+                  {step.label}
+                </button>
+              );
+            })}
+          </div>
           <span id="gd-stake-limit" className="gd-control-hint">
             {maxMinor < min
               ? 'Not enough available credits'
@@ -183,13 +217,15 @@ export function GameDock({ stage, canBet, maxMinor, result }: Props) {
         ) : !fleet && stage === 'choose' && lastFleet ? (
           <button
             type="button"
+            className="gd-repeat"
             disabled={!canBet}
             onClick={() => {
+              setDraft(null);
               setStake(Math.min(maxMinor, Math.max(min, lastFleet.stakeMinor)));
               select(lastFleet.primaryZone);
             }}
           >
-            Use last selection
+            Repeat Harbor {lastFleet.primaryZone + 1} · {fmt(lastFleet.stakeMinor)}
           </button>
         ) : null}
       </div>

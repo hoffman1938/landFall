@@ -3,28 +3,20 @@
   "configurations": [
     {
       "name": "landfall-server",
-      "runtimeExecutable": "C:/Users/gtsulaia/Desktop/landFall/.claude/run-server.cmd",
-      "runtimeArgs": [],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "iGaming", "--filter", "@landfall/server", "dev"],
       "port": 8787
     },
     {
       "name": "landfall-web",
-      "runtimeExecutable": "C:/Users/gtsulaia/Desktop/landFall/.claude/run-web.cmd",
-      "runtimeArgs": [],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "iGaming", "--filter", "@landfall/web", "dev"],
       "port": 5173
     },
     {
       "name": "landfall-worker",
       "runtimeExecutable": "npx",
-      "runtimeArgs": [
-        "wrangler",
-        "dev",
-        "-c",
-        "wrangler.jsonc",
-        "--port",
-        "8788",
-        "--local"
-      ],
+      "runtimeArgs": ["wrangler", "dev", "-c", "wrangler.jsonc", "--port", "8788", "--local"],
       "port": 8788
     }
   ]

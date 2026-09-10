@@ -17,6 +17,76 @@ The new dashboard removes the fog substeps from the primary presentation. Fog st
 - Split bets, hidden final orders, signals, room tiers, jackpots, verification, and play limits remain available. Simple-mode orders explicitly use one harbor.
 - All credits are virtual. No auto-bet, fabricated wins, streak promises, or copied Ice Fishing payout table is added.
 
+## Two questions, both on screen
+
+A LANDFALL round contains two independent questions, and until now the interface answered only one
+of them. WHICH harbor is struck is a flat 1/6 that nothing can influence. HOW MUCH that is worth is
+pari-mutuel: it depends entirely on where the room's money is sitting. The board showed the first
+and hid the second, so an identical 5.00 bet returning +0.08 in one round and +12.40 in the next
+looked arbitrary — the player could see the rule they cannot affect and not the one they can.
+
+Both are now visible, each with the precision the server actually publishes:
+
+- **While bets are open** exact pools stay hidden (anti-probing, `core/src/tide.ts`). Each harbor
+  carries the banded crowd meter the server does publish — Empty/Low/Medium/High/Full — and the
+  caption states the rule: a busier harbor hands out a bigger bank when the storm hits it.
+- **From lock onward** the lock snapshot publishes exact pools, so every harbor shows precisely
+  what it pays _you_ if the storm picks it: five positive numbers and, on your own harbor, your
+  stake in red. Six concrete outcomes, one about to become real. Watching without a bet, the same
+  cells show each harbor's bank instead, so a spectator learns the same rule.
+
+`packages/web/src/payoutPreview.ts` mirrors `settleRound()` and is tested against it directly:
+across every struck harbor the previewed net matches the settled net to within the one minor unit
+that settlement's largest-remainder pass can add on top. The preview floors, so it is a lower bound
+in both places it can move — that rounding, and Storm Power, whose ladder floor is x1 and whose
+liability cap can never clamp below the x1 base. "A Share x bonus can only raise them" is therefore
+literal, not a hedge. The room's rake now arrives in WELCOME as `rakeBp`, so an operator who tunes
+rake per room cannot turn the preview into a lie.
+
+## The landing, in beats
+
+The result used to arrive whole: LANDFALL was received and the screen was already the answer.
+Nothing was hidden and nothing was wrong, but the most interesting seconds of the round were spent
+on a fait accompli. `revealStages.ts` orders the same data into four beats inside the existing 3s
+RESOLVED phase — the storm lands (0ms), which harbor (420ms), what it did to you (900ms), and any
+Share x bonus (1500ms). No beat withholds anything actionable: the round is settled and the balance
+is already correct before the first beat draws. `prefers-reduced-motion` collapses the ladder to
+the final beat, because a player asking for less motion is asking for the answer, not for suspense.
+
+How loud the landing is comes from the server's own event-tier draw (its own HMAC domain,
+independent of the harbor draw by construction), so a Tempest is a verifiable 1-in-20 event rather
+than a flourish the client invented for a big win. The full-screen moment is deliberately rare and
+never fires on a loss: a Share x above the x1 floor on a win actually collected, the Storm Surge
+jackpot, or a Tempest survived at a profit. It rides above the board for two seconds with no
+backdrop and no dismiss button, and is gone before the next betting window opens.
+
+## The table
+
+The payouts are literally made of other players' money, so a room you cannot see is a rule you
+cannot feel. The right rail carries three tabs, one at a time, beside the board on desktop and
+below it on phones where the game keeps the fold:
+
+- **Live** every fleet that settled, round by round. Losses are in the feed beside the wins: a
+  winners-only ticker is a highlight reel, and a highlight reel of a 1-in-6 game teaches the wrong
+  base rate, so each round block carries the plain "N won - M lost" count. Demo practice fleets
+  share the player name generator, so `results[].bot` now travels from the server (C5, the rule the
+  lock snapshot already followed) and every practice row is labelled as one. Your own row is pinned
+  first and never trimmed.
+- **Chat** the table's conversation, on the existing server-side rate limits.
+- **Rounds** where the storm has landed lately, as six bars of counts rather than a list a player
+  can read a streak into, plus one click to verify any round.
+
+Nothing in the rail ever overlays the harbors or the dock.
+
+## Getting a bet placed in ten seconds
+
+The betting window is ten seconds long and the stepper moves by the table minimum, so crossing a
+tier took forty presses and the amount in practice never changed. Half / double / max cover almost
+every real adjustment in one tap and still land in a field the player can read and correct before
+confirming. When a previous bet exists, the dock offers it by name ("Repeat Harbor 3 - 5.00"),
+which fills the draft and still requires the same explicit confirmation — a shortcut, never
+auto-bet.
+
 ## Reveal and player understanding
 
 The normal result says whether **your** harbor survived and leads with the server-confirmed net change. The receipt separates stake returned, bank share, jackpot when applicable, and total returned. A short delayed emphasis reveals the actual share multiplier; it never invents a second random draw. The latest personal receipt remains available while later spectator rounds run. Missing reconnect receipts are identified rather than reconstructed from a prior bet.
@@ -27,11 +97,11 @@ References used for interaction structure: [Evolution Ice Fishing](https://games
 
 ## Visual specification
 
-The selected direction is [the dashboard concept](concepts/clear-game-loop/dashboard.png), generated with the built-in ImageGen tool. Its brief: complete dark neo-minimalist LANDFALL dashboard; near-black and charcoal surfaces, thin borders, red storm accent, green confirmation, white selection; central numeric timer and six harbor controls; compact session and history rails; stable amount/confirmation band; persistent personal receipt. No pictures, glass, glow, texture, or 3D assets. All shipped visuals are HTML/CSS/SVG.
+The selected direction is [the dashboard concept](concepts/clear-game-loop/dashboard.png), generated with the built-in ImageGen tool. Its brief: complete dark neo-minimalist LANDFALL dashboard; near-black and charcoal surfaces, thin borders, red storm accent, green confirmation, white selection; central numeric timer and six harbor controls; a compact session rail and a tabbed table rail (live results, chat, round statistics); stable amount/confirmation band; persistent personal receipt. No pictures, glass, glow, texture, or 3D assets. All shipped visuals are HTML/CSS/SVG.
 
 Tokens: background #0E0E0E, chrome #121212, controls #171717/#1A1A1A, borders #292929, red #FF2F45, green #17E07D, white #F4F4F4. Typography uses the existing Manrope Variable font and tabular figures. Standard control transitions take 150 ms; reveal emphasis takes 250 ms. Reduced-motion preferences disable animation.
 
-Intentional implementation differences from the concept: actual server data replaces mock values; the trajectory appears only during the storm; the grid has no decorative vertical axis; additional help, accepted-bet, limit, and receipt text explains live behavior. Side rails yield to the game on narrow screens; six controls form a 3×2 group below the timer on phones. The rejected landscape concept is not used.
+Intentional implementation differences from the concept: actual server data replaces mock values; the trajectory appears only during the storm; the grid has no decorative vertical axis; additional help, accepted-bet, limit, and receipt text explains live behavior. The session rail yields to the game on narrow screens and the table rail moves beneath it rather than disappearing; six controls form a 3×2 group below the timer on phones. The rejected landscape concept is not used.
 
 ## Reliability
 
@@ -45,4 +115,4 @@ A separate, pre-existing limitation remains: deployment, process termination, or
 
 Regression suites cover explicit confirmation, duplicate/pending clicks, amount bounds, table entry, exact phase deadlines, final-order restoration, same-round receipts, split rounding, bonus/cap/jackpot accounting, unknown receipts, graceful idle settlement, resumed rounds, and refused room switches. Local browser checks cover the example, real demo confirmation and settlement, persistent receipt, verification, menus, and desktop/mobile layout.
 
-Validation: 268 tests pass (70 core, 49 server, 149 web), workspace typecheck and lint pass, and the complete production build including the Worker dry run passes. Browser testing used the Codex in-app browser at 1440×960, 1280×720, and 390×844. The mobile layout has no horizontal overflow; the short desktop keeps the board and controls visible while side rails scroll.
+Validation: 290 tests pass (70 core, 49 server, 171 web), workspace typecheck and lint pass, and the complete production build including the Worker dry run passes. The payout-preview suite cross-checks the preview against `settleRound()` itself on every struck harbor rather than against a restatement of its formula. Browser testing at 1440×900 and 390×844 covered the crowd meter, the locked payout preview, all four reveal beats on both a played and a spectated round, a chat message round-tripping through the server, the practice labels in the live feed, and the round-statistics tab. The mobile layout has no horizontal overflow and keeps the board and dock above the fold with the table rail beneath them. Every colour pair added here meets WCAG AA on the surface it sits on.

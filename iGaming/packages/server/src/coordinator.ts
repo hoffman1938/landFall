@@ -1163,6 +1163,9 @@ export class RoundCoordinator {
       name: f.name,
       outcome: resultByPlayer.get(f.playerId)?.outcome ?? 'SAFE',
       netMinor: perPlayerNet.get(f.playerId) ?? 0,
+      // C5: a practice fleet is marked wherever it is published, so a results
+      // feed can never pass demo activity off as another player's win.
+      ...(f.isBot ? { bot: true } : {}),
     }));
     const replay = this.buildReplay(snapshot, struckZone, salvageNetByPlayer);
 

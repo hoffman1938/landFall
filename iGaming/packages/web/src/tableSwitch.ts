@@ -46,6 +46,11 @@ export interface TableSwitchReset {
   lastAnchor: null;
   lastFleet: null;
   lastLandfall: null;
+  /** The personal receipt is this table's round too, and must not follow you. */
+  lastPersonalLandfall: null;
+  lastLandfallAt: null;
+  /** The other table's players settling in your feed is somebody else's game. */
+  liveFeed: [];
   replayCards: [];
   receipts: [];
   myFlagRounds: [];
@@ -91,6 +96,9 @@ export function tableSwitchReset(input: TableSwitchInput): TableSwitchReset | nu
     lastAnchor: null,
     lastFleet: null,
     lastLandfall: null,
+    lastPersonalLandfall: null,
+    lastLandfallAt: null,
+    liveFeed: [],
     replayCards: [],
     receipts: [],
     myFlagRounds: [],

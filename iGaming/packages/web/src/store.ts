@@ -32,6 +32,7 @@ import { liveMaxNotice } from './strings';
 import { tableSwitchReset } from './tableSwitch';
 import { nextWelcomeOpen } from './welcomeGate';
 import { canEditSimpleBet, canLeaveTable, snapshotResultFleet } from './simpleGameModel';
+import { pushRound, roundFeed, type FeedRound } from './liveFeed';
 
 export interface LandfallInfo {
   roundId: number;
@@ -159,6 +160,19 @@ interface State {
   lastLandfall: LandfallInfo | null;
   /** Latest round actually played in this room; spectators do not replace it. */
   lastPersonalLandfall: LandfallInfo | null;
+  /** When the last LANDFALL arrived — the clock the staged reveal counts from. */
+  lastLandfallAt: number | null;
+  /**
+   * Settled results from recent rounds, newest first — the live table feed.
+   * Built entirely from LANDFALL broadcasts; see ./liveFeed.ts for the two
+   * honesty rules it follows (losses included, practice fleets labelled).
+   */
+  liveFeed: FeedRound[];
+  /**
+   * This room's rake in basis points, from WELCOME. Null until the server says
+   * so, and the payout preview falls back to the core default meanwhile.
+   */
+  rakeBp: number | null;
   toast: string | null;
   /**
    * Whether the toast is a refusal or just news. A refund notice styled like a
@@ -410,9 +424,7 @@ export const useStore = create<State>((set, get) => {
             sessionStartAt: msg.sessionStartAt ?? Date.now(),
             ...roomScopedReset,
             stakeInputMinor: entryStake,
-            ...(previousRoomId !== null && previousRoomId !== msg.roomId
-              ? { lastPersonalLandfall: null }
-              : {}),
+            rakeBp: typeof msg.rakeBp === 'number' ? msg.rakeBp : null,
           });
           welcomeSettled = true;
           break;
@@ -569,6 +581,21 @@ export const useStore = create<State>((set, get) => {
             // E2: the Wreck Log is a stack of the last 20 replay cards.
             replayCards: [...get().replayCards.slice(-19), card],
             lastLandfall,
+            lastLandfallAt: Date.now(),
+            liveFeed: pushRound(
+              get().liveFeed,
+              roundFeed(
+                {
+                  roundId: msg.roundId,
+                  struckZone: msg.struckZone,
+                  results: msg.results,
+                  stormPower: msg.stormPower,
+                  surge: msg.surge,
+                },
+                get().name,
+                Date.now(),
+              ),
+            ),
             ...(played ? { lastPersonalLandfall: lastLandfall } : {}),
           });
           // Audio sequencing: thunder scaled by Storm Power; reveal arpeggio for
@@ -691,6 +718,9 @@ export const useStore = create<State>((set, get) => {
     storm: null,
     lastLandfall: null,
     lastPersonalLandfall: null,
+    lastLandfallAt: null,
+    liveFeed: [],
+    rakeBp: null,
     toast: null,
     toastTone: 'error',
     verifyRoundId: null,

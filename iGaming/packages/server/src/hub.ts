@@ -509,6 +509,9 @@ export class Hub {
       minStakeMinor: room.cfg.minStakeMinor,
       maxStakeMinor: room.cfg.maxStakeMinor,
       whaleCapFraction: room.cfg.whaleCapFraction,
+      // Basis points, so the client's per-harbor payout preview is this room's
+      // arithmetic rather than a guess at the core default.
+      rakeBp: Math.round(room.cfg.econ.rake * 10_000),
       liquidityFloorMinor: room.cfg.liquidityFloorMinor,
       round: room.roundHeader(),
       phase,

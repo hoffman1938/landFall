@@ -277,6 +277,15 @@ export type ServerMessage =
       maxStakeMinor: number;
       whaleCapFraction: number;
       /**
+       * This room's rake on the struck pool, in basis points. Published so the
+       * client can show the EXACT payout each harbor would pay instead of
+       * assuming the core default — an operator that tunes the rake per room
+       * must not turn the player's payout preview into a lie. Optional so an
+       * older client keeps parsing (§3 law); omit it and the client falls back
+       * to the core RAKE constant.
+       */
+      rakeBp?: number;
+      /**
        * Total handle the house guarantees while the table is thin. Published so
        * the client can derive the SAME round-share cap the server enforces
        * (`max(liquidityFloor, ZONE_COUNT × houseSeed + others)`) instead of
@@ -353,7 +362,18 @@ export type ServerMessage =
       seedHex: string;
       prevChainValue: string;
       pools: PoolsState;
-      results: { name: string; outcome: 'SAFE' | 'WRECKED' | 'SPLIT'; netMinor: number }[];
+      /**
+       * Everyone who had an order this round, with their settled net change.
+       * `bot` marks a demo practice fleet (C5) so a live results feed can label
+       * it as practice rather than presenting it as another human's win — the
+       * same honesty rule the lock snapshot already follows.
+       */
+      results: {
+        name: string;
+        outcome: 'SAFE' | 'WRECKED' | 'SPLIT';
+        netMinor: number;
+        bot?: boolean;
+      }[];
       yourResult: { outcome: 'SAFE' | 'WRECKED' | 'SPLIT' | 'SPECTATOR'; netMinor: number };
       balanceMinor: number;
       phase: PhaseInfo;

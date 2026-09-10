@@ -2,12 +2,17 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { audio } from '../../audio/engine';
 import { resolveStakeLimit } from '../../stakeLimits';
 import { deriveSimplePhase, personalResult } from '../../simpleGameModel';
+import { harborOutcomes, outcomeRange } from '../../payoutPreview';
+import { isBigMoment, loudness } from '../../revealStages';
+import { useRevealStage } from '../../useRevealStage';
 import { fmt, useStore, type LandfallInfo } from '../../store';
 import { LimitsModal } from '../LimitsModal';
 import { RealityCheck } from '../RealityCheck';
 import { RulesModal } from '../RulesModal';
+import { BigMoment } from './BigMoment';
 import { GameBoard } from './GameBoard';
 import { GameDock } from './GameDock';
+import { LiveRail } from './LiveRail';
 import { GameGuide, GameMenu, GUIDE_SEEN, ReceiptDialog } from './GameDialogs';
 import './dashboard.css';
 
@@ -34,8 +39,10 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
   const lastLandfall = useStore((s) => s.lastLandfall);
   const lastPersonal = useStore((s) => s.lastPersonalLandfall);
   const session = useStore((s) => s.sessionSeries);
-  const cards = useStore((s) => s.replayCards);
-  const wreckLog = useStore((s) => s.wreckLog);
+  const pools = useStore((s) => s.pools);
+  const tideReport = useStore((s) => s.tideReport);
+  const rakeBp = useStore((s) => s.rakeBp);
+  const landfallAt = useStore((s) => s.lastLandfallAt);
   const rooms = useStore((s) => s.rooms);
   const roomId = useStore((s) => s.roomId);
   const min = useStore((s) => s.roomMinStakeMinor);
@@ -128,6 +135,46 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
   };
   const record = lastPersonal ? personalResult(lastPersonal) : null;
 
+  // The reveal walks its beats from the moment LANDFALL arrived; the board and
+  // the dock read the same beat so they can never disagree about what has been
+  // shown. Only the round currently on screen animates.
+  const reveal = useRevealStage(model.result ? landfallAt : null);
+
+  // What this round can still pay you. Exact once the lock snapshot publishes
+  // pools; a Share × bonus can only raise it, so "at least" is literal.
+  const outcomes = harborOutcomes({ pools, fleet, rakeBp });
+  const range = fleet ? outcomeRange(outcomes) : null;
+
+  const bigMoment =
+    model.stage === 'result' &&
+    model.result &&
+    record &&
+    isBigMoment({
+      played: record.played,
+      netMinor: record.netMinor,
+      multiplier: record.multiplier,
+      jackpotMinor: record.jackpotMinor,
+      loudness: loudness(model.result.eventTier?.id ?? null),
+    }) &&
+    lastPersonal?.roundId === model.result.roundId
+      ? {
+          roundId: model.result.roundId,
+          netMinor: record.netMinor,
+          headline:
+            record.jackpotMinor > 0
+              ? 'JACKPOT'
+              : record.multiplier > 1
+                ? `SHARE ×${record.multiplier}`
+                : 'TEMPEST',
+          detail:
+            record.jackpotMinor > 0
+              ? `Storm Surge pot: ${fmt(record.jackpotMinor)} credits`
+              : record.multiplier > 1
+                ? 'The bonus multiplied your bank share'
+                : 'You came through a Tempest round ahead',
+        }
+      : null;
+
   return (
     <div className="gd-app">
       <header className="gd-topbar">
@@ -180,12 +227,25 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
                   : 'Draft · not placed'}
             </span>
           </div>
-          <div className="gd-rail-section gd-how-it-works">
-            <span className="gd-label">HOW IT WORKS</span>
-            <p>
-              The storm hits one of six harbors. If yours is safe, your bet returns with a share of
-              its bank. If hit, your bet is lost.
-            </p>
+          <div className="gd-rail-section gd-playing-for">
+            <span className="gd-label">PLAYING FOR</span>
+            {range && fleet ? (
+              <>
+                <strong className="gd-rail-value positive">
+                  {signed(range.best)}
+                  <em>best of the five safe harbors</em>
+                </strong>
+                <p>
+                  If the storm hits your harbor you lose {fmt(fleet.stakeMinor)}. Any other harbor
+                  returns your bet plus a share of its bank.
+                </p>
+              </>
+            ) : (
+              <p>
+                The storm hits one of six harbors. If yours is safe, your bet returns with a share
+                of the hit harbor&apos;s bank. If yours is hit, your bet is lost.
+              </p>
+            )}
             <span className="gd-table-caption">
               {table?.name ?? 'Joining table…'}
               {round ? ` · #${round.roundId}` : ''}
@@ -212,11 +272,24 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
             canSelect={canBet}
             betLocked={finalOrderUsed}
             result={model.result}
+            pools={pools}
+            tideReport={tideReport}
+            fleet={fleet}
+            rakeBp={rakeBp}
+            reveal={reveal}
             onSelect={(zone) => {
               audio.click('tap');
               selectZone(zone);
             }}
           />
+          {bigMoment && (
+            <BigMoment
+              roundId={bigMoment.roundId}
+              headline={bigMoment.headline}
+              netMinor={bigMoment.netMinor}
+              detail={bigMoment.detail}
+            />
+          )}
           {round?.surgeRound && (
             <div className="gd-event-note">
               JACKPOT ROUND · One eligible safe player receives {fmt(round.surgePotMinor)} extra
@@ -231,57 +304,15 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
               Your play break is active. You can watch without betting.
             </div>
           )}
-          <GameDock stage={model.stage} canBet={canBet} maxMinor={maxMinor} result={model.result} />
+          <GameDock
+            stage={model.stage}
+            canBet={canBet}
+            maxMinor={maxMinor}
+            result={model.result}
+            reveal={reveal}
+          />
         </div>
-        <aside className="gd-rail gd-history-rail" aria-label="Recent round history">
-          <h2>RECENT ROUNDS</h2>
-          <ol>
-            {cards.length
-              ? cards
-                  .slice(-7)
-                  .reverse()
-                  .map((card) => (
-                    <li key={card.roundId}>
-                      <button
-                        type="button"
-                        onClick={() => useStore.getState().openVerify(card.roundId)}
-                        aria-label={`Verify round ${card.roundId}, Harbor ${card.struckZone + 1} hit`}
-                      >
-                        <span>#{card.roundId}</span>
-                        <strong>Harbor {card.struckZone + 1} hit</strong>
-                      </button>
-                      {card.stormPower && card.stormPower.mNum > card.stormPower.mDen && (
-                        <small>
-                          Share ×{card.stormPower.mNum / card.stormPower.mDen}
-                          {card.powerCapped ? ' · capped' : ''}
-                        </small>
-                      )}
-                    </li>
-                  ))
-              : wreckLog
-                  .slice(-7)
-                  .reverse()
-                  .map((zone, i) => (
-                    <li className="gd-history-simple" key={i}>
-                      <span>{i === 0 ? 'Latest' : `${i + 1} rounds ago`}</span>
-                      <strong>Harbor {zone + 1} hit</strong>
-                    </li>
-                  ))}
-          </ol>
-          {!cards.length && !wreckLog.length && <p>The first result will appear here.</p>}
-          <p className="gd-history-note">Past rounds do not change the next result.</p>
-          <button
-            type="button"
-            className="gd-text-button"
-            onClick={() => useStore.getState().setWreckLogOpen(true)}
-          >
-            View all rounds
-          </button>
-          <div className="gd-connection">
-            <span className={connected ? 'is-online' : ''} />
-            {connected ? 'Connected to table' : 'Reconnecting…'}
-          </div>
-        </aside>
+        <LiveRail />
       </main>
       <footer className="gd-last-result">
         <span className="gd-label">YOUR LAST RESULT</span>

@@ -143,8 +143,10 @@ export function GameGuide({ onClose }: { onClose(): void }) {
         )}
       </div>
       <p className="gd-help-copy">
-        In live rounds, the bank share varies. A revealed <strong>Share ×</strong> bonus increases
-        that share, not your returned stake. Each harbor has the same 1-in-6 chance of being hit.
+        In live rounds the bank share varies with how the table&apos;s money is spread. Once bets
+        close, every harbor shows exactly what it pays you if the storm picks it — so you can see
+        what is at stake before the reveal. A revealed <strong>Share ×</strong> bonus increases that
+        share, not your returned stake. Each harbor has the same 1-in-6 chance of being hit.
       </p>
       <button type="button" className="gd-primary is-ready" onClick={finish}>
         {revealed ? 'Got it — open the game' : 'Skip example — open the game'}
