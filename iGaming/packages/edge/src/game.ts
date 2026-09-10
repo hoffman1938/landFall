@@ -11,10 +11,14 @@
  * a second game (software-architecture.md §4, step 6).
  *
  * IDLE PARKING: the round loop starts when the first player connects and stops
- * when the last one leaves. A pari-mutuel round with nobody in it settles the
- * house against itself forever, and on a metered runtime that is a bill with no
- * player attached. State survives in SQLite either way, so a returning player
- * finds their balance, their room and the season's seed chain intact.
+ * after the current round settles when the last one leaves. A pari-mutuel round
+ * with nobody in it would otherwise settle the house against itself forever.
+ * Normal idle parking retains the live coordinator until settlement; persisted
+ * balances and the seed chain then remain available for the next visit.
+ *
+ * This is not restart recovery: accepted pre-lock orders and phase timers still
+ * live in memory. Recovering from deployment/runtime termination requires a
+ * persisted order journal and round resumption, beyond this idle-parking path.
  */
 import { DurableObject } from 'cloudflare:workers';
 import { DEFAULT_TIMINGS, SURGE_PROB, validateRakeConfig } from '@landfall/core';
@@ -52,7 +56,7 @@ interface Booted {
 export class LandfallGame extends DurableObject<Env> {
   private booted: Booted | null = null;
   private botManagers: BotManager[] = [];
-  /** True while the round loop is running — see IDLE PARKING above. */
+  /** True while rooms accept continued play; parked rooms may still be settling. */
   private running = false;
   /** Safety net for sockets that die without ever firing `close`. */
   private idleSweep: ReturnType<typeof setInterval> | null = null;
@@ -131,7 +135,9 @@ export class LandfallGame extends DurableObject<Env> {
 
     const override = this.env.LANDFALL_BOTS === undefined ? null : Number(this.env.LANDFALL_BOTS);
     if (override !== null && (!Number.isInteger(override) || override < 0)) {
-      throw new Error(`LANDFALL_BOTS must be a non-negative integer, got "${this.env.LANDFALL_BOTS}"`);
+      throw new Error(
+        `LANDFALL_BOTS must be a non-negative integer, got "${this.env.LANDFALL_BOTS}"`,
+      );
     }
     const { managers, seating } = seatBots(db, rooms.rooms.values(), override);
     this.botManagers = managers;
@@ -152,16 +158,16 @@ export class LandfallGame extends DurableObject<Env> {
     if (this.booted.hub.pruneClosedSessions() === 0) this.stopRooms();
   }
 
-  /** Park the game once the last player has gone. */
+  /** Stop new rounds once the last player leaves; accepted bets still settle. */
   private stopRooms(): void {
     if (!this.running) return;
     for (const manager of this.botManagers) manager.stop();
     this.botManagers = [];
-    this.booted?.rooms.stop();
+    this.booted?.rooms.park();
     if (this.idleSweep) clearInterval(this.idleSweep);
     this.idleSweep = null;
     this.running = false;
-    log.info('rooms parked — no players connected');
+    log.info('rooms finishing current round before parking — no players connected');
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -181,9 +187,9 @@ export class LandfallGame extends DurableObject<Env> {
     const { hub } = this.boot();
 
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
-    // `accept()`, not hibernation: the round loop is a live in-memory state
-    // machine driven by timers, so the object has to stay resident while anyone
-    // is playing. Hibernation would evict it between frames and strand the round.
+    // The current coordinator uses an in-memory round and timer callbacks, so
+    // use the standard socket API. This prevents normal hibernation; it does
+    // not guarantee survival through deployment or runtime termination.
     server.accept();
 
     const connection: HubConnection = hub.connect({

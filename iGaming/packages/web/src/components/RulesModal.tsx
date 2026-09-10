@@ -211,8 +211,9 @@ export function RulesModal() {
         </Section>
 
         <div className="rounded-md bg-[var(--lf-bg)] px-3 py-2 text-xs text-[var(--lf-dim)]">
-          Educational build · virtual credits only · survivors receive 88% of the wrecked pool ·
-          long-run return to players ≈ 98%. Play the crowd, not the storm.
+          Educational build · virtual credits only · survivors receive 88% of the wrecked pool · The
+          final return varies with the round's pools, multiplier and jackpot. Every harbor has the
+          same 1-in-6 chance of being hit.
         </div>
       </div>
     </div>

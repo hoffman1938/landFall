@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "wrangler deploy --dry-run --outdir dist -c ../../../wrangler.jsonc",
-    "deploy": "wrangler deploy -c ../../../wrangler.jsonc",
-    "dev": "wrangler dev -c ../../../wrangler.jsonc",
+    "build": "wrangler deploy --cwd ../../.. --dry-run --outdir iGaming/packages/edge/dist -c wrangler.jsonc",
+    "deploy": "wrangler deploy --cwd ../../.. -c wrangler.jsonc",
+    "dev": "wrangler dev --cwd ../../.. -c wrangler.jsonc",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

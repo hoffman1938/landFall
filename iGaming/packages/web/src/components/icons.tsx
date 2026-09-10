@@ -28,6 +28,12 @@ export const AnchorIcon = (p: P) => (
   </svg>
 );
 
+export const CheckIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="m5 12 4 4L19 6" />
+  </svg>
+);
+
 export const BoatIcon = (p: P) => (
   <svg {...base(p)}>
     <path d="M4 16.5h16l-2.2 4H6.2Z" fill="currentColor" stroke="none" />

@@ -453,10 +453,24 @@ export class Hub {
       return this.error(session, 'NO_SUCH_ROOM', 'That room does not exist.');
     }
     if (session.roomId === roomId) return;
-    // Any live order in the old room is withdrawn and refunded before switching.
+    // An accepted bet must either be refunded or resolved before its result
+    // stream is left behind. In fog/after lock a cancel may be refused.
     const oldRoom = this.roomOf(session);
-    if (oldRoom && session.playerId) {
-      oldRoom.cancelOrder(session.playerId); // best-effort; rejections are fine
+    if (oldRoom && session.playerId && oldRoom.yourFleet(session.playerId)) {
+      const phase = oldRoom.phaseInfo().phase;
+      if (phase === 'ANCHOR_OPEN' || phase === 'LOCKED_STORM') {
+        const cancelled = oldRoom.cancelOrder(session.playerId);
+        if (!cancelled.ok) {
+          return this.error(
+            session,
+            'ROOM_SWITCH_PENDING',
+            cancelled.code === 'TOO_FAST'
+              ? 'Your bet was just accepted. Wait a moment before changing tables.'
+              : 'Your bet is still active at this table. Wait for its result before changing tables.',
+            cancelled.receipt,
+          );
+        }
+      }
     }
     this.enterRoom(session, roomId);
   }
@@ -504,6 +518,7 @@ export class Hub {
       signals: room.signalsPublic(),
       yourAnchor: room.yourAnchor(player.id),
       yourFleet: room.yourFleet(player.id),
+      finalOrderUsed: room.finalOrderUsed(player.id),
       wreckLog: room.wreckLogState(),
       chatTail,
       limits: this.limits.getState(player.id),

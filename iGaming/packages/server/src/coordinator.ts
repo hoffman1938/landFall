@@ -258,6 +258,8 @@ export class RoundCoordinator {
   private seedMinor: number;
   private handleEmaMinor: number | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private running = false;
+  private parkAfterRound = false;
   private tideTimer: ReturnType<typeof setTimeout> | null = null;
   private fogTimer: ReturnType<typeof setTimeout> | null = null;
   private fogStartsAt = 0;
@@ -399,13 +401,28 @@ export class RoundCoordinator {
   }
 
   start(): void {
+    // A player may return while an empty room is finishing its last round.
+    // Keep that round and its accepted stakes; only resume the following loop.
+    this.parkAfterRound = false;
+    if (this.running) return;
+    this.running = true;
     this.beginRound();
+  }
+
+  /** Finish accepted bets on their normal schedule, then stop opening rounds. */
+  park(): void {
+    this.parkAfterRound = true;
+    if (this.phase === 'RESOLVED' || this.phase === 'COOLDOWN') this.stop();
   }
 
   stop(): void {
     if (this.timer) clearTimeout(this.timer);
     if (this.tideTimer) clearTimeout(this.tideTimer);
     if (this.fogTimer) clearTimeout(this.fogTimer);
+    this.timer = null;
+    this.tideTimer = null;
+    this.fogTimer = null;
+    this.running = false;
   }
 
   // ---------- public queries ----------
@@ -470,6 +487,10 @@ export class RoundCoordinator {
   yourFleet(playerId: string): FleetPlanPublic | null {
     const f = this.fleets.get(playerId);
     return f ? this.fleetPublic(f) : null;
+  }
+
+  finalOrderUsed(playerId: string): boolean {
+    return this.finalOrders.has(playerId);
   }
 
   wreckLogState(): number[] {
@@ -1209,7 +1230,8 @@ export class RoundCoordinator {
       }
     }
 
-    this.timer = setTimeout(() => this.cooldown(), this.timings.resolvedMs);
+    if (this.parkAfterRound) this.stop();
+    else this.timer = setTimeout(() => this.cooldown(), this.timings.resolvedMs);
   }
 
   private cooldown(): void {

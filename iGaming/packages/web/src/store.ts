@@ -31,6 +31,7 @@ import { resolveStakeLimit, type StakeLimitInput } from './stakeLimits';
 import { liveMaxNotice } from './strings';
 import { tableSwitchReset } from './tableSwitch';
 import { nextWelcomeOpen } from './welcomeGate';
+import { canEditSimpleBet, canLeaveTable, snapshotResultFleet } from './simpleGameModel';
 
 export interface LandfallInfo {
   roundId: number;
@@ -39,6 +40,10 @@ export interface LandfallInfo {
   prevChainValue: string;
   results: { name: string; outcome: 'SAFE' | 'WRECKED' | 'SPLIT'; netMinor: number }[];
   yourResult: { outcome: 'SAFE' | 'WRECKED' | 'SPLIT' | 'SPECTATOR'; netMinor: number };
+  /** A copy of this round's acknowledged order; absent after an unknown receipt. */
+  yourFleet?: FleetPlanPublic | null | undefined;
+  /** Identity at settlement, for attributing the separately reported jackpot. */
+  yourName?: string | null;
   replay: WreckWakeReplay;
   surge?: { potMinor: number; winnerName: string | null; winnerStakeMinor: number | null };
   stormPower?: { label: string; mNum: number; mDen: number };
@@ -124,6 +129,8 @@ interface State {
   signals: SignalPublic[];
   myAnchor: { zone: number; stakeMinor: number } | null;
   myFleet: FleetPlanPublic | null;
+  /** Which round acknowledged myFleet; never substitute lastFleet for a receipt. */
+  myFleetRoundId: number | null;
   fleetMode: FleetMode;
   /**
    * v3 §8/P0-1 — the zone tapped but NOT yet committed (Focus/beginner path).
@@ -150,6 +157,8 @@ interface State {
    */
   environment: EnvironmentSpec | null;
   lastLandfall: LandfallInfo | null;
+  /** Latest round actually played in this room; spectators do not replace it. */
+  lastPersonalLandfall: LandfallInfo | null;
   toast: string | null;
   /**
    * Whether the toast is a refusal or just news. A refund notice styled like a
@@ -211,6 +220,11 @@ interface State {
   selectZone(zone: number): void;
   /** v3 P0-1 — commit the currently selected zone via sendAnchor. */
   commitBet(): void;
+  /** Simple board: selecting always edits a draft, including after a placed bet. */
+  selectSimpleZone(zone: number): void;
+  /** Explicitly confirm the simple board's draft as a one-harbor order. */
+  commitSimpleBet(): void;
+  canSwitchTables(): boolean;
   /** v3 §7 — toggle expert quick-bet (persisted). */
   setQuickBet(on: boolean): void;
   /** Withdraw the active fleet order before lock; the full stake is refunded. */
@@ -326,6 +340,24 @@ export const useStore = create<State>((set, get) => {
           // Table-scoped state is dropped on a switch; see ./tableSwitch.ts for
           // the rule and the reason each field is on that list.
           const previousRoomId = get().roomId;
+          const entryLimit = resolveStakeLimit({
+            balanceMinor: msg.balanceMinor + (fleet?.stakeMinor ?? 0),
+            roomMinStakeMinor: msg.minStakeMinor,
+            roomMaxStakeMinor: msg.maxStakeMinor,
+            whaleCapFraction: msg.whaleCapFraction,
+            liquidityFloorMinor: msg.liquidityFloorMinor ?? 0,
+            houseSeedMinor: msg.round?.houseSeedMinor ?? 0,
+          });
+          const entryStake =
+            fleet?.stakeMinor ??
+            Math.max(
+              msg.minStakeMinor,
+              Math.min(
+                get().stakeInputMinor,
+                entryLimit.maxMinor,
+                msg.limits?.stakePerRoundCapMinor ?? Infinity,
+              ),
+            );
           const roomScopedReset =
             tableSwitchReset({
               previousRoomId,
@@ -366,15 +398,21 @@ export const useStore = create<State>((set, get) => {
             signals: msg.signals,
             myAnchor: anchorFromFleet(fleet),
             myFleet: fleet,
+            myFleetRoundId: fleet ? (msg.round?.roundId ?? null) : null,
             fleetMode: fleet?.mode ?? get().fleetMode,
+            selectedZone: null,
             orderPending: false,
-            finalOrderUsed: false,
+            finalOrderUsed: msg.finalOrderUsed === true,
             wreckLog: msg.wreckLog,
             chat: msg.chatTail,
             storm: null,
             limits: msg.limits ?? null,
             sessionStartAt: msg.sessionStartAt ?? Date.now(),
             ...roomScopedReset,
+            stakeInputMinor: entryStake,
+            ...(previousRoomId !== null && previousRoomId !== msg.roomId
+              ? { lastPersonalLandfall: null }
+              : {}),
           });
           welcomeSettled = true;
           break;
@@ -390,6 +428,7 @@ export const useStore = create<State>((set, get) => {
             signals: [],
             myAnchor: null,
             myFleet: null,
+            myFleetRoundId: null,
             orderPending: false,
             finalOrderUsed: false,
             selectedZone: null, // new round — nothing selected yet (P0-1)
@@ -409,9 +448,12 @@ export const useStore = create<State>((set, get) => {
           break;
         case 'ANCHOR_ACK': {
           const fleet = msg.fleet ?? focusFleet(msg.zone, msg.stakeMinor);
+          // A stale acknowledgement cannot place an old order into a new round.
+          if (msg.receipt && msg.receipt.roundId !== get().round?.roundId) break;
           set({
             myAnchor: anchorFromFleet(fleet),
             myFleet: fleet,
+            myFleetRoundId: msg.receipt?.roundId ?? get().round?.roundId ?? null,
             fleetMode: fleet.mode,
             orderPending: false,
             selectedZone: null, // committed — clear the pending selection (P0-1)
@@ -428,6 +470,7 @@ export const useStore = create<State>((set, get) => {
           set({
             myAnchor: null,
             myFleet: null,
+            myFleetRoundId: null,
             orderPending: false,
             balanceMinor: msg.balanceMinor,
             finalOrderUsed: msg.finalOrderUsed ? true : get().finalOrderUsed,
@@ -494,6 +537,27 @@ export const useStore = create<State>((set, get) => {
             balanceMinor: msg.balanceMinor,
             played,
           };
+          const lastLandfall: LandfallInfo = {
+            roundId: msg.roundId,
+            struckZone: msg.struckZone,
+            seedHex: msg.seedHex,
+            prevChainValue: msg.prevChainValue,
+            results: msg.results,
+            yourResult: msg.yourResult,
+            yourFleet: snapshotResultFleet({
+              roundId: msg.roundId,
+              fleetRoundId: get().myFleetRoundId,
+              fleet: get().myFleet,
+              outcome: msg.yourResult.outcome,
+            }),
+            yourName: get().name,
+            replay: msg.replay,
+            ...(msg.surge ? { surge: msg.surge } : {}),
+            ...(msg.stormPower ? { stormPower: msg.stormPower } : {}),
+            ...(msg.eventTier ? { eventTier: msg.eventTier } : {}),
+            ...(msg.environment ? { environment: msg.environment } : {}),
+            powerCapped: msg.powerCapped ?? false,
+          };
 
           set({
             phase: msg.phase,
@@ -504,20 +568,8 @@ export const useStore = create<State>((set, get) => {
             sessionSeries: [...prevSeries.slice(-(SESSION_SERIES_MAX - 1)), point],
             // E2: the Wreck Log is a stack of the last 20 replay cards.
             replayCards: [...get().replayCards.slice(-19), card],
-            lastLandfall: {
-              roundId: msg.roundId,
-              struckZone: msg.struckZone,
-              seedHex: msg.seedHex,
-              prevChainValue: msg.prevChainValue,
-              results: msg.results,
-              yourResult: msg.yourResult,
-              replay: msg.replay,
-              ...(msg.surge ? { surge: msg.surge } : {}),
-              ...(msg.stormPower ? { stormPower: msg.stormPower } : {}),
-              ...(msg.eventTier ? { eventTier: msg.eventTier } : {}),
-              ...(msg.environment ? { environment: msg.environment } : {}),
-              powerCapped: msg.powerCapped ?? false,
-            },
+            lastLandfall,
+            ...(played ? { lastPersonalLandfall: lastLandfall } : {}),
           });
           // Audio sequencing: thunder scaled by Storm Power; reveal arpeggio for
           // Cat 3+; personal outcome cue after the blast clears.
@@ -619,6 +671,7 @@ export const useStore = create<State>((set, get) => {
     signals: [],
     myAnchor: null,
     myFleet: null,
+    myFleetRoundId: null,
     fleetMode: 'FOCUS',
     selectedZone: null,
     quickBet: (() => {
@@ -637,6 +690,7 @@ export const useStore = create<State>((set, get) => {
     events: [],
     storm: null,
     lastLandfall: null,
+    lastPersonalLandfall: null,
     toast: null,
     toastTone: 'error',
     verifyRoundId: null,
@@ -728,6 +782,62 @@ export const useStore = create<State>((set, get) => {
       if (s.selectedZone === null) return;
       s.sendAnchor(s.selectedZone);
     },
+    selectSimpleZone(zone) {
+      const s = get();
+      if (
+        !Number.isInteger(zone) ||
+        zone < 0 ||
+        zone >= ZONE_COUNT ||
+        !s.round ||
+        s.welcomeOpen ||
+        !canEditSimpleBet({ ...s, now: Date.now() })
+      )
+        return;
+      // Do not call selectZone/sendAnchor: their advanced quick-bet and split
+      // behavior deliberately submits on tap. This path always requires a CTA.
+      set({ selectedZone: zone });
+    },
+    commitSimpleBet() {
+      const s = get();
+      const now = Date.now();
+      if (!s.round || s.welcomeOpen || !canEditSimpleBet({ ...s, now })) return;
+      const zone = s.selectedZone ?? s.myFleet?.primaryZone;
+      if (zone === undefined || !Number.isInteger(zone) || zone < 0 || zone >= ZONE_COUNT) return;
+      const stake = s.stakeInputMinor;
+      const availableMinor = s.balanceMinor + (s.myFleet?.stakeMinor ?? 0);
+      const tableLimit = resolveStakeLimit({ ...stakeLimitInput(s), balanceMinor: availableMinor });
+      const maxMinor = Math.min(
+        tableLimit.maxMinor,
+        availableMinor,
+        s.limits?.stakePerRoundCapMinor ?? Number.POSITIVE_INFINITY,
+      );
+      if (s.limits?.excludedUntil != null && s.limits.excludedUntil > now) {
+        set({ toastTone: 'error', toast: 'Your play break is active.' });
+        return;
+      }
+      if (!Number.isSafeInteger(stake) || stake < s.roomMinStakeMinor || stake > maxMinor) {
+        set({
+          toastTone: 'error',
+          toast:
+            maxMinor < s.roomMinStakeMinor
+              ? 'Not enough available credits within your play limits.'
+              : `Choose a bet from ${fmt(s.roomMinStakeMinor)} to ${fmt(maxMinor)} credits.`,
+        });
+        return;
+      }
+      // A second press with no edits does nothing, preserving the hidden
+      // window's one order for an intentional change.
+      if (
+        s.myFleet?.mode === 'FOCUS' &&
+        s.myFleet.primaryZone === zone &&
+        s.myFleet.stakeMinor === stake
+      )
+        return;
+      if (send(fleetOrderMessage(focusFleet(zone, stake)))) set({ orderPending: true });
+    },
+    canSwitchTables() {
+      return canLeaveTable(get());
+    },
     setQuickBet(on) {
       try {
         window.localStorage.setItem('landfall.quickBet', on ? '1' : '0');
@@ -768,13 +878,29 @@ export const useStore = create<State>((set, get) => {
      */
     dismissWelcome(roomId) {
       const s = get();
-      if (s.connected && roomId !== s.roomId) send({ type: 'JOIN_ROOM', roomId });
+      if (s.connected && roomId !== s.roomId) {
+        if (!canLeaveTable(s)) {
+          set({
+            toastTone: 'info',
+            toast: 'Your bet is still in play. Change tables after the result.',
+          });
+          return;
+        }
+        send({ type: 'JOIN_ROOM', roomId });
+      }
       set({ welcomeOpen: false, welcomeChoseRoomId: roomId });
     },
     /** Switch rooms (C1); any live order is refunded server-side first. */
     joinRoom(roomId) {
       const s = get();
       if (!s.connected || roomId === s.roomId) return;
+      if (!canLeaveTable(s)) {
+        set({
+          toastTone: 'info',
+          toast: 'Your bet is still in play. Change tables after the result.',
+        });
+        return;
+      }
       send({ type: 'JOIN_ROOM', roomId });
     },
     sendChat(text) {

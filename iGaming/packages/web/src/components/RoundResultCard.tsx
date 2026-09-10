@@ -136,8 +136,8 @@ export function RoundResultCard({ state }: { state: RoundState }) {
                 ? 'Your harbor was hit — a 1-in-6 chance.'
                 : r.outcome === 'SPLIT'
                   ? 'Part of your bet was in the hit harbor.'
-                  : powerMult >= 2
-                    ? `Safe — and the storm paid ×${powerMult} this round.`
+                  : powerMult > 1
+                    ? `Safe — your bank share was boosted ×${powerMult}.`
                     : 'Safe — you took a share of the pot.'}
             </span>
           </div>
@@ -168,7 +168,7 @@ export function RoundResultCard({ state }: { state: RoundState }) {
         {/* Advanced only: the multiplier this round paid at, and the round in
             one line. Both were the old banner's; neither is a beginner's
             question at the moment a result lands. */}
-        {detailed && powerMult >= 2 && (
+        {detailed && powerMult > 1 && (
           <div
             className={`mt-2 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.12em] ${
               powerMult >= 25
@@ -178,8 +178,8 @@ export function RoundResultCard({ state }: { state: RoundState }) {
           >
             <StormIcon size={12} />
             {power?.label === 'PERFECT STORM'
-              ? `Perfect storm — payouts ×${powerMult}`
-              : `×${powerMult} round`}
+              ? `Perfect storm — bank share ×${powerMult}`
+              : `Bank share ×${powerMult}`}
           </div>
         )}
         {detailed && replay && (
@@ -198,7 +198,7 @@ export function RoundResultCard({ state }: { state: RoundState }) {
         <span className="lf-label-soft shrink-0">#{lastLandfall.roundId}</span>
         <span className="flex shrink-0 items-center gap-1 text-[12px] font-bold text-[var(--lf-win)]">
           <ShieldCheckIcon size={13} />
-          Verified
+          Verifiable
         </span>
         <button
           type="button"

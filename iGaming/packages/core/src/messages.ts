@@ -294,6 +294,8 @@ export type ServerMessage =
       signals: SignalPublic[];
       yourAnchor: { zone: number; stakeMinor: number } | null;
       yourFleet: FleetPlanPublic | null;
+      /** Restores the one-action fog commitment when reconnecting mid-round. */
+      finalOrderUsed?: boolean;
       wreckLog: number[];
       chatTail: ChatEntry[];
       /** Responsible-gambling state (F1/F2) for the settings sheet. */

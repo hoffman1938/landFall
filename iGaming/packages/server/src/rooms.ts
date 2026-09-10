@@ -238,6 +238,11 @@ export class RoomManager {
     for (const room of this.rooms.values()) room.start();
   }
 
+  /** Idle parking preserves accepted bets until their current round settles. */
+  park(): void {
+    for (const room of this.rooms.values()) room.park();
+  }
+
   stop(): void {
     for (const room of this.rooms.values()) room.stop();
   }

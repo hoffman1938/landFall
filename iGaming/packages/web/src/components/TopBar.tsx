@@ -16,7 +16,7 @@ import { getDeckProgress, updateDeckProgress, useDeckProgress, withExpert } from
 import { fmt, useStore } from '../store';
 import { QuestionIcon, SlidersIcon, SoundOffIcon, SoundOnIcon, SurgeIcon } from './icons';
 
-export function TopBar() {
+export function TopBar({ onSimple }: { onSimple?: () => void }) {
   const connected = useStore((s) => s.connected);
   const name = useStore((s) => s.name);
   const balanceMinor = useStore((s) => s.balanceMinor);
@@ -70,6 +70,15 @@ export function TopBar() {
 
   return (
     <header className="relative z-[var(--lf-z-chrome)] flex h-12 shrink-0 items-center gap-2 border-b border-[var(--lf-line)] bg-[var(--lf-bg-2)] px-2 sm:px-3">
+      {onSimple && (
+        <button
+          type="button"
+          onClick={onSimple}
+          className="min-h-11 rounded-md border border-[var(--lf-line)] px-3 text-[13px] font-semibold"
+        >
+          Simple view
+        </button>
+      )}
       {/* The mark: one red square and the word. That is all the brand this
           interface gets — a dashboard is not a poster. */}
       <div className="flex shrink-0 items-center gap-2" aria-label="Landfall">
