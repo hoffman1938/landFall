@@ -1054,6 +1054,80 @@
 }
 
 /* ===================================================================== */
+/* The jackpot: calm every round, filled on the one that can pay it.      */
+/* ===================================================================== */
+.gd-jackpot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 6px 12px;
+  border: 1px solid var(--gd-border);
+  border-radius: 6px;
+  background: #171717;
+  color: #f4f4f4;
+  text-align: left;
+  position: relative;
+  min-width: 0;
+}
+.gd-jackpot:hover {
+  background: #202020;
+  border-color: #6a6a6a;
+}
+.gd-jackpot > small {
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  color: #8f8f8f;
+  white-space: nowrap;
+}
+.gd-jackpot > strong {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.gd-jackpot.is-live {
+  border-color: #e4b47b;
+  background: #19150e;
+}
+.gd-jackpot.is-live > small,
+.gd-jackpot.is-live > strong {
+  color: #e4b47b;
+}
+.gd-jackpot > i {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  font-style: normal;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #e4b47b;
+  color: #0e0e0e;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+@media (max-width: 1150px) {
+  .gd-jackpot > small {
+    /* "JACKPOT · GROWING" does not fit once the bar tightens; the word alone
+       still names it, and the tooltip and aria-label keep the rest. */
+    font-size: 0;
+  }
+  .gd-jackpot > small::before {
+    content: 'JACKPOT';
+    font-size: 9px;
+  }
+}
+@media (max-width: 550px) {
+  .gd-jackpot {
+    padding: 5px 9px;
+  }
+  .gd-jackpot > strong {
+    font-size: 13px;
+  }
+}
+
+/* ===================================================================== */
 /* The table: named in the top bar, chosen at the gate.                   */
 /* ===================================================================== */
 .gd-table-button {

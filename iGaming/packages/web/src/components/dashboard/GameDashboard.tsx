@@ -11,6 +11,7 @@ import { RealityCheck } from '../RealityCheck';
 import { RulesModal } from '../RulesModal';
 import { BigMoment } from './BigMoment';
 import { GameBoard } from './GameBoard';
+import { JackpotMeter } from './JackpotMeter';
 import { GameDock } from './GameDock';
 import { LiveRail } from './LiveRail';
 import { GameGuide, GameMenu, GUIDE_SEEN, ReceiptDialog } from './GameDialogs';
@@ -231,6 +232,15 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
             {fmt(min)} – {fmt(max)}
           </em>
         </button>
+        {round && (
+          <JackpotMeter
+            potMinor={round.surgePotMinor}
+            live={round.surgeRound}
+            tableName={table?.name ?? null}
+            roomId={roomId}
+            onExplain={() => useStore.getState().setRulesOpen(true)}
+          />
+        )}
         <div className="gd-balance" aria-label={`Balance ${fmt(balance)} credits`}>
           <small>BALANCE</small>
           <strong>{fmt(balance)}</strong>
@@ -337,10 +347,10 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
           )}
           {round?.surgeRound && (
             <div className="gd-event-note">
-              JACKPOT ROUND · One eligible safe player receives {fmt(round.surgePotMinor)} extra
-              credits.{' '}
+              JACKPOT ROUND · Survive this one and you are in the draw for the whole{' '}
+              {fmt(round.surgePotMinor)} pot. One safe player at this table takes it.{' '}
               <button type="button" onClick={() => useStore.getState().setRulesOpen(true)}>
-                Details
+                How the winner is picked
               </button>
             </div>
           )}

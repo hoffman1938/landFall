@@ -105,6 +105,33 @@ changes it. Previously the room appeared only as 10px grey text in the session r
 buried in the menu, so a player could not tell which table they were on, that others existed, or
 why nobody beside them was betting a hundred times their stake.
 
+## The jackpot, every round
+
+The Storm Surge pot is fed by a share of every round's rake and paid out whole to one surviving
+player on a jackpot round — about one round in twenty-five. The dashboard mentioned it only ON that
+round, so for the other twenty-four it grew invisibly and a player could sit at a table for ten
+minutes without learning it existed. The advanced UI had always carried a permanent meter; the
+simplified one dropped it.
+
+It is back in the top bar, with that UI's rule intact: calm by default, filled only on the round it
+can actually pay out. A meter that shouts every round is one players learn to stop reading, and
+this one has something to say 4% of the time. The number is the real published pot from the round
+header, counting up between rounds; tapping it opens the rules section that explains how the winner
+is picked. The jackpot-round band no longer repeats the figure and says what the player has to do
+about it instead.
+
+`jackpotTicker.ts` holds the one rule worth stating: the number only animates when it is actually
+growing at the table you are sitting at. A payout drops the pot back to the table's floor, and
+counting down to that reads as losing something you never had; a table switch changes the figure
+because it is a different table's pot entirely, and pots never merge. Both snap.
+
+A third case cost a real bug. `requestAnimationFrame` is paused in a backgrounded tab, so the first
+version froze part-way up a climb and stayed there — the pot kept arriving in every round header
+while the display kept its half-finished number, drifting rounds behind the truth. Animation is now
+skipped outright when no frames will run, and every path out of the effect — finished, interrupted
+by the next round, or unmounted — ends by showing the real number. An animation may be skipped; it
+is never allowed to leave a wrong figure on screen.
+
 ## Getting a bet placed in ten seconds
 
 The betting window is ten seconds long and the stepper moves by the table minimum, so crossing a
@@ -142,6 +169,8 @@ A separate, pre-existing limitation remains: deployment, process termination, or
 
 Regression suites cover explicit confirmation, duplicate/pending clicks, amount bounds, table entry, exact phase deadlines, final-order restoration, same-round receipts, split rounding, bonus/cap/jackpot accounting, unknown receipts, graceful idle settlement, resumed rounds, and refused room switches. Local browser checks cover the example, real demo confirmation and settlement, persistent receipt, verification, menus, and desktop/mobile layout.
 
-Validation: 297 tests pass (70 core, 49 server, 178 web), workspace typecheck and lint pass, and the complete production build including the Worker dry run passes. The payout-preview suite cross-checks the preview against `settleRound()` itself on every struck harbor rather than against a restatement of its formula. Browser testing at 1440×900 and 390×844 covered the crowd meter, the locked payout preview, all four reveal beats on both a played and a spectated round, a chat message round-tripping through the server, the practice labels in the live feed, the round-statistics tab, and both entry paths through the
+Validation: 305 tests pass (70 core, 49 server, 186 web), workspace typecheck and lint pass, and the complete production build including the Worker dry run passes. The payout-preview suite cross-checks the preview against `settleRound()` itself on every struck harbor rather than against a restatement of its formula. Browser testing at 1440×900 and 390×844 covered the crowd meter, the locked payout preview, all four reveal beats on both a played and a spectated round, a chat message round-tripping through the server, the practice labels in the live feed, the round-statistics tab, and both entry paths through the
 table gate — first visit (guide then table) and returning visit (table only) — including a real
-table switch that reclamped the stake to the new tier's minimum. The mobile layout has no horizontal overflow and keeps the board and dock above the fold with the table rail beneath them. Every colour pair added here meets WCAG AA on the surface it sits on.
+table switch that reclamped the stake to the new tier's minimum. The jackpot meter was checked
+against the server's own `landfall_surge_pot_minor` gauge across several rounds, in both its calm
+and its live presentation. The mobile layout has no horizontal overflow and keeps the board and dock above the fold with the table rail beneath them. Every colour pair added here meets WCAG AA on the surface it sits on.
