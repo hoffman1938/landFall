@@ -177,10 +177,12 @@ export function GameGuide({
 export function GameMenu({
   onClose,
   onGuide,
+  onGameInfo,
   onAdvanced,
 }: {
   onClose(): void;
   onGuide(): void;
+  onGameInfo(): void;
   onAdvanced(): void;
 }) {
   const rooms = useStore((s) => s.rooms);
@@ -231,6 +233,15 @@ export function GameMenu({
           }}
         >
           Full rules & fairness <span>How results are calculated</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            onClose();
+            onGameInfo();
+          }}
+        >
+          Game information <span>Storm odds, limits and payout rules</span>
         </button>
         <button
           type="button"

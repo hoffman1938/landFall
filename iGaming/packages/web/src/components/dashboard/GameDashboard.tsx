@@ -5,6 +5,7 @@ import { deriveSimplePhase, personalResult } from '../../simpleGameModel';
 import { harborOutcomes, outcomeRange } from '../../payoutPreview';
 import { isBigMoment, loudness } from '../../revealStages';
 import { useRevealStage } from '../../useRevealStage';
+import { MALFUNCTION_NOTICE, stormPowerRange } from '@landfall/core';
 import { fmt, useStore, type LandfallInfo } from '../../store';
 import { LimitsModal } from '../LimitsModal';
 import { RealityCheck } from '../RealityCheck';
@@ -15,6 +16,7 @@ import { JackpotMeter } from './JackpotMeter';
 import { GameDock } from './GameDock';
 import { LiveRail } from './LiveRail';
 import { GameGuide, GameMenu, GUIDE_SEEN, ReceiptDialog } from './GameDialogs';
+import { GameInfoDialog } from './GameInfoDialog';
 import { TableChooser } from './TableChooser';
 import './dashboard.css';
 
@@ -64,6 +66,7 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
   const [menu, setMenu] = useState(false);
   const [guide, setGuide] = useState(false);
   const [tablePicker, setTablePicker] = useState(false);
+  const [gameInfo, setGameInfo] = useState(false);
   const [receipt, setReceipt] = useState<LandfallInfo | null>(null);
   const [guideSeen] = useState(() => {
     try {
@@ -133,6 +136,7 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
     showGuide ||
     showTablePicker ||
     menu ||
+    gameInfo ||
     receipt !== null ||
     verifyRoundId !== null ||
     historyOpen;
@@ -248,6 +252,19 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
         <button type="button" onClick={() => setGuide(true)} className="gd-help-button">
           How to play
         </button>
+        {/*
+          GLI-19 §4.7.3 — the actual odds of the highest advertised award must be
+          PROMINENTLY DISPLAYED, because ×500 at ~1 in 1,048,576 is far more
+          frequent than the 1-in-100,000,000 the clause lets go undisclosed. A
+          collapsed accordion inside a rules modal is not prominent; a permanent
+          control on the game surface, labelled with the number itself, is (G9).
+        */}
+        <button type="button" onClick={() => setGameInfo(true)} className="gd-odds-button">
+          <small>STORM ODDS</small>
+          <strong>
+            {stormPowerRange().minMultiplier}–{stormPowerRange().maxMultiplier}
+          </strong>
+        </button>
         <button type="button" onClick={() => setMenu(true)} className="gd-menu-button">
           Menu{' '}
           <svg width="17" height="17" viewBox="0 0 20 20" aria-hidden="true">
@@ -285,6 +302,21 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
                   : 'Draft · not placed'}
             </span>
           </div>
+          {round && round.houseSeedMinor > 0 && (
+            <div className="gd-rail-section gd-house-seed">
+              <span className="gd-label">HOUSE MONEY THIS ROUND</span>
+              <strong className="gd-rail-value">
+                {fmt(round.houseSeedMinor)} <em>on every harbour</em>
+              </strong>
+              <p>
+                The same amount on all six, fixed before betting opened — it cannot take a side or
+                change which harbour is hit.{' '}
+                <button type="button" onClick={() => setGameInfo(true)}>
+                  Why it is there
+                </button>
+              </p>
+            </div>
+          )}
           <div className="gd-rail-section gd-playing-for">
             <span className="gd-label">PLAYING FOR</span>
             {range && fleet ? (
@@ -351,9 +383,14 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
             />
           )}
           {round?.surgeRound && (
-            <div className="gd-event-note">
-              JACKPOT ROUND · Survive this one and you are in the draw for the whole{' '}
-              {fmt(round.surgePotMinor)} pot. One safe player at this table takes it.{' '}
+            <div className="gd-event-note" role="status">
+              <b>BONUS ROUND IN PROGRESS</b> · Survive this one and you are in the draw for the
+              whole {fmt(round.surgePotMinor)} pot. One safe player at this table takes it.{' '}
+              <span className="gd-eligibility">
+                {fleet
+                  ? 'You have a bet in this round, so you are in the draw if your harbour is safe.'
+                  : 'You have no bet in this round, so you are not in the draw.'}
+              </span>{' '}
               <button type="button" onClick={() => useStore.getState().setRulesOpen(true)}>
                 How the winner is picked
               </button>
@@ -374,6 +411,19 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
         </div>
         <LiveRail />
       </main>
+      {/*
+        Order 222 Annex 1 Art. 8.1(b) requires this notice CLEARLY AND LEGIBLY on
+        the game surface — not in a modal a player may never open (G12). It sits
+        in the permanent legal strip with the demo statement and the version, so
+        it is always on screen while a bet can be placed.
+      */}
+      <div className="gd-legal-strip">
+        <b>{MALFUNCTION_NOTICE}</b>
+        <span>Virtual credits · no real money · no deposits or withdrawals</span>
+        <button type="button" onClick={() => setGameInfo(true)}>
+          Game information, odds &amp; limits
+        </button>
+      </div>
       <footer className="gd-last-result">
         <span className="gd-label">YOUR LAST RESULT</span>
         {record && lastPersonal ? (
@@ -434,9 +484,11 @@ export function GameDashboard({ onAdvanced }: { onAdvanced(): void }) {
         <GameMenu
           onClose={() => setMenu(false)}
           onGuide={() => setGuide(true)}
+          onGameInfo={() => setGameInfo(true)}
           onAdvanced={onAdvanced}
         />
       )}
+      {gameInfo && <GameInfoDialog onClose={() => setGameInfo(false)} />}
       {receipt && <ReceiptDialog result={receipt} onClose={() => setReceipt(null)} />}
       {verifyRoundId !== null && (
         <Suspense fallback={null}>

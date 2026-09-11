@@ -31,6 +31,13 @@ function bootstrap(sqlite: Database.Database) {
   addColumnIfMissing(sqlite, 'players', 'last_room_id', 'TEXT');
   addColumnIfMissing(sqlite, 'storm_reserve_ledger', 'room_id', 'TEXT');
   addColumnIfMissing(sqlite, 'chat_messages', 'room_id', 'TEXT');
+  // Compliance pass (rules v2): G45 rules versioning, G27 voided rounds,
+  // G11 reserve backstop, G10 jackpot diversion pool.
+  addColumnIfMissing(sqlite, 'rounds', 'rules_version', 'INTEGER');
+  addColumnIfMissing(sqlite, 'rounds', 'voided_at', 'INTEGER');
+  addColumnIfMissing(sqlite, 'rounds', 'void_reason', 'TEXT');
+  addColumnIfMissing(sqlite, 'storm_reserve_ledger', 'backstop_minor', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(sqlite, 'surge_pots', 'diversion_minor', 'INTEGER NOT NULL DEFAULT 0');
 }
 
 function addColumnIfMissing(

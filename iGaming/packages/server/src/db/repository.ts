@@ -26,6 +26,9 @@ import {
   surgeEvents,
   surgePots,
   serverSecrets,
+  houseFloatLedger,
+  significantEvents,
+  controlVerifications,
 } from './schema.js';
 
 export interface PlayerRow {
@@ -60,6 +63,39 @@ export interface ReserveLedgerRow {
   inflowMinor: number;
   outflowMinor: number;
   balanceMinor: number;
+  /** House capital injected this round to keep the fund non-negative (G11). */
+  backstopMinor: number;
+}
+
+/** One round of segregated liquidity-float activity (G8). */
+export interface HouseFloatLedgerRow {
+  roundId: number;
+  roomId: string;
+  stakedMinor: number;
+  returnedMinor: number;
+  netMinor: number;
+  topUpMinor: number;
+  balanceMinor: number;
+}
+
+/** GLI-19 §2.9.5 significant event, with the value before and after (G37). */
+export interface SignificantEventRow {
+  category: 'CONFIG' | 'GAME_STATE' | 'JACKPOT' | 'RESERVE' | 'INTEGRITY' | 'INCIDENT' | 'CDN';
+  component: string;
+  actor: string;
+  reason?: string | undefined;
+  valueBefore?: string | undefined;
+  valueAfter?: string | undefined;
+  incident?: boolean | undefined;
+}
+
+/** GLI-19 §2.3.2 control-program verification result (G17). */
+export interface ControlVerificationRow {
+  trigger: 'SCHEDULED' | 'STARTUP' | 'ON_DEMAND';
+  digestHex: string;
+  baselineHex: string;
+  passed: boolean;
+  manifestJson: string;
 }
 
 export interface RoundSettlementFields {
@@ -83,7 +119,9 @@ export interface GameRepository {
   setPlayerRoom(id: string, roomId: string): void;
 
   // rounds
-  insertRound(roomId: string, chainIndex: number, prevChainValue: string): number;
+  insertRound(roomId: string, chainIndex: number, prevChainValue: string, rulesVersion: number): number;
+  /** G27 — mark a round voided; every bet in it is refunded, no rake taken. */
+  voidRound(roundId: number, reason: string): void;
   setRoundLockSnapshot(roundId: number, snapshotJson: string): void;
   roundSettledAt(roundId: number): number | null;
   settleRound(roundId: number, fields: RoundSettlementFields): void;
@@ -94,14 +132,24 @@ export interface GameRepository {
   setStakeOutcome(stakeId: string, outcome: 'SAFE' | 'WRECKED', payoutMinor: number): void;
 
   // storm surge
-  getSurgePot(roomId: string): number | undefined;
-  setSurgePot(roomId: string, potMinor: number): void;
+  getSurgePot(roomId: string): { potMinor: number; diversionMinor: number } | undefined;
+  setSurgePot(roomId: string, potMinor: number, diversionMinor: number): void;
   insertSurgeEvent(row: SurgeEventRow): void;
   countSurgeEvents(roomId: string): number;
 
   // storm reserve
   lastReserveBalance(roomId: string): number;
+  lastReserveBackstopTotal(roomId: string): number;
   insertReserveLedger(row: ReserveLedgerRow): void;
+
+  // segregated liquidity float (G8)
+  lastFloatBalance(roomId: string): number | undefined;
+  insertFloatLedger(row: HouseFloatLedgerRow): void;
+
+  // significant events (G37) and control-program verification (G17)
+  insertSignificantEvent(row: SignificantEventRow): void;
+  insertControlVerification(row: ControlVerificationRow): void;
+  lastControlBaseline(): string | undefined;
 
   // receipts (B1)
   insertReceipt(receipt: ActionReceipt): void;
@@ -217,18 +265,41 @@ export class DrizzleSqliteRepository implements GameRepository {
     this.db.update(players).set({ lastRoomId: roomId }).where(eq(players.id, id)).run();
   }
 
-  insertRound(roomId: string, chainIndex: number, prevChainValue: string): number {
+  insertRound(
+    roomId: string,
+    chainIndex: number,
+    prevChainValue: string,
+    rulesVersion: number,
+  ): number {
     // RETURNING, not the driver's `lastInsertRowid`: Durable Object SQLite hands
     // back a cursor that carries no rowid, so this is the one spelling both
     // SQLite hosts implement. The round id is the settlement's idempotency key,
     // so reading it back wrong is not a failure mode worth leaving open.
+    //
+    // `rulesVersion` is stamped HERE rather than at settlement: GLI-19 §A.5.1
+    // binds a wager to the rules in force when it was accepted, and bets are
+    // accepted against the round that this row opens (G45).
     const row = this.db
       .insert(rounds)
-      .values({ roomId, chainIndex, prevChainValue, createdAt: Date.now() })
+      .values({ roomId, chainIndex, prevChainValue, rulesVersion, createdAt: Date.now() })
       .returning({ id: rounds.id })
       .get();
     if (!row) throw new Error('insertRound: insert returned no row');
     return row.id;
+  }
+
+  /**
+   * G27 / GLI §4.16, §A.6.4 — void a round that cannot be settled. The refund of
+   * every stake is the caller's job inside the same transaction; this records
+   * the void so the round can never later be settled and so the public record
+   * and the player's history agree about what happened.
+   */
+  voidRound(roundId: number, reason: string): void {
+    this.db
+      .update(rounds)
+      .set({ voidedAt: Date.now(), voidReason: reason })
+      .where(eq(rounds.id, roundId))
+      .run();
   }
 
   setRoundLockSnapshot(roundId: number, snapshotJson: string): void {
@@ -278,15 +349,16 @@ export class DrizzleSqliteRepository implements GameRepository {
     this.db.update(stakes).set({ outcome, payoutMinor }).where(eq(stakes.id, stakeId)).run();
   }
 
-  getSurgePot(roomId: string): number | undefined {
-    return this.db.select().from(surgePots).where(eq(surgePots.roomId, roomId)).get()?.potMinor;
+  getSurgePot(roomId: string): { potMinor: number; diversionMinor: number } | undefined {
+    const row = this.db.select().from(surgePots).where(eq(surgePots.roomId, roomId)).get();
+    return row ? { potMinor: row.potMinor, diversionMinor: row.diversionMinor ?? 0 } : undefined;
   }
 
-  setSurgePot(roomId: string, potMinor: number): void {
+  setSurgePot(roomId: string, potMinor: number, diversionMinor: number): void {
     this.db
       .insert(surgePots)
-      .values({ roomId, potMinor })
-      .onConflictDoUpdate({ target: surgePots.roomId, set: { potMinor } })
+      .values({ roomId, potMinor, diversionMinor })
+      .onConflictDoUpdate({ target: surgePots.roomId, set: { potMinor, diversionMinor } })
       .run();
   }
 
@@ -321,11 +393,70 @@ export class DrizzleSqliteRepository implements GameRepository {
     );
   }
 
+  lastReserveBackstopTotal(roomId: string): number {
+    // The ledger stores the per-round injection, so the running total is a sum.
+    const rows = this.db
+      .select({ backstopMinor: stormReserveLedger.backstopMinor })
+      .from(stormReserveLedger)
+      .where(eq(stormReserveLedger.roomId, roomId))
+      .all();
+    return rows.reduce((a, r) => a + (r.backstopMinor ?? 0), 0);
+  }
+
   insertReserveLedger(row: ReserveLedgerRow): void {
     this.db
       .insert(stormReserveLedger)
       .values({ ...row, createdAt: Date.now() })
       .run();
+  }
+
+  lastFloatBalance(roomId: string): number | undefined {
+    return this.db
+      .select()
+      .from(houseFloatLedger)
+      .where(eq(houseFloatLedger.roomId, roomId))
+      .orderBy(desc(houseFloatLedger.roundId))
+      .limit(1)
+      .get()?.balanceMinor;
+  }
+
+  insertFloatLedger(row: HouseFloatLedgerRow): void {
+    this.db
+      .insert(houseFloatLedger)
+      .values({ ...row, createdAt: Date.now() })
+      .run();
+  }
+
+  insertSignificantEvent(row: SignificantEventRow): void {
+    this.db
+      .insert(significantEvents)
+      .values({
+        category: row.category,
+        component: row.component,
+        actor: row.actor,
+        reason: row.reason ?? null,
+        valueBefore: row.valueBefore ?? null,
+        valueAfter: row.valueAfter ?? null,
+        incident: row.incident ?? false,
+        createdAt: Date.now(),
+      })
+      .run();
+  }
+
+  insertControlVerification(row: ControlVerificationRow): void {
+    this.db
+      .insert(controlVerifications)
+      .values({ ...row, createdAt: Date.now() })
+      .run();
+  }
+
+  lastControlBaseline(): string | undefined {
+    return this.db
+      .select()
+      .from(controlVerifications)
+      .orderBy(controlVerifications.id)
+      .limit(1)
+      .get()?.baselineHex;
   }
 
   insertReceipt(receipt: ActionReceipt): void {

@@ -16,6 +16,8 @@ import { instanceId, log } from './log.js';
 import { metrics } from './metrics.js';
 import { loadRoomConfigs } from './rooms-file.js';
 import { RoomManager, isDemoEnv } from './rooms.js';
+import { ControlProgramVerifier } from './selfVerify.js';
+import { GameControl } from './gameControl.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
 // fileURLToPath (not URL.pathname) so the path is valid on Windows too.
@@ -72,6 +74,12 @@ hub.rooms = rooms;
 let roomsRunning = false;
 let shuttingDown = false;
 
+// G17 — control-program self-verification: at startup, then every 24 hours,
+// plus the on-demand endpoint. The first run establishes the certified baseline.
+const verifier = new ControlProgramVerifier(repo);
+// G32 — disable on demand (all gaming / a room / a player), audit-logged.
+const control = new GameControl(repo);
+
 const app = createApp(db, chain.commitment, surgeProb, econ, {
   ready: () =>
     shuttingDown
@@ -80,6 +88,8 @@ const app = createApp(db, chain.commitment, surgeProb, econ, {
         ? { ready: true }
         : { ready: false, reason: 'rooms not started' },
   sampleGauges: () => hub.sampleGauges(),
+  verifier,
+  control,
 });
 
 const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
@@ -106,6 +116,7 @@ const wss = new WebSocketServer({ server: server as never, path: '/ws' });
 hub.attach(wss);
 rooms.start();
 roomsRunning = true;
+verifier.start();
 log.info('ws listening', { path: '/ws', port: PORT });
 
 // Practice bots so solo players can see the crowd dynamics. Head-counts come
@@ -140,6 +151,7 @@ function shutdown(signal: string): void {
   shuttingDown = true;
   log.info('shutting down', { signal });
   for (const manager of botManagers) manager.stop();
+  verifier.stop();
   rooms.stop();
   roomsRunning = false;
   wss.close();

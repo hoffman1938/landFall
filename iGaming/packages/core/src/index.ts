@@ -5,4 +5,8 @@ export * from './settlement.js';
 export * from './messages.js';
 export * from './tide.js';
 export * from './liquidity.js';
+export * from './houseFloat.js';
+export * from './jackpot.js';
+export * from './rtp.js';
+export * from './rules.js';
 export * from './verify.js';

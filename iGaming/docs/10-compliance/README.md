@@ -33,11 +33,13 @@ Making LANDFALL a **licensed game in Georgia**, supplied B2B to licensed Georgia
 | [11](11-gli-19-conformance-matrix.md) | GLI-19 v3.0 conformance matrix | 2 |
 | [12](12-georgian-rules-conformance-matrix.md) | Georgian rules conformance matrix | 2 |
 | [22](22-compliance-gap-register.md) | Gap register | 0 |
+| [09](09-rtp-and-par-sheet.md) | RTP definition and PAR sheet | 4 |
+| [10](10-jackpot-and-bonus-controls.md) | Jackpot and bonus controls | 4 |
 
 ## Still to write
 
-`04` regulatory game rules · `07` responsible gaming · `09` RTP and PAR sheet · `10` jackpot and
-bonus controls · `13` electronic control system integration · `14` internal control system ·
+`04` regulatory game rules · `07` responsible gaming ·
+`13` electronic control system integration · `14` internal control system ·
 `15` technical security controls · `16` data protection and retention · `18` geolocation and access
 control · `19` reporting and records · `20` certification and audit plan · `21` Georgian localization
 
@@ -45,6 +47,18 @@ Documents `05`, `06`, `08` and `17` (player lifecycle/KYC, AML, payments, player
 are **operator obligations** on Route A and are not in scope — their interface constraints are
 recorded in [12](12-georgian-rules-conformance-matrix.md) §7 and
 [22](22-compliance-gap-register.md) §6.
+
+## What changed on 2026-09-11 (rules v2)
+
+An engineering pass took the code-side gaps: see
+[22](22-compliance-gap-register.md) for status per row and `docs/09-remediation/decisions-log.md`
+rows 64–73 for every judgment call. **One finding was new and was not a documentation gap at
+all** — the advertised **×500 Perfect Storm was mathematically unpayable**. The 25×-handle
+liability cap clamped it in every round whose struck harbour held more than 5.68% of the handle,
+and six harbours average 16.7%. That is GLI-19 §4.4.1(f) — *an explicitly advertised award must be
+winnable* — on top of the §4.7.3/§4.8.6/§4.7.4 disclosure failures G9 already recorded. The cap is
+now derived from the ladder (150×) and cap hits fall from 13 to 1 per 10M rounds.
+([10](10-jackpot-and-bonus-controls.md) §4.1)
 
 ## The three things most worth knowing
 
@@ -57,7 +71,8 @@ recorded in [12](12-georgian-rules-conformance-matrix.md) §7 and
    the player pool looks like a proposition position under GLI §A.7.1. The recommended fix —
    ring-fencing its profit and loss away from operator revenue — is contained and preserves the
    mechanic. Deciding it now is far cheaper than deciding it during the technical audit.
-   ([03](03-game-classification.md) §5)
+   ([03](03-game-classification.md) §5) **Implemented 2026-09-11** (decisions-log #66); the legal
+   position still needs counsel (Q4).
 3. **The material-change regime changes how the studio ships.** Law Art. 24¹.2 requires prior
    Revenue Service consent and a fresh authorization certificate before supplying a game whose bet,
    winnings, architecture, RNG or jackpot system has changed — and configuration counts. Release

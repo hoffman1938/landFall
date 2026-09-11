@@ -33,11 +33,26 @@ import {
   SURGE_MIN_POT_MINOR,
   WHALE_CAP_FRACTION,
   ZONE_COUNT,
+  RULES_VERSION,
+  applyFloatRound,
+  applyReserveRound,
   computeTideBands,
+  assertSingleWinner,
+  contributeToSurge,
+  houseFloatOpeningFor,
   drawPresentation,
   drawZone,
+  openFloat,
+  payOutSurge,
   pickGoldenAnchorFlat,
+  rollOverSurge,
+  stormReserveOpeningFor,
+  surgeCeilingFor,
+  unwinnableTiers,
   validateRakeConfig,
+  MALFUNCTION_NOTICE,
+  type HouseFloatState,
+  type SurgePotPolicy,
   type ActionReceipt,
   type RakeSplit,
   pickGoldenAnchor,
@@ -276,6 +291,19 @@ export class RoundCoordinator {
 
   /** Storm Reserve running balance (mirrors the last storm_reserve_ledger row). */
   private reserveBalanceMinor = 0;
+  /** Cumulative house capital injected to keep the reserve non-negative (G11). */
+  private reserveBackstopTotalMinor = 0;
+  /**
+   * GLI-19 §4.13.3 diversion pool — surge contributions received while the pot
+   * stood at its ceiling. Never lost; funds the reset value after the next win.
+   */
+  private surgeDiversionMinor = 0;
+  /**
+   * SEGREGATED LIQUIDITY FLOAT (G8). House-seed stakes and settlements move
+   * against this, never against operator revenue. See core/houseFloat.ts for
+   * why GLI-19 §A.7.1(c)–(d) requires the separation.
+   */
+  private floatState: HouseFloatState;
   /** B4: per-player roundIds of recently flown flags (cooldown window). */
   private flagHistory = new Map<string, number[]>();
   /** Boat counts at fog start (E2): lock − fog = the replay's net movement arrows. */
@@ -290,6 +318,19 @@ export class RoundCoordinator {
   }
   private get timings(): Timings {
     return this.cfg.timings;
+  }
+
+  /**
+   * GLI-19 §4.13.3 / §4.13.6(d) — the pot's ceiling and its RESET VALUE, the two
+   * figures the clause requires a progressive jackpot to define. The reset value
+   * is the table-sized floor the pot returns to after a win; the ceiling is
+   * where it stops incrementing and further contributions divert.
+   */
+  private get surgePolicy(): SurgePotPolicy {
+    return {
+      resetMinor: this.cfg.surgeFloorMinor,
+      ceilingMinor: surgeCeilingFor(this.cfg.minStakeMinor, this.cfg.surgeFloorMinor),
+    };
   }
 
   constructor(
@@ -314,17 +355,79 @@ export class RoundCoordinator {
     if (cfg.whaleCapFraction <= 0 || cfg.whaleCapFraction > 1) {
       throw new Error(`whaleCapFraction ${cfg.whaleCapFraction} outside (0, 1]`);
     }
+    // GLI-19 §4.4.1(f) — a ladder tier the liability cap can never pay in full
+    // is an advertised award that is not winnable. Asserted at construction so a
+    // rake/cap override in room config cannot ship a dishonest paytable; this is
+    // the executable form of the finding that raised the cap from 25× to 150×.
+    const unwinnable = unwinnableTiers(cfg.econ.rake, cfg.econ.maxPayoutMultiple);
+    if (unwinnable.length > 0) {
+      throw new Error(
+        `room ${cfg.roomId}: maxPayoutMultiple ${cfg.econ.maxPayoutMultiple} cannot pay ` +
+          `${unwinnable.map((t) => `${t.label} (×${t.mNum / t.mDen})`).join(', ')} in full at the ` +
+          `reference pool shape — GLI-19 §4.4.1(f) requires every advertised award to be winnable`,
+      );
+    }
+
     this.receiptSigner = new ReceiptSigner(repo.getOrCreateReceiptKey());
     this.reserveBalanceMinor = repo.lastReserveBalance(cfg.roomId);
+    this.reserveBackstopTotalMinor = repo.lastReserveBackstopTotal(cfg.roomId);
     this.wreckLog = repo.recentStruckZones(cfg.roomId, 20);
 
-    // Storm Surge pot: load or seed the floor (house-funded, auditable).
+    // G11 — the Storm Reserve opens CAPITALIZED rather than at zero. Its funding
+    // invariant makes it self-sustaining over the long run, but a big storm in
+    // the opening rounds used to draw against a fund that had collected almost
+    // nothing and drive the ledger negative. Opening capital sized to the worst
+    // single round the cap admits at this room's guaranteed table size.
+    const openingReserve = stormReserveOpeningFor(cfg.liquidityFloorMinor);
+    if (repo.lastFloatBalance(cfg.roomId) === undefined && this.reserveBalanceMinor === 0) {
+      this.reserveBalanceMinor = openingReserve;
+    } else if (this.reserveBalanceMinor < 0) {
+      // A LEGACY DEFICIT, regularised ONCE, here rather than in a round.
+      //
+      // Databases written before rules v2 can carry a negative reserve balance:
+      // that was the old design (decisions-log #3), and it is the thing G11
+      // objects to. Folding it into the next round's settlement would work
+      // arithmetically but would book a large house backstop against a round
+      // that did not cause it, and raise an Art. 16.1(b) incident for an
+      // upgrade. So it is recognised at construction as what it actually is —
+      // operator capital covering a historical shortfall — and the per-round
+      // ledger stays a record of that round.
+      const deficit = -this.reserveBalanceMinor;
+      const injected = deficit + openingReserve;
+      repo.inTransaction(() => {
+        const house = repo.getHousePlayer();
+        if (house) repo.creditPlayer(house.id, -injected);
+        repo.insertSignificantEvent({
+          category: 'RESERVE',
+          component: `storm_reserve.${cfg.roomId}`,
+          actor: 'system',
+          reason:
+            'rules v2 migration: legacy negative reserve balance regularised and the fund ' +
+            'capitalized; the balance can no longer go negative',
+          valueBefore: String(-deficit),
+          valueAfter: String(openingReserve),
+        });
+      });
+      this.reserveBalanceMinor = openingReserve;
+    }
+
+    // The segregated float opens with disclosed operator capital sized to fund
+    // several fully-seeded rounds, so a top-up means the float is genuinely
+    // exhausted rather than merely new.
+    const floatBalance = repo.lastFloatBalance(cfg.roomId);
+    this.floatState =
+      floatBalance === undefined
+        ? openFloat(houseFloatOpeningFor(cfg.seedMinor, ZONE_COUNT, cfg.liquidityFloorMinor))
+        : { balanceMinor: floatBalance, contributedMinor: 0, releasedMinor: 0 };
+
+    // Storm Surge pot: load or seed the reset value (house-funded, auditable).
     const pot = repo.getSurgePot(cfg.roomId);
     if (pot !== undefined) {
-      this.surgePotMinor = pot;
+      this.surgePotMinor = pot.potMinor;
+      this.surgeDiversionMinor = pot.diversionMinor;
     } else {
       this.surgePotMinor = cfg.surgeFloorMinor;
-      repo.setSurgePot(cfg.roomId, this.surgePotMinor);
+      repo.setSurgePot(cfg.roomId, this.surgePotMinor, 0);
       const house = repo.getHousePlayer();
       if (house) repo.creditPlayer(house.id, -this.surgePotMinor);
     }
@@ -853,7 +956,14 @@ export class RoundCoordinator {
     this.fogBoatCounts = null;
     this.receiptSeq = 0;
 
-    this.roundId = this.repo.insertRound(this.cfg.roomId, chainIndex, prevChainValue);
+    // The rules version is stamped at round CREATION, not at settlement: GLI-19
+    // §A.5.1 binds a wager to the rules in force when it was accepted (G45).
+    this.roundId = this.repo.insertRound(
+      this.cfg.roomId,
+      chainIndex,
+      prevChainValue,
+      RULES_VERSION,
+    );
 
     // Fix this round's house seed BEFORE anchoring opens, from settled history
     // only. It goes out in the round header with everything else, so no player
@@ -963,7 +1073,16 @@ export class RoundCoordinator {
             isHouseSeed: true,
           });
         }
-        this.repo.creditPlayer(housePlayer.id, -ZONE_COUNT * this.seedMinor);
+        // NO HOUSE DEBIT HERE (G8). The seed is funded by the SEGREGATED
+        // LIQUIDITY FLOAT, not by the operator's account, and both legs of that
+        // — what went out and what came back — are booked together against the
+        // float at settlement by `applyFloatRound`. Debiting the house here and
+        // crediting it at settlement is what put house-seed profit into operator
+        // revenue in the first place, which is the §A.7.1(c)–(d) finding.
+        //
+        // The stakes above still carry the house player as owner because the
+        // lock snapshot and the public verification record need an owner; it is
+        // the MONEY that moved, not the attribution.
       }
       this.repo.setRoundLockSnapshot(this.roundId, JSON.stringify(snapshot));
     });
@@ -991,7 +1110,75 @@ export class RoundCoordinator {
     this.timer = setTimeout(() => this.resolve(draw.struckZone), this.timings.stormMs);
   }
 
+  /**
+   * G27 / GLI-19 §4.16, §A.6.4 — INTERRUPTED GAME HANDLING.
+   *
+   * Landfall's position on the usual form of this clause is unusually strong and
+   * worth stating: there are no player actions after bets lock, so the entire
+   * class of "interrupted mid-decision" games cannot occur. What CAN occur is a
+   * round interrupted between lock and settlement — a settlement that throws,
+   * most importantly the core conservation assert firing — and until now that
+   * left the stakes debited and nobody paid.
+   *
+   * §A.6.4 prescribes the remedy exactly: return the wagers, update balances and
+   * history, inform the regulatory body, and disable if the failure is likely to
+   * recur. This does the first three; the fourth is `gameControl.disable`.
+   */
+  private voidRound(reason: string): void {
+    const snapshot = this.lockSnapshot;
+    this.repo.inTransaction(() => {
+      if (this.repo.roundSettledAt(this.roundId) !== null) return;
+      // Refund every PLAYER stake in full. House seeds are not refunded to the
+      // operator's account because they were never debited from it — the float
+      // simply books no round, which leaves it whole.
+      for (const entry of this.liveStakeEntries(true)) {
+        this.repo.setStakeOutcome(entry.id, 'SAFE', entry.amountMinor);
+        this.repo.creditPlayer(entry.playerId, entry.amountMinor);
+      }
+      this.repo.voidRound(this.roundId, reason);
+      this.repo.insertSignificantEvent({
+        category: 'INCIDENT',
+        component: `round.${this.roundId}`,
+        actor: 'system',
+        reason: `round voided and all bets refunded: ${reason}`,
+        valueBefore: 'LOCKED_STORM',
+        valueAfter: 'VOID',
+        incident: true,
+      });
+    });
+    const refunded = snapshot?.filter((e) => !e.isHouseSeed).length ?? 0;
+    log.error('ROUND VOIDED — every bet refunded', {
+      roundId: this.roundId,
+      roomId: this.cfg.roomId,
+      reason,
+      refundedStakes: refunded,
+    });
+    metrics.counter(
+      'landfall_rounds_voided_total',
+      'Rounds voided between lock and settlement; every bet refunded.',
+      { room: this.cfg.roomId },
+      1,
+    );
+    this.events.systemMessage(
+      `Round #${this.roundId} could not be settled and has been voided. Every bet in it has been ` +
+        `returned in full. ${MALFUNCTION_NOTICE}.`,
+    );
+  }
+
   private resolve(struckZone: number): void {
+    try {
+      this.resolveOrThrow(struckZone);
+    } catch (err) {
+      // The conservation assert is the loudest thing that can land here, and it
+      // firing means the settlement arithmetic disagreed with itself — so the
+      // one thing we must NOT do is pay it out anyway.
+      this.voidRound(err instanceof Error ? err.message : String(err));
+      this.setPhase('COOLDOWN', this.timings.cooldownMs);
+      this.timer = setTimeout(() => this.beginRound(), this.timings.cooldownMs);
+    }
+  }
+
+  private resolveOrThrow(struckZone: number): void {
     const settleStartedAt = monotonicMs();
     this.setPhase('RESOLVED', this.timings.resolvedMs);
     const snapshot = this.lockSnapshot!;
@@ -1048,6 +1235,18 @@ export class RoundCoordinator {
     const houseRakeMinor = settlement.rakeMinor - surgeContribMinor - reserveContribMinor;
     // Storm Power overpayment (≥ 0 with the ×1-floor ladder) draws from the reserve.
     const reserveOutflowMinor = Math.max(0, settlement.houseDeltaMinor);
+
+    // G8 — the house seed's own stake and settlement, isolated from the rake.
+    // These two figures are the whole of the ring-fence: what house money put on
+    // the table, and what came back. Neither touches the operator's account.
+    const seedStakedMinor = snapshot.reduce(
+      (a, entry) => a + (entry.isHouseSeed ? entry.amountMinor : 0),
+      0,
+    );
+    const seedReturnedMinor = settlement.lines.reduce(
+      (a, line) => a + (line.isHouseSeed ? line.payoutMinor : 0),
+      0,
+    );
     const goldenWinner = this.surgeRound
       ? (this.surgeFlatOdds ? pickGoldenAnchorFlat : pickGoldenAnchor)(
           snapshot,
@@ -1064,68 +1263,150 @@ export class RoundCoordinator {
       for (const line of settlement.lines) {
         this.repo.setStakeOutcome(line.id, line.outcome, line.payoutMinor);
 
-        const ownerId = line.isHouseSeed ? housePlayer?.id : stakeOwner.get(line.id);
+        // HOUSE SEEDS NO LONGER CREDIT THE HOUSE ACCOUNT (G8). Their settlement
+        // is booked against the segregated liquidity float below, so a seed that
+        // survives a round can never appear in operator revenue. GLI-19
+        // §A.7.1(c)–(d): the operator must not profit from the play beyond the
+        // rake, and operator-funded wagers must ultimately be lost or played.
+        if (line.isHouseSeed) continue;
+        const ownerId = stakeOwner.get(line.id);
         if (!ownerId) continue;
         if (line.payoutMinor > 0) {
           this.repo.creditPlayer(ownerId, line.payoutMinor);
         }
       }
       if (housePlayer) {
-        // House books only its rake share. The Storm Power overpayment is no
-        // longer a house liability: it draws from the Storm Reserve, whose
-        // funding invariant (core storm-power test) keeps E[outflow] ≤ E[inflow].
+        // The operator books THE RAKE ALONE. The Storm Power overpayment draws
+        // from the Storm Reserve, and the house seed's profit and loss goes to
+        // the segregated float — so this single line is now the complete
+        // definition of operator revenue, which is what `reconcileOperatorRevenue`
+        // asserts against.
         this.repo.creditPlayer(housePlayer.id, houseRakeMinor);
       }
 
-      // Storm Reserve ledger row (A3): auditable inflow/outflow/balance per round.
-      this.reserveBalanceMinor += reserveContribMinor - reserveOutflowMinor;
+      // Segregated liquidity float ledger (G8).
+      const floatRound = applyFloatRound(this.floatState, seedStakedMinor, seedReturnedMinor);
+      this.floatState = floatRound.state;
+      this.repo.insertFloatLedger({
+        roomId: this.cfg.roomId,
+        roundId: this.roundId,
+        stakedMinor: floatRound.stakedMinor,
+        returnedMinor: floatRound.returnedMinor,
+        netMinor: floatRound.netMinor,
+        topUpMinor: floatRound.topUpMinor,
+        balanceMinor: floatRound.state.balanceMinor,
+      });
+      if (housePlayer && floatRound.topUpMinor > 0) {
+        // Operator capital entering the float is a real movement on the house
+        // account, and it is the one direction that is permitted: money goes IN.
+        this.repo.creditPlayer(housePlayer.id, -floatRound.topUpMinor);
+      }
+
+      // Storm Reserve ledger row (A3, G11): the balance can no longer go
+      // negative — a draw beyond the fund is booked as an explicit house
+      // backstop, which is a reportable obligation rather than a minus sign.
+      const reserve = applyReserveRound(
+        { balanceMinor: this.reserveBalanceMinor, backstopTotalMinor: this.reserveBackstopTotalMinor },
+        reserveContribMinor,
+        reserveOutflowMinor,
+      );
+      this.reserveBalanceMinor = reserve.state.balanceMinor;
+      this.reserveBackstopTotalMinor = reserve.state.backstopTotalMinor;
       this.repo.insertReserveLedger({
         roomId: this.cfg.roomId,
         roundId: this.roundId,
-        inflowMinor: reserveContribMinor,
-        outflowMinor: reserveOutflowMinor,
-        balanceMinor: this.reserveBalanceMinor,
+        inflowMinor: reserve.inflowMinor,
+        outflowMinor: reserve.outflowMinor,
+        balanceMinor: reserve.state.balanceMinor,
+        backstopMinor: reserve.backstopMinor,
       });
+      if (housePlayer && reserve.backstopMinor > 0) {
+        this.repo.creditPlayer(housePlayer.id, -reserve.backstopMinor);
+        this.repo.insertSignificantEvent({
+          category: 'RESERVE',
+          component: `storm_reserve.${this.cfg.roomId}`,
+          actor: 'system',
+          reason: 'Storm Power draw exceeded the reserve; house backstop injected',
+          valueBefore: String(reserve.state.balanceMinor + reserve.outflowMinor - reserve.inflowMinor),
+          valueAfter: String(reserve.state.balanceMinor),
+          incident: true,
+        });
+      }
 
-      // Pot grows by this round's contribution first, then pays out if surging.
-      let pot = this.surgePotMinor + surgeContribMinor;
+      // JACKPOT CONTROL SOFTWARE (G10). Every movement below goes through
+      // core/jackpot.ts, which exists as a separate artefact because Order 222
+      // Annex 1 Art. 17.1 requires the jackpot PROGRAM and the jackpot CONTROL
+      // SOFTWARE to be authorized separately — the accounting cannot be code
+      // inlined here if it has to be certified on its own.
+      const policy = this.surgePolicy;
+      const contribution = contributeToSurge(
+        { potMinor: this.surgePotMinor, diversionMinor: this.surgeDiversionMinor },
+        surgeContribMinor,
+        policy,
+      );
+      let potState = contribution.state;
+      if (contribution.toDiversionMinor > 0) {
+        // §4.13.3 — the pot is at its ceiling and the overflow is being held for
+        // the next reset. Recorded, because an advertised jackpot that has
+        // stopped growing is a fact players and auditors both need.
+        this.repo.insertSignificantEvent({
+          category: 'JACKPOT',
+          component: `surge_pot.${this.cfg.roomId}`,
+          actor: 'system',
+          reason: 'pot at ceiling; contribution credited to the diversion pool',
+          valueBefore: String(this.surgeDiversionMinor),
+          valueAfter: String(potState.diversionMinor),
+        });
+      }
+
       if (this.surgeRound) {
         if (goldenWinner && surgeWinnerPlayerId) {
           const winnerPlayerId = surgeWinnerPlayerId;
-          this.repo.creditPlayer(winnerPlayerId, pot);
-          perPlayerNet.set(winnerPlayerId, (perPlayerNet.get(winnerPlayerId) ?? 0) + pot);
+          // §4.13.9 — exactly one winner per surge round, by construction.
+          assertSingleWinner([goldenWinner.id]);
+          const payout = payOutSurge(potState, policy);
+          this.repo.creditPlayer(winnerPlayerId, payout.paidMinor);
+          perPlayerNet.set(
+            winnerPlayerId,
+            (perPlayerNet.get(winnerPlayerId) ?? 0) + payout.paidMinor,
+          );
           this.repo.insertSurgeEvent({
             roundId: this.roundId,
             winnerPlayerId,
             winnerStakeId: goldenWinner.id,
-            amountMinor: pot,
+            amountMinor: payout.paidMinor,
             flatOdds: this.surgeFlatOdds,
           });
           surgeResult = {
-            potMinor: pot,
+            potMinor: payout.paidMinor,
             winnerName: this.fleets.get(winnerPlayerId)?.name ?? '?',
             winnerStakeMinor: goldenWinner.amountMinor,
           };
-          // House re-seeds THIS TABLE's floor, so the next pot is never
-          // trivial in the money this table actually plays for.
-          pot = this.cfg.surgeFloorMinor;
-          if (housePlayer) {
-            this.repo.creditPlayer(housePlayer.id, -this.cfg.surgeFloorMinor);
+          // §4.13.6(d) — the pot returns to its defined reset value, funded from
+          // the diversion pool first and only then by the house. Money held back
+          // at the ceiling therefore comes straight back as the next pot.
+          potState = payout.state;
+          if (housePlayer && payout.fromHouseMinor > 0) {
+            this.repo.creditPlayer(housePlayer.id, -payout.fromHouseMinor);
           }
         } else {
-          // No surviving player stake — pot rolls over, event recorded for the log.
+          // Art. 17.3 — no surviving player stake, so the jackpot cannot be paid.
+          // It ROLLS OVER UNTOUCHED: cancellation of an unpaid jackpot is not
+          // permitted, and `rollOverSurge` is the named, tested expression of that.
+          potState = rollOverSurge(potState);
           this.repo.insertSurgeEvent({
             roundId: this.roundId,
             winnerPlayerId: null,
             winnerStakeId: null,
-            amountMinor: pot,
+            amountMinor: potState.potMinor,
             flatOdds: this.surgeFlatOdds,
           });
-          surgeResult = { potMinor: pot, winnerName: null, winnerStakeMinor: null };
+          surgeResult = { potMinor: potState.potMinor, winnerName: null, winnerStakeMinor: null };
         }
       }
-      this.repo.setSurgePot(this.cfg.roomId, pot);
-      this.surgePotMinor = pot;
+      this.repo.setSurgePot(this.cfg.roomId, potState.potMinor, potState.diversionMinor);
+      this.surgePotMinor = potState.potMinor;
+      this.surgeDiversionMinor = potState.diversionMinor;
 
       this.repo.settleRound(this.roundId, {
         seedHex: this.seedHex,

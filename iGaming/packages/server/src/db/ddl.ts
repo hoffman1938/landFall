@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS rounds (
   rake_bp INTEGER,
   max_payout_multiple INTEGER,
   power_capped INTEGER,
+  rules_version INTEGER,
+  voided_at INTEGER,
+  void_reason TEXT,
   settled_at INTEGER,
   created_at INTEGER NOT NULL
 );
@@ -55,7 +58,8 @@ CREATE TABLE IF NOT EXISTS stakes (
 CREATE INDEX IF NOT EXISTS idx_stakes_round ON stakes(round_id);
 CREATE TABLE IF NOT EXISTS surge_pots (
   room_id TEXT PRIMARY KEY,
-  pot_minor INTEGER NOT NULL
+  pot_minor INTEGER NOT NULL,
+  diversion_minor INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS storm_reserve_ledger (
   round_id INTEGER PRIMARY KEY,
@@ -63,6 +67,38 @@ CREATE TABLE IF NOT EXISTS storm_reserve_ledger (
   inflow_minor INTEGER NOT NULL,
   outflow_minor INTEGER NOT NULL,
   balance_minor INTEGER NOT NULL,
+  backstop_minor INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS house_float_ledger (
+  round_id INTEGER PRIMARY KEY,
+  room_id TEXT,
+  staked_minor INTEGER NOT NULL,
+  returned_minor INTEGER NOT NULL,
+  net_minor INTEGER NOT NULL,
+  top_up_minor INTEGER NOT NULL DEFAULT 0,
+  balance_minor INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS significant_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category TEXT NOT NULL,
+  component TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  reason TEXT,
+  value_before TEXT,
+  value_after TEXT,
+  incident INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_events_category ON significant_events(category, created_at);
+CREATE TABLE IF NOT EXISTS control_verifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  trigger TEXT NOT NULL,
+  digest_hex TEXT NOT NULL,
+  baseline_hex TEXT NOT NULL,
+  passed INTEGER NOT NULL,
+  manifest_json TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS surge_events (

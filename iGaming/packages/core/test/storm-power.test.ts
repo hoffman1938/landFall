@@ -138,9 +138,14 @@ describe('settlement with storm power', () => {
     expect(r.powerCapped).toBe(false);
   });
 
-  it('clamps a Perfect Storm on a whale pool to the liability cap and conserves (A3)', () => {
-    // handle 200,000; struck pool 50,000; nominal ×500 salvage = 22,000,000
-    // cap = 25 × handle = 5,000,000 → clamped, published, conserved.
+  /**
+   * A whale pool at a QUARTER of the handle used to clamp, because the cap was
+   * 25× handle. It no longer does: the cap is 150× (rules v2), derived so every
+   * advertised tier pays in full while the struck harbor holds up to twice its
+   * uniform share. See test/compliance.test.ts for the GLI §4.4.1(f) invariant
+   * that forced the change.
+   */
+  it('pays a Perfect Storm in full on a quarter-of-handle struck pool (rules v2)', () => {
     const whalePool: StakeEntry[] = [
       { id: 'h0', zone: 0, amountMinor: 5_000, isHouseSeed: true },
       { id: 'h1', zone: 1, amountMinor: 5_000, isHouseSeed: true },
@@ -155,17 +160,56 @@ describe('settlement with storm power', () => {
     ];
     const handle = whalePool.reduce((a, s) => a + s.amountMinor, 0);
     expect(handle).toBe(200_000);
-    const cap = STORM_POWER_MAX_PAYOUT_MULTIPLE * handle;
-    const r = settleRound(whalePool, 0, RAKE, { mNum: 500, mDen: 1 }, cap);
+    const r = settleRound(
+      whalePool,
+      0,
+      RAKE,
+      { mNum: 500, mDen: 1 },
+      STORM_POWER_MAX_PAYOUT_MULTIPLE * handle,
+    );
     expect(r.rakeMinor).toBe(6_000);
+    expect(r.powerCapped).toBe(false);
+    // distributable 44,000 × 500 paid in full — the advertised award, actually paid.
+    expect(r.salvageTotalMinor).toBe(22_000_000);
+    const paid = r.lines.reduce((s, l) => s + l.payoutMinor, 0);
+    expect(paid + r.rakeMinor).toBe(handle + r.houseDeltaMinor);
+  });
+
+  it('clamps to the liability cap on an extreme pool shape and conserves (A3)', () => {
+    // handle 200,000; struck pool 100,000 (half the table on one harbor — past
+    // the 34.1% share where the 150× cap begins to bind). Nominal ×500 salvage
+    // = 44,000,000; cap = 150 × handle = 30,000,000 → clamped, published, conserved.
+    const extreme: StakeEntry[] = [
+      ...[0, 1, 2, 3, 4, 5].map((z) => ({
+        id: `h${z}`,
+        zone: z,
+        amountMinor: 5_000,
+        isHouseSeed: true,
+      })),
+      { id: 'w', zone: 0, amountMinor: 95_000, isHouseSeed: false },
+      { id: 'a', zone: 1, amountMinor: 30_000, isHouseSeed: false },
+      { id: 'b', zone: 2, amountMinor: 25_000, isHouseSeed: false },
+      { id: 'c', zone: 3, amountMinor: 20_000, isHouseSeed: false },
+    ];
+    const handle = extreme.reduce((a, s) => a + s.amountMinor, 0);
+    expect(handle).toBe(200_000);
+    const r = settleRound(
+      extreme,
+      0,
+      RAKE,
+      { mNum: 500, mDen: 1 },
+      STORM_POWER_MAX_PAYOUT_MULTIPLE * handle,
+    );
+    expect(r.struckPoolMinor).toBe(100_000);
+    expect(r.rakeMinor).toBe(12_000);
     expect(r.powerCapped).toBe(true);
-    expect(r.salvageTotalMinor).toBe(5_000_000);
-    expect(r.houseDeltaMinor).toBe(5_000_000 - 44_000);
+    expect(r.salvageTotalMinor).toBe(30_000_000);
+    expect(r.houseDeltaMinor).toBe(30_000_000 - 88_000);
     const paid = r.lines.reduce((s, l) => s + l.payoutMinor, 0);
     expect(paid + r.rakeMinor).toBe(handle + r.houseDeltaMinor);
     // The clamp never cuts below the pari-mutuel base: an absurdly low cap
     // still leaves survivors the full (1−RAKE) pass-through.
-    const r2 = settleRound(whalePool, 0, RAKE, { mNum: 500, mDen: 1 }, 1_000);
+    const r2 = settleRound(extreme, 0, RAKE, { mNum: 500, mDen: 1 }, 1_000);
     expect(r2.salvageTotalMinor).toBe(r2.distributedMinor);
   });
 

@@ -33,8 +33,13 @@ export const STARTING_BALANCE_MINOR = 50_000_00;
  *   house        -> operator revenue (net hold ≈ RAKE/ZONE_COUNT × house = 1% of handle)
  *   surge        -> Storm Surge progressive pot (returns to players)
  *   stormReserve -> Storm Reserve funding the Storm Power ladder's E[M−1] overpayment
- * Player-facing long-run return ≈ 98% (survivors receive (1−RAKE) = 88% of the
- * wrecked pool; surge + reserve flows return the rest of the non-house take).
+ * Player-facing long-run return ≈ 99.0% — survivors receive (1−RAKE) = 88% of
+ * the wrecked pool, and the surge and reserve shares come back to players on top
+ * of that. The figure used to be quoted as 98%, which is the BASE term alone
+ * (1 − RAKE/ZONE_COUNT) and ignores the two return flows the same sentence
+ * listed; GLI-19 §4.7.2 requires a displayed return to match its own stated
+ * derivation. The single source is `theoreticalRtp()` in rtp.ts — never retype
+ * the number, call `economyDisclosure()`.
  */
 export interface RakeSplit {
   house: number;
@@ -64,11 +69,120 @@ export function validateRakeConfig(rake: number, split: RakeSplit): void {
 
 /**
  * Storm Power liability cap — max total salvage per round as a multiple of the
- * round handle. A nominal ×500 Perfect Storm on a whale pool is clamped here;
- * the clamp is published in the round result (powerCapped) and the unspent
- * overpayment intent stays in the Storm Reserve. Operator-configurable.
+ * round handle. The clamp is published in the round result (`powerCapped`) and
+ * recomputable from the public lock snapshot. Operator-configurable.
+ *
+ * WHY 150, AND WHY IT USED TO BE 25.
+ *
+ * The cap is denominated in HANDLE; the multiplier it limits is applied to
+ * `distributable = (1−RAKE)·P_struck`. Those are different bases, so the
+ * EFFECTIVE ceiling on the multiplier is a function of the round's pool shape:
+ *
+ *     salvage = (1−r)·P_struck·M  ≤  C·T     ⟺     M ≤ C / ((1−r)·P_struck/T)
+ *
+ * At C = 25 that bound is ×170.5 when the pools are uniform (P_struck/T = 1/6),
+ * and the cap bit on ANY round whose struck harbor held more than 5.68% of the
+ * handle. Six harbors average 16.7%, so the advertised ×500 Perfect Storm was
+ * clamped in essentially every round it ever landed in — the 10M-round sim's 13
+ * cap hits are almost exactly its 9.5 expected Perfect Storms. An award that
+ * cannot be paid at its advertised value fails GLI-19 §4.4.1(f) ("an explicitly
+ * advertised award must be winnable from a single game or series"), on top of
+ * the §4.7.4/§4.13.3 disclosure the cap already owed players.
+ *
+ * The bound is now DERIVED from the ladder instead of chosen: the cap must pay
+ * every advertised tier in full while the struck harbor holds up to TWICE its
+ * uniform share — a genuinely crowded harbor, and already the windfall case for
+ * survivors. For the top tier that is
+ *
+ *     C ≥ (1−r)·M_max·(2/K) = 0.88 × 500 × 2/6 = 146.67  →  150
+ *
+ * so ×500 now pays in full for every round where the struck harbor holds up to
+ * 34.1% of the handle, and the clamp is reserved for genuinely extreme shapes.
+ * `unwinnableTiers` below is the executable form of this invariant, and the
+ * coordinator calls it at construction so a room config cannot bypass it.
+ * The larger tail is funded by the Storm Reserve's opening capitalization and
+ * its never-negative backstop (see STORM_RESERVE_* below).
  */
-export const STORM_POWER_MAX_PAYOUT_MULTIPLE = 25;
+export const STORM_POWER_MAX_PAYOUT_MULTIPLE = 150;
+
+/**
+ * The pool shape the cap is required to pay the whole ladder at, as a multiple
+ * of a harbor's uniform share (1/K). The disclosure in the client quotes the
+ * resulting percentage directly, so it lives here rather than in copy.
+ */
+export const STORM_POWER_CAP_HEADROOM = 2;
+
+/**
+ * GLI-19 §4.4.1(f) as an assertion: every tier the artwork advertises must be
+ * payable IN FULL at the reference pool shape. Called by the core test suite
+ * and by the server at startup, so a rake/cap/ladder config that quietly makes
+ * the headline award unwinnable cannot reach players.
+ *
+ * Returns the tiers that fail; empty means the ladder is honest.
+ */
+export function unwinnableTiers(
+  rake: number,
+  maxPayoutMultiple: number,
+  zones: number = ZONE_COUNT,
+  headroom: number = STORM_POWER_CAP_HEADROOM,
+  ladder: readonly StormPowerTier[] = STORM_POWER_LADDER,
+): StormPowerTier[] {
+  const struckShare = headroom / zones; // P_struck / T at the reference shape
+  return ladder.filter(
+    (t) => (1 - rake) * (t.mNum / t.mDen) * struckShare > maxPayoutMultiple + 1e-9,
+  );
+}
+
+/**
+ * The struck-harbor share (as a fraction of handle) above which a given tier
+ * starts to be clamped. Disclosed to players next to the tier's odds, because
+ * §4.7.4 requires a limitation on an award to be explained on the theme
+ * offering it. Returns null when the tier can never be clamped.
+ */
+export function capBindsAboveShare(
+  mNum: number,
+  mDen: number,
+  rake: number = RAKE,
+  maxPayoutMultiple: number = STORM_POWER_MAX_PAYOUT_MULTIPLE,
+): number | null {
+  const share = maxPayoutMultiple / ((1 - rake) * (mNum / mDen));
+  return share >= 1 ? null : share;
+}
+
+/**
+ * Storm Reserve solvency (G11; GLI-19 §A.4.1 operator reserves, §A.6.5(d)).
+ *
+ * The reserve funds the Storm Power ladder's expected overpayment E[M−1], and
+ * its funding invariant makes E[outflow] ≤ E[inflow] — so over any long horizon
+ * it self-sustains. What it did NOT have was a position on the SHORT horizon: a
+ * big storm in the opening rounds drew against a fund that had collected almost
+ * nothing, and the ledger recorded a NEGATIVE BALANCE (decisions-log #3, by
+ * deliberate design, with the house silently backstopping). A regulator reviewing
+ * bankroll adequacy reads an obligation fund that can run negative as a solvency
+ * question, and reads a silent backstop as an undisclosed liability.
+ *
+ * Two changes, neither of which touches a player's payout:
+ *
+ *   1. OPENING CAPITALIZATION. Each room's reserve opens with a disclosed,
+ *      ledgered balance sized to the worst single round the liability cap can
+ *      produce at that room's guaranteed size. The fund starts solvent instead
+ *      of earning its way out of a hole.
+ *   2. NEVER NEGATIVE. Where a draw still exceeds the balance, the shortfall is
+ *      booked as an explicit `backstopMinor` house capital injection on the
+ *      ledger row — a named, reported, auditable commitment — and the balance
+ *      floors at zero. The player is paid in full either way; the difference is
+ *      that the house's obligation is now on the record rather than implied by
+ *      a minus sign.
+ *
+ * Sized at the cap's worst case against the room's liquidity floor, which is the
+ * table size the house itself guarantees: `C × F`. At Skiff (F = 90 credits)
+ * that is 13,500 credits; at Leviathan (F = 22,500) it is 3,375,000.
+ */
+export const STORM_RESERVE_OPENING_MULTIPLE = STORM_POWER_MAX_PAYOUT_MULTIPLE;
+
+export function stormReserveOpeningFor(liquidityFloorMinor: number): number {
+  return STORM_RESERVE_OPENING_MULTIPLE * liquidityFloorMinor;
+}
 
 /**
  * Storm Surge — progressive jackpot (docs/03-math/mathematical-model.md §10).
@@ -77,6 +191,25 @@ export const STORM_POWER_MAX_PAYOUT_MULTIPLE = 25;
  * surviving player stake, picked weighted-by-stake from the lock snapshot.
  */
 export const SURGE_PROB = 1 / 25; // expected surge frequency (~every 25 rounds)
+
+/**
+ * Jackpot ceiling and diversion pool (GLI-19 §4.13.3).
+ *
+ * §4.13.3 requires that a jackpot which reaches a maximum "remains at that
+ * amount until it is won", with further contributions credited to a DIVERSION
+ * POOL that seeds the next jackpot rather than being lost — and §4.13.6 requires
+ * contributions never to be lost or truncated. The pot previously had no ceiling
+ * at all, which is not a violation on its own, but it left the operator with an
+ * unbounded advertised figure and no defined reset value. Both are now explicit.
+ *
+ * The ceiling is per table, expressed in the money that table plays for, so a
+ * Skiff pot cannot advertise a Leviathan number.
+ */
+export const SURGE_CEILING_MIN_STAKE_MULTIPLE = 5_000;
+
+export function surgeCeilingFor(minStakeMinor: number, resetMinor: number): number {
+  return Math.max(SURGE_CEILING_MIN_STAKE_MULTIPLE * minStakeMinor, resetMinor * 10);
+}
 
 /**
  * The pot floor the house re-seeds after each payout.

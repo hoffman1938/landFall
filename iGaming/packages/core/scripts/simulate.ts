@@ -16,6 +16,8 @@ import { bytesToHex } from '@noble/hashes/utils';
 import {
   HOUSE_SEED_MINOR,
   RAKE,
+  applyReserveRound,
+  stormReserveOpeningFor,
   RAKE_SPLIT,
   STORM_POWER_MAX_PAYOUT_MULTIPLE,
   SURGE_MIN_POT_MINOR,
@@ -86,8 +88,19 @@ let houseShareSum = 0;
 let surgeContribSum = 0;
 let reserveInSum = 0;
 let reserveOutSum = 0;
-let reserveBalance = 0;
-let reserveMin = 0;
+/**
+ * The reserve is stepped through the PRODUCTION control function
+ * (`applyReserveRound`) rather than a `+=` here, for the same reason the draw
+ * and the settlement are: a sim that reimplements the thing it validates can
+ * only ever confirm its own copy. It opens capitalized exactly as a room does
+ * and can no longer go negative — a shortfall is a ledgered house backstop.
+ */
+let reserveState = {
+  balanceMinor: stormReserveOpeningFor(ZONE_COUNT * HOUSE_SEED_MINOR),
+  backstopTotalMinor: 0,
+};
+const reserveOpening = reserveState.balanceMinor;
+let reserveMin = reserveState.balanceMinor;
 let cappedRounds = 0;
 let passThroughViolations = 0;
 
@@ -118,8 +131,8 @@ for (let i = 1; i <= ROUNDS; i++) {
   surgeContribSum += surgeContrib;
   reserveInSum += reserveContrib;
   reserveOutSum += reserveOut;
-  reserveBalance += reserveContrib - reserveOut;
-  if (reserveBalance < reserveMin) reserveMin = reserveBalance;
+  reserveState = applyReserveRound(reserveState, reserveContrib, reserveOut).state;
+  if (reserveState.balanceMinor < reserveMin) reserveMin = reserveState.balanceMinor;
   if (r.powerCapped) cappedRounds++;
   // Pass-through invariant: at ×1 the salvage is exactly (1−RAKE) of the struck pool.
   if (power.mNum === power.mDen && r.salvageTotalMinor !== r.distributedMinor) {
@@ -184,10 +197,12 @@ checks.push({
   ok: reserveOutSum > 0 && reserveOutSum / handleSum <= reserveInSum / handleSum + 0.0005,
 });
 checks.push({
-  name: 'Reserve drift (balance / rounds, % of handle)',
-  measured: pct(reserveBalance),
+  name: 'Reserve drift (balance − opening, % of handle)',
+  measured: pct(reserveState.balanceMinor - reserveOpening),
   theory: '≈ 0, slightly positive',
-  ok: reserveBalance / handleSum > -0.0005 && reserveBalance / handleSum < 0.001,
+  ok:
+    (reserveState.balanceMinor - reserveOpening) / handleSum > -0.0005 &&
+    (reserveState.balanceMinor - reserveOpening) / handleSum < 0.001,
 });
 checks.push({
   name: 'Surge return to players (pot payouts)',
@@ -210,7 +225,10 @@ console.log(
   `constants: RAKE=${RAKE} split=${RAKE_SPLIT.house}/${RAKE_SPLIT.surge}/${RAKE_SPLIT.stormReserve} cap=${STORM_POWER_MAX_PAYOUT_MULTIPLE}× surgeProb=${SURGE_PROB}`,
 );
 console.log(`handle: ${(handleSum / 100).toLocaleString()} credits · capped rounds: ${cappedRounds} · surge rounds: ${surgeRounds}`);
-console.log(`reserve: min balance ${(reserveMin / 100).toFixed(2)} · final balance ${(reserveBalance / 100).toFixed(2)} credits\n`);
+console.log(
+  `reserve: opening ${(reserveOpening / 100).toFixed(2)} · min balance ${(reserveMin / 100).toFixed(2)} · ` +
+    `final ${(reserveState.balanceMinor / 100).toFixed(2)} · house backstop ${(reserveState.backstopTotalMinor / 100).toFixed(2)} credits\n`,
+);
 for (const c of checks) {
   console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name}: measured ${c.measured} · theory ${c.theory}`);
 }

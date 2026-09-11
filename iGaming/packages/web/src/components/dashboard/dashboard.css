@@ -2737,3 +2737,283 @@
     stroke-dashoffset: 0;
   }
 }
+
+/* ==========================================================================
+   COMPLIANCE DISCLOSURE SURFACES
+   Added with the rules v2 pass. Every rule here backs a clause the game is
+   required to display; the styling job is to make them legible and permanent
+   without turning the board into a legal notice — see
+   packages/web/src/components/dashboard/GameInfoDialog.tsx for the mapping.
+   ========================================================================== */
+
+/* GLI-19 §4.7.3 — the odds entry point, permanent and on the game surface.
+   Styled as a sibling of the table/balance readouts rather than as a warning:
+   it is information a player wants, not a caution. */
+.gd-odds-button {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 12px;
+  border: 1px solid var(--gd-border);
+  border-radius: 6px;
+  background: #171717;
+  color: inherit;
+  text-align: left;
+}
+.gd-odds-button:hover {
+  border-color: #555;
+}
+.gd-odds-button small {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: #a3a3a3;
+}
+.gd-odds-button strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: #f5c451;
+}
+
+/* Order 222 Annex 1 Art. 8.1(b) — "clearly and legibly" (G12). Always on
+   screen, above the result footer, and never inside a collapsible. */
+.gd-legal-strip {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  border: 1px solid var(--gd-border);
+  border-radius: 8px;
+  background: #101010;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #8f8f8f;
+  flex-shrink: 0;
+}
+.gd-legal-strip > b {
+  color: #cfcfcf;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.gd-legal-strip > button {
+  margin-left: auto;
+  color: #9db9ff;
+  text-decoration: underline;
+  font-size: 11px;
+}
+
+/* GLI-19 §4.11.1(c) — house money in the pools, indicated to players (G8). */
+.gd-house-seed > p {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #9a9a9a;
+}
+.gd-house-seed > p > button {
+  color: #9db9ff;
+  text-decoration: underline;
+}
+.gd-house-seed .gd-rail-value em {
+  display: block;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
+  color: #9a9a9a;
+}
+
+/* GLI-19 §4.8.4(b) — bonus eligibility, displayed rather than implied (G42). */
+.gd-eligibility {
+  display: block;
+  margin-top: 4px;
+  font-weight: 600;
+  color: #cfcfcf;
+}
+
+/* ---- Game information dialog ---- */
+
+.gd-info-panel {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gd-border);
+}
+.gd-info-panel > h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #cfcfcf;
+}
+.gd-info-panel p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #b4b4b4;
+}
+.gd-info-rule {
+  margin-bottom: 10px;
+}
+.gd-info-rule > b {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 13px;
+  color: #e4e4e4;
+}
+.gd-info-rows {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.gd-info-rows dt {
+  color: #8f8f8f;
+}
+.gd-info-rows dd {
+  margin: 0;
+  color: #e4e4e4;
+  font-weight: 600;
+}
+
+/* Order 222 Annex 1 Art. 8.1(b), inside the dialog as well as on the board. */
+.gd-malfunction {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #4a3a12;
+  border-radius: 6px;
+  background: #1d1707;
+  color: #f0d089;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-align: center;
+}
+
+/* GLI-19 §4.8.6 — the minimum and maximum, stated as a pair so neither can be
+   shown without the other. */
+.gd-paytable-range {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.gd-paytable-range > span {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--gd-border);
+  border-radius: 6px;
+  background: #161616;
+}
+.gd-paytable-range small {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: #8f8f8f;
+}
+.gd-paytable-range strong {
+  font-size: 20px;
+  font-weight: 800;
+}
+.gd-jackpot-accent {
+  color: #f5c451;
+}
+.gd-paytable-applies {
+  margin-bottom: 10px !important;
+}
+
+/* Wide content scrolls inside its own container so the dialog never does. */
+.gd-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--gd-border);
+  border-radius: 6px;
+}
+.gd-table-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.gd-table-scroll th,
+.gd-table-scroll td {
+  padding: 7px 8px;
+  text-align: left;
+  border-bottom: 1px solid #242424;
+  white-space: nowrap;
+}
+.gd-table-scroll thead th {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8f8f8f;
+  background: #151515;
+}
+.gd-table-scroll tbody th {
+  font-weight: 600;
+  color: #e4e4e4;
+}
+.gd-table-scroll tbody td {
+  color: #b4b4b4;
+}
+.gd-table-scroll tr:last-child th,
+.gd-table-scroll tr:last-child td {
+  border-bottom: none;
+}
+.gd-table-scroll tr.is-capped td:last-child {
+  color: #f0d089;
+}
+/* The only long cell in the table. Wrapping it keeps the whole paytable
+   readable without a horizontal scroll, which matters because this column
+   carries the §4.7.4 limitation a player most needs to actually read. */
+.gd-cap-cell {
+  white-space: normal;
+  min-width: 138px;
+  line-height: 1.35;
+}
+
+/* Order 239 Art. 9.2 — the seal slot. Deliberately plain: an ornate badge in a
+   build with no licence would read as a regulatory mark, which is the one thing
+   it must not do. */
+.gd-seal-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px dashed #3a3a3a;
+  border-radius: 6px;
+  text-align: center;
+}
+.gd-seal-slot > span {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: #7a7a7a;
+}
+.gd-seal-slot > small {
+  font-size: 11px;
+  color: #6a6a6a;
+}
+
+.gd-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 900px) {
+  .gd-legal-strip {
+    font-size: 10px;
+    gap: 8px;
+    padding: 7px 12px;
+  }
+  .gd-legal-strip > button {
+    margin-left: 0;
+  }
+  .gd-odds-button {
+    padding: 5px 9px;
+  }
+}

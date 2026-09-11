@@ -39,6 +39,19 @@ export const rounds = sqliteTable('rounds', {
   rakeBp: integer('rake_bp'), // rake as integer basis points (0.12 -> 1200)
   maxPayoutMultiple: integer('max_payout_multiple'), // Storm Power liability cap (× handle)
   powerCapped: integer('power_capped', { mode: 'boolean' }),
+  /**
+   * Rules version in force when this round's bets were accepted (G45).
+   * GLI-19 §A.5.1 requires the rules in place when the wager was accepted to be
+   * the rules applied to it, so the version is stamped at round CREATION, not
+   * at settlement — a rules change mid-round binds the next round, never this one.
+   */
+  rulesVersion: integer('rules_version'),
+  /**
+   * Set when a round was voided instead of settled (G27, GLI §4.16/§A.6.4).
+   * Every bet in a voided round is refunded in full and no rake is taken.
+   */
+  voidedAt: integer('voided_at'),
+  voidReason: text('void_reason'),
   settledAt: integer('settled_at'),
   createdAt: integer('created_at').notNull(),
 });
@@ -59,6 +72,12 @@ export const stakes = sqliteTable('stakes', {
 export const surgePots = sqliteTable('surge_pots', {
   roomId: text('room_id').primaryKey(),
   potMinor: integer('pot_minor').notNull(),
+  /**
+   * GLI-19 §4.13.3 diversion pool — contributions received while the pot stood
+   * at its ceiling. They are never lost (§4.13.6): they fund the reset value
+   * after the next win. See packages/core/src/jackpot.ts.
+   */
+  diversionMinor: integer('diversion_minor').notNull().default(0),
 });
 
 /**
@@ -73,6 +92,12 @@ export const stormReserveLedger = sqliteTable('storm_reserve_ledger', {
   inflowMinor: integer('inflow_minor').notNull(),
   outflowMinor: integer('outflow_minor').notNull(),
   balanceMinor: integer('balance_minor').notNull(),
+  /**
+   * House capital injected this round because the draw exceeded the fund (G11).
+   * The balance can no longer go negative: a shortfall is recorded here as an
+   * explicit, reportable obligation instead of as a minus sign on the balance.
+   */
+  backstopMinor: integer('backstop_minor').notNull().default(0),
   createdAt: integer('created_at').notNull(),
 });
 
@@ -185,5 +210,85 @@ export const chatMessages = sqliteTable('chat_messages', {
   playerId: text('player_id').notNull(),
   name: text('name').notNull(),
   text: text('text').notNull(),
+  createdAt: integer('created_at').notNull(),
+});
+
+/**
+ * SEGREGATED LIQUIDITY FLOAT LEDGER (G8; GLI-19 §A.7.1(c)–(d), §A.6.5(a)).
+ *
+ * One row per settled round. House-seed stakes and their settlements move
+ * against this ledger, never against operator revenue — which after this change
+ * is the rake alone. The float may fund only future seeds, the Storm Surge pot
+ * or the Storm Reserve, and `reconcileOperatorRevenue` in
+ * packages/core/src/houseFloat.ts is the audit that proves nothing leaked.
+ */
+export const houseFloatLedger = sqliteTable('house_float_ledger', {
+  roundId: integer('round_id').primaryKey(),
+  roomId: text('room_id'),
+  /** House seed placed into the pools this round. */
+  stakedMinor: integer('staked_minor').notNull(),
+  /** Credited back to the seeds at settlement (0 on a wrecked seed). */
+  returnedMinor: integer('returned_minor').notNull(),
+  /** returned − staked. The float's profit and loss for the round. */
+  netMinor: integer('net_minor').notNull(),
+  /** Operator capital added because the float could not fund the seed. */
+  topUpMinor: integer('top_up_minor').notNull().default(0),
+  balanceMinor: integer('balance_minor').notNull(),
+  createdAt: integer('created_at').notNull(),
+});
+
+/**
+ * SIGNIFICANT EVENTS AND ALTERATIONS (G37; GLI-19 §2.9.5, Order 222 Art. 16.2).
+ *
+ * §2.9.5 wants date and time, the component, the responsible user, the reason,
+ * and THE VALUE BEFORE AND AFTER. Order 222 Art. 16.2 additionally requires
+ * every change to the remote gaming server to be stored — expressly including
+ * the content delivery network — because this log is the evidence that the
+ * material-change regime (Law Art. 24¹.2) is being honoured.
+ *
+ * `decisions-log.md` plus git history is a strong substrate and should be
+ * presented as such, but it is not a controlled record: it has no retention
+ * guarantee, no before/after values, and no CDN coverage.
+ */
+export const significantEvents = sqliteTable('significant_events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  /** CONFIG | GAME_STATE | JACKPOT | RESERVE | INTEGRITY | INCIDENT | CDN */
+  category: text('category').notNull(),
+  /** Dotted path of what changed, e.g. 'economy.maxPayoutMultiple'. */
+  component: text('component').notNull(),
+  /** Who or what made the change. 'system' for automated events. */
+  actor: text('actor').notNull(),
+  reason: text('reason'),
+  valueBefore: text('value_before'),
+  valueAfter: text('value_after'),
+  /** Raised as an incident to the operator / Revenue Service (Art. 16.1(b)). */
+  incident: integer('incident', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at').notNull(),
+});
+
+/**
+ * CONTROL PROGRAM SELF-VERIFICATION (G17; GLI-19 §2.3.2, §2.3.3, §2.6.3).
+ *
+ * §2.3.2 requires verification at least every 24 hours AND on demand, using a
+ * digest of at least 128 bits, over executables, libraries, GAMING AND SYSTEM
+ * CONFIGURATION, OS files, reporting components and database elements, with an
+ * indication on failure.
+ *
+ * The configuration limb is the one that bites here: `rooms.json`, the rake, the
+ * rake split and the Storm Power ladder are all runtime-configurable and all
+ * material-change surfaces under Law Art. 24¹.2, so a config change that skipped
+ * re-authorization would otherwise leave no trace in the artefact digest.
+ */
+export const controlVerifications = sqliteTable('control_verifications', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  /** SCHEDULED (24h) | STARTUP | ON_DEMAND */
+  trigger: text('trigger').notNull(),
+  /** SHA-256 over the manifest — 256 bits, well past the 128-bit floor. */
+  digestHex: text('digest_hex').notNull(),
+  /** The digest recorded at the first verification; a mismatch is a failure. */
+  baselineHex: text('baseline_hex').notNull(),
+  passed: integer('passed', { mode: 'boolean' }).notNull(),
+  /** Per-component digests, so a failure names the file that moved. */
+  manifestJson: text('manifest_json').notNull(),
   createdAt: integer('created_at').notNull(),
 });

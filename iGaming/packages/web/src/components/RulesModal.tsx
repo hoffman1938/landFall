@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef } from 'react';
+import { MALFUNCTION_NOTICE, economyDisclosure } from '@landfall/core';
 import { useStore } from '../store';
 import { ONE_LINER } from '../strings';
+import { StormPowerTable } from './dashboard/GameInfoDialog';
 import { AnchorIcon, CrateIcon, FogIcon, LockIcon, StormIcon, XIcon } from './icons';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -125,21 +127,24 @@ export function RulesModal() {
           bet <b>plus a share of the hit harbor's money</b>, split among all safe players in
           proportion to bet size. The big wins come when a <b>crowded, full zone is hit</b> — the
           fewer people you share with and the bigger the pool, the bigger your payout.{' '}
-          <b>Safe players receive 88% of the hit harbor's pool</b>; the rest funds the game fee, the
-          jackpot, and the multiplier reserve.
+          <b>Safe players receive {economyDisclosure().survivorShare} of the hit harbor&apos;s pool</b>;
+          the rest funds the game fee, the jackpot, and the multiplier reserve.
         </Section>
 
         <Section title="Storm Power — the multiplier">
-          Every storm has a hidden <b>category</b>, revealed at landfall, that multiplies all
-          survivors' salvage — and it is <b>never less than ×1</b>: a weak storm leaves your salvage
-          untouched. <b>Cat 1 ×1</b> (common) · <b>Cat 2 ×1.25</b> (~1 in 13) · <b>Cat 3 ×2</b> (~1
-          in 131) · <b>Cat 4 ×5</b> (~1 in 950) · <b>Cat 5 ×25</b> (~1 in 19,000) ·{' '}
-          <b>Cat 6 ×100</b> (~1 in 210,000) ·{' '}
-          <b className="text-[var(--lf-amber)]">PERFECT STORM ×500</b> (~1 in 1,000,000). The bonus
-          above ×1 is paid from the <b>Storm Reserve</b>, funded by a share of every round's take,
-          and a single round's total salvage is capped at a published multiple of that round's
-          handle — if the cap ever applies, the result says so. It's all in the same provably-fair
-          digest, and the multiplier only scales the salvage on top of your returned stake.
+          <p className="mb-3">
+            Every storm has a hidden <b>category</b>, revealed at landfall, that multiplies all
+            survivors&apos; salvage — and it is <b>never less than ×1</b>: a weak storm leaves your
+            salvage untouched. The bonus above ×1 is paid from the <b>Storm Reserve</b>, funded by a
+            share of every round&apos;s take.
+          </p>
+          {/*
+            The odds, the minimum and maximum, and the payout cap all render from
+            the certified ladder in @landfall/core (GLI-19 §4.7.3, §4.8.6, §4.7.4).
+            They used to be typed into this paragraph by hand, which is how a
+            paytable drifts from the game it describes.
+          */}
+          <StormPowerTable />
         </Section>
 
         <Section title="Weather Patterns">
@@ -210,10 +215,17 @@ export function RulesModal() {
           payout. Exact lock pools are hidden during play but published after lock for verification.
         </Section>
 
+        {/* Order 222 Annex 1 Art. 8.1(b) — clearly and legibly, here too (G12). */}
+        <p className="rounded-md border border-[#4a3a12] bg-[#1d1707] px-3 py-2 text-center text-xs font-bold tracking-[0.1em] text-[#f0d089]">
+          {MALFUNCTION_NOTICE}
+        </p>
+
         <div className="rounded-md bg-[var(--lf-bg)] px-3 py-2 text-xs text-[var(--lf-dim)]">
-          Educational build · virtual credits only · survivors receive 88% of the wrecked pool · The
-          final return varies with the round's pools, multiplier and jackpot. Every harbor has the
-          same 1-in-6 chance of being hit.
+          Demo build · virtual credits only, no real money · survivors receive{' '}
+          {economyDisclosure().survivorShare} of the wrecked pool · long-run return{' '}
+          {economyDisclosure().longRunReturn}. {economyDisclosure().derivation} The final return
+          varies with the round&apos;s pools, multiplier and jackpot. Every harbor has the same
+          1-in-6 chance of being hit.
         </div>
       </div>
     </div>

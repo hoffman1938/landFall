@@ -27,10 +27,19 @@ All constants are configurable per room (rake validated to `[0.06, 0.20]`, split
 non-negative and summing to 1), defined in exactly one place in `packages/core`
 (`constants.ts`, `RAKE` / `RAKE_SPLIT`). The chosen values give a **gross take of `r/K` = 2%
 of handle**, of which the operator keeps the house share — **net operator hold ≈ 1.0% of
-handle** plus Storm Reserve underflow retention (§10); the surge share (0.5% of handle) and
-reserve share (0.5% of handle) return to players through the Storm Surge pot and the Storm
-Power ladder. Player-facing long-run return ≈ **98%**; survivors receive `(1 − r)` = **88% of
-the struck pool**. These are the only two economy figures quoted in player-facing copy (A5).
+handle**; the surge share (0.5% of handle) and reserve share (0.5% of handle) return to players
+through the Storm Surge pot and the Storm Power ladder. Player-facing long-run return
+≈ **99.0%**; survivors receive `(1 − r)` = **88% of the struck pool**. These are the only two
+economy figures quoted in player-facing copy (A5).
+
+> **Correction (rules v2): the return figure was 98%, and 98% is the base term alone.**
+> `1 − r/K = 98%` is what the pari-mutuel split returns *before* the surge and reserve flows —
+> the same two flows the sentence quoting it went on to list. Adding them back gives
+> `98.00% + 0.50% + 0.50% = 99.00%`, which is also the exact complement of the 1.0% operator
+> hold the same paragraph claims. GLI-19 §4.7.2 requires a displayed return to match its own
+> stated derivation, so the player-facing figure is now **99.0%** and carries the breakdown with
+> it. The single source is `theoreticalRtp()` in `packages/core/src/rtp.ts`; player copy calls
+> `economyDisclosure()` rather than retyping the number (**G24**).
 
 ## 2. Settlement Rule
 
@@ -66,6 +75,12 @@ make (where realized edge per round depended on the multiplier distribution): he
 randomness in the house's revenue is which pool's size gets multiplied by `r`, and its
 expectation is the mean pool size by uniformity. Confirmed by simulation at both balanced and
 heavily imbalanced pool shapes (§7: measured 0.01000 and 0.01002 of handle respectively).
+
+**Return to player.** The theoretical RTP definition this model implies — a function of handle
+rather than of a paytable, since a pari-mutuel game has none — is specified in
+[09-rtp-and-par-sheet.md](../10-compliance/09-rtp-and-par-sheet.md) and implemented in
+`packages/core/src/rtp.ts`, with the theoretical-versus-actual monitoring bands GLI §A.6.2
+requires.
 
 **Zero-liability property:** settlement is pure redistribution of money already staked, minus
 rake. The house can never owe more than a round collected. There is no analogue of Crash's
@@ -183,6 +198,17 @@ Operator note: the house pays the rake on its own seed, so seeding is a real cos
 policy that cost decays towards zero exactly as the room becomes self-sustaining — the operator
 funds liquidity only while liquidity is genuinely scarce.
 
+**Ring-fenced since rules v2 (G8).** The seed's profit and loss no longer reaches operator
+revenue. Seeds are funded by a **segregated liquidity float** (`house_float_ledger`,
+`packages/core/src/houseFloat.ts`) which may fund only future seeds, the Storm Surge pot or the
+Storm Reserve, and is never withdrawable. Operator revenue is **the rake alone**: after the
+change the house account has exactly one credit path (its rake share) and three debit paths
+(float top-up, reserve backstop, jackpot reset funding), all three of which move money toward
+players. This is what GLI-19 §A.7.1(c)–(d) requires of operator-funded wagers — *neither may
+profit, the funds may not be withdrawn, and so shall ultimately be lost/played* — and it makes
+the intent of §6 auditable rather than implicit. Analysis:
+[03-game-classification.md §5](../10-compliance/03-game-classification.md).
+
 Room defaults (`packages/server/config/rooms.json`, credits): Skiff `F = 90`, `h_min = 1`,
 `h_max = 25`; Schooner `F = 180`, `h_min = 5`, `h_max = 50`; Flagship `F = 900`, `h_min = 50`,
 `h_max = 250`; Galleon `F = 4,500`, `h_min = 500`, `h_max = 1,250`; Leviathan `F = 22,500`,
@@ -216,21 +242,40 @@ Properties (validated by simulation, §7):
 The formal, CI-integrated validation runs against the **production** `settleRound`/`drawZone`
 (not a reimplementation): `packages/core/scripts/simulate.ts` (methodology in
 [simulation-methodology.md](simulation-methodology.md)). Results at production constants
-(`r = 0.12`, split 0.5/0.25/0.25, ladder v2, cap 25×) — 10,000,000 rounds, 2026-07-11,
-`pnpm --filter @landfall/core sim -- --rounds=10000000` (LCG seed 20260711, production HMAC draw):
+(`r = 0.12`, split 0.5/0.25/0.25, ladder v2, **cap 150×**) — 10,000,000 rounds, 2026-09-11,
+`pnpm --filter @landfall/core sim -- --rounds=10000000 --seed=20260911`
+(LCG seed 20260911, production HMAC draw). Total handle 33.29bn credits.
 
 | Check | Simulated (10M rounds) | Theoretical |
 |---|---|---|
-| Gross take (rake) | 2.0013% of handle | 2% of handle (`r/K`) |
-| Operator hold (house share) | 1.0009% of handle | ≈ 1% of handle |
-| Surge funding | 0.5002% of handle | 0.5% of handle |
-| Storm Reserve inflow | 0.5002% of handle | 0.5% of handle |
-| Storm Reserve outflow (ladder overpayment) | 0.4878% of handle | ≤ 0.5% (funding invariant) |
-| Reserve drift | +0.0125% of handle (min balance −31.2k credits early, +4.15M final) | ≈ 0, slightly positive |
-| Liability cap hits | 13 rounds in 10M (all disclosed via `powerCapped`) | ~1 in 10⁶ (Perfect Storm + fat Cat 6) |
+| Gross take (rake) | 1.9970% of handle | 2% of handle (`r/K`) |
+| Operator hold (house share) | 0.9987% of handle | ≈ 1% of handle |
+| Surge funding | 0.4991% of handle | 0.5% of handle |
+| Storm Reserve inflow | 0.4991% of handle | 0.5% of handle |
+| Storm Reserve outflow (ladder overpayment) | 0.5026% of handle | ≤ inflow (funding invariant) |
+| Reserve drift (balance − opening) | +0.0006% of handle | ≈ 0, slightly positive |
+| **Reserve minimum balance** | **0.00 — never negative** | ≥ 0 by construction (§10.1) |
+| **House backstop drawn** | **0.0041% of handle** | the quantified §A.4.1 obligation |
+| Surge return to players | 1.1024% of handle | ≈ surge funding + floor re-seeds |
+| **Liability cap hits** | **1 round in 10M** | ~1 in 10⁷ (a Perfect Storm on an extreme pool) |
 | Survivor pass-through at ×1 | exact, 0 violations | 88% (`1 − r`) |
 | Conservation (all rounds, incl. capped) | exact (assert never fired) | exact |
-| Solo-player EV (10.00 vs 50-seed pools, ×1) | −2.452% of stake | −2.564% (§6 analytic) |
+| Solo-player EV (10.00 vs seeds, ×1) | −2.452% of stake | −2.564% (§6 analytic) |
+
+**Two rows changed meaning in rules v2 and are worth reading together.**
+
+*Liability cap hits fell from 13 to 1 per 10M.* At the old 25× cap, 13 hits against 9.5 expected
+Perfect Storms meant the headline award was clamped essentially every time it landed (§10). At
+150× the clamp fires once in 10M rounds — on a Perfect Storm that happened to land on a harbor
+holding over 34.1% of the handle — so the advertised ladder is now what players actually receive.
+
+*The reserve never went negative, and the house obligation is now measured instead of implied.*
+Over 33.29bn credits of handle the house injected **0.0041% of handle** to keep the fund solvent,
+against an opening capitalization of 45,000 credits at the simulated table size. That figure is
+the bankroll-adequacy statement GLI §A.4.1 asks for: small, bounded, and on a ledger. It is not
+zero, and it should not be presented as zero — a reserve funded at 99.8% of its budget with a
+heavy tail will occasionally need capital, and the design choice is to record that rather than
+let the fund run negative.
 
 Rerun the script whenever any Workstream-A constant changes — the release gate (§13 of the
 remediation program) requires it; the script exits non-zero when a check leaves tolerance.
@@ -318,10 +363,43 @@ Ladder v2 replaces it under three invariants:
    exact-arithmetic (BigInt) unit test in `core/test/storm-power.test.ts` — this test
    **replaces** the old E[M]=1 assertion.
 3. **Capped tail.** Total salvage in a round is clamped to
-   `STORM_POWER_MAX_PAYOUT_MULTIPLE = 25 ×` the round handle (operator-configurable). The
+   `STORM_POWER_MAX_PAYOUT_MULTIPLE = 150 ×` the round handle (operator-configurable). The
    clamp is published in the round result (`powerCapped`) and recomputable from the public
    snapshot — honesty over silence. The clamp never cuts below the pari-mutuel base
    `(1−r) × P_{z*}`.
+
+   **The cap was 25× and that made the top of the ladder unpayable — rules v2 fixes it.**
+   The cap is denominated in HANDLE while the multiplier it limits applies to
+   `distributable = (1−r)·P_{z*}`. Those are different bases, so the effective ceiling on `M`
+   is a function of the round's pool shape:
+
+   ```
+   salvage = (1−r)·P_{z*}·M ≤ C·T   ⟺   M ≤ C / ((1−r)·P_{z*}/T)
+   ```
+
+   At `C = 25` that bound is **×170.5 at uniform pools** (`P_{z*}/T = 1/6`), and the cap bit on
+   any round whose struck harbor held more than **5.68%** of the handle. Six harbors average
+   16.7%, so the advertised ×500 Perfect Storm was clamped in essentially every round it ever
+   landed in — §7's *"13 cap hits in 10M"* is almost exactly its 9.5 expected Perfect Storms.
+   Category 6 ×100 cleared uniform pools but was clamped from 28.4% of handle upward.
+
+   An award that cannot be paid at its advertised value fails **GLI-19 §4.4.1(f)** ("an
+   explicitly advertised award must be winnable from a single game or series"), independently
+   of the §4.7.3/§4.7.4 disclosure obligations already logged as G9.
+
+   The new bound is **derived from the ladder rather than chosen**: the cap must pay every
+   advertised tier in full while the struck harbor holds up to **twice its uniform share** —
+   a genuinely crowded harbor, and already the windfall case for survivors. For the top tier,
+
+   ```
+   C ≥ (1−r)·M_max·(2/K) = 0.88 × 500 × 2/6 = 146.67  →  150
+   ```
+
+   so ×500 now pays in full for every round where the struck harbor holds up to **34.1%** of the
+   handle. `unwinnableTiers()` in `core/constants.ts` is the executable form of this invariant;
+   the coordinator calls it at construction, so a room config cannot ship a dishonest paytable.
+   Worst-case single-round reserve draw rises from `25 × handle` to `150 × handle`, which is
+   what §10.1's opening capitalization exists to fund.
 
 | Tier | M | Count (exact, /2²⁰) | Frequency |
 |---|---|---|---|
@@ -341,12 +419,36 @@ bonus via a ×1.25 Category 2 and keep the funded tail — is recorded in the de
 
 **Liability accounting:** with M > 1 the settlement's `houseDeltaMinor = salvageTotal −
 distributable` is drawn from the **Storm Reserve**, a ledgered fund (`storm_reserve_ledger`:
-roundId, inflow, outflow, running balance) fed `split.stormReserve × rake` every round. The
-runtime conservation assert is `payouts + rake = handle + houseDelta`, exact in integer minor
-units including capped rounds. Expected reserve drift is slightly positive (budget slack), so
-the fund self-sustains; worst-case single-round outflow is bounded by the cap:
-`25 × handle − (1−r) × P_{z*}`. Reserve custody and insolvency policy:
-`docs/10-compliance/jackpot-reserve-policy.md`.
+roundId, inflow, outflow, backstop, running balance) fed `split.stormReserve × rake` every
+round. The runtime conservation assert is `payouts + rake = handle + houseDelta`, exact in
+integer minor units including capped rounds. Expected reserve drift is slightly positive
+(budget slack), so the fund self-sustains; worst-case single-round outflow is bounded by the
+cap: `150 × handle − (1−r) × P_{z*}`.
+
+### 10.1 Reserve solvency — opening capitalization and the no-negative rule (rules v2)
+
+The funding invariant makes `E[outflow] ≤ E[inflow]`, so the fund self-sustains over any long
+horizon. What it had no position on was the SHORT horizon: a big storm in the opening rounds
+drew against a fund that had collected almost nothing, and the ledger recorded a **negative
+balance** (decisions-log #3, by deliberate design, with the house silently backstopping). A
+regulator reviewing bankroll adequacy reads an obligation fund that can run negative as a
+solvency question, and a silent backstop as an undisclosed liability (**G11**, GLI §A.4.1).
+
+Two changes, neither of which touches a player's payout:
+
+1. **Opening capitalization.** Each room's reserve opens at
+   `STORM_RESERVE_OPENING_MULTIPLE × F` — the worst single round the cap can produce at that
+   room's guaranteed table size. Skiff (`F = 90`) opens at 13,500 credits; Leviathan
+   (`F = 22,500`) at 3,375,000.
+2. **Never negative.** Where a draw still exceeds the balance, the shortfall is booked as an
+   explicit `backstopMinor` house capital injection on the ledger row and the balance floors at
+   zero. The player is paid in full either way — decisions-log #3's rule that a disclosed payout
+   is never shrunk at settlement is unchanged. What changes is that the house's obligation is a
+   positive number on a ledger row rather than a minus sign on a balance.
+
+§4.13.5 ("diversion schemes shall not have infinite mathematical expectation") is satisfied
+twice over: `E[M−1]` is a finite sum over a finite ladder, and the cap bounds the worst single
+round. Both are asserted in `core/test/compliance.test.ts`.
 
 **Why reserve funding rather than E[M]=1:** the v1 "variance-neutral" ladder financed its tail
 by clawing back 50% of the modal round's salvage (×0.5), which players read — correctly — as
