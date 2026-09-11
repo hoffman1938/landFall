@@ -20,7 +20,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { ZONE_COUNT, chainCommitment, houseFloatOpeningFor, roundSeed } from '@landfall/core';
+import {
+  RULES_VERSION,
+  ZONE_COUNT,
+  chainCommitment,
+  houseFloatOpeningFor,
+  roundSeed,
+} from '@landfall/core';
 import { openDb, type Db, type Sqlite } from '../src/db/index.js';
 import {
   houseFloatLedger,
@@ -328,6 +334,8 @@ describe('house-seed ring-fence (G8)', () => {
 
     const all = db.select().from(rounds).all();
     expect(all.length).toBeGreaterThan(1);
-    for (const row of all) expect(row.rulesVersion).toBe(2);
+    // Reads the constant rather than a literal: the assertion is that the
+    // version in force is stamped, not that it happens to be any given number.
+    for (const row of all) expect(row.rulesVersion).toBe(RULES_VERSION);
   });
 });

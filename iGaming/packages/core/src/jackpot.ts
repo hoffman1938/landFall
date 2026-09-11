@@ -28,6 +28,86 @@
  *   Order 222 Art. 17.3  cancellation of unpaid jackpots is not permitted
  */
 
+// ---------------------------------------------------------------------------
+// The reset value — GLI-19 §4.13.6(d)
+// ---------------------------------------------------------------------------
+
+/**
+ * HOW MUCH OF THE OPERATOR'S RAKE SHARE THE JACKPOT GUARANTEE MAY CONSUME.
+ *
+ * After every win the house tops the pot back up to its reset value. That is a
+ * recurring cost of `reset` every `1/surgeProb` rounds, and it is paid out of
+ * the house share of the rake — the operator's entire margin. So the guarantee
+ * is affordable only while
+ *
+ *     reset · surgeProb  <  split.house · (r/K) · handlePerRound
+ *
+ * At production constants the right-hand side is 0.25 × handle per round, so a
+ * reset worth more than a quarter of a round's handle costs more than the table
+ * earns. This fraction is how much of that ceiling the guarantee is allowed to
+ * take: 0.35 leaves roughly two thirds of the house share as actual margin.
+ *
+ * WHY THIS EXISTS AT ALL. The reset used to be `max(500 credits, 20 × minStake)`
+ * — an absolute floor with a per-table term bolted on. Below a 25-credit minimum
+ * bet the flat floor always won, so the per-table scaling was inert on exactly
+ * the small tiers it was written for, and the 500-credit floor stayed "ten times
+ * the Skiff table maximum", which is the thing its own documentation called a
+ * defect. Measured over 1,200 rounds it cost the operator 6.5% of handle on
+ * Skiff and 1.5% on Schooner, against a house share of ~1% — both tiers were
+ * structurally loss-making and returned over 100% to players.
+ *
+ * The fix is to tie the reset to the quantity it actually has to be paid out of:
+ * the table's HANDLE, not its minimum bet.
+ */
+export const SURGE_RESET_BUDGET_FRACTION = 0.35;
+
+export interface ResetPolicyInput {
+  /** Recent handle per round — the same settled-rounds EMA the house seed uses. */
+  handlePerRoundMinor: number;
+  /** Rake on the struck pool. */
+  rake: number;
+  /** The house's share of that rake — the only part the guarantee can come from. */
+  houseShare: number;
+  zones: number;
+  /** Probability a round is a surge round. */
+  surgeProb: number;
+  /**
+   * Lower bound, so a quiet table still advertises something rather than a
+   * jackpot of nothing. Affordability still wins over it — see `surgeResetFor`.
+   */
+  minimumMinor: number;
+  budgetFraction?: number;
+}
+
+/**
+ * The largest reset value the house share of the rake can sustain at this
+ * table's handle. Above it, every round played loses the operator money.
+ */
+export function affordableResetMinor(input: ResetPolicyInput): number {
+  if (input.surgeProb <= 0 || input.zones <= 0) return 0;
+  const houseSharePerRound = (input.houseShare * input.rake * input.handlePerRoundMinor) / input.zones;
+  return Math.floor(houseSharePerRound / input.surgeProb);
+}
+
+/**
+ * The reset value for a table, given what it is actually turning over.
+ *
+ * Three bounds, and the order matters:
+ *   1. the BUDGET figure — a fixed fraction of what the rake share can fund;
+ *   2. a MINIMUM, so a quiet table still has a jackpot worth naming;
+ *   3. the AFFORDABILITY CEILING, which overrides the minimum.
+ *
+ * Affordability wins on purpose. Where a table is too thin to fund even the
+ * minimum, the honest answer is a smaller jackpot, not a guarantee the operator
+ * cannot pay — an unaffordable promise is how a tier ends up returning more than
+ * it takes, which is the defect this function replaces.
+ */
+export function surgeResetFor(input: ResetPolicyInput): number {
+  const ceiling = affordableResetMinor(input);
+  const budget = Math.floor(ceiling * (input.budgetFraction ?? SURGE_RESET_BUDGET_FRACTION));
+  return Math.max(0, Math.min(ceiling, Math.max(input.minimumMinor, budget)));
+}
+
 /** Where a round's rake share can go. Exactly one of these, never revenue. */
 export interface SurgePotState {
   /** Live pot, what the ticker shows. */

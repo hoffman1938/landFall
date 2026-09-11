@@ -256,7 +256,7 @@ The formal, CI-integrated validation runs against the **production** `settleRoun
 | Reserve drift (balance − opening) | +0.0006% of handle | ≈ 0, slightly positive |
 | **Reserve minimum balance** | **0.00 — never negative** | ≥ 0 by construction (§10.1) |
 | **House backstop drawn** | **0.0041% of handle** | the quantified §A.4.1 obligation |
-| Surge return to players | 1.1024% of handle | ≈ surge funding + floor re-seeds |
+| Surge return to players | 0.7315% of handle | ≈ surge funding + floor re-seeds |
 | **Liability cap hits** | **1 round in 10M** | ~1 in 10⁷ (a Perfect Storm on an extreme pool) |
 | Survivor pass-through at ×1 | exact, 0 violations | 88% (`1 − r`) |
 | Conservation (all rounds, incl. capped) | exact (assert never fired) | exact |
@@ -327,8 +327,10 @@ vs. Crash's "500x dream," with this exact mitigation sketched. Now implemented:
 
 - **Funding:** `RAKE_SPLIT.surge = 25%` of every round's rake (0.5% of handle) feeds a
   progressive pot. The pot is *already-collected* money — the zero-liability property (§3)
-  is preserved. The house additionally re-seeds a `SURGE_MIN_POT_MINOR = 500.00` floor after
-  each payout (bounded, auditable generosity).
+  is preserved. The house additionally re-seeds the pot to a **reset value** after each
+  payout (bounded, auditable generosity) — and since rules v3 that value **follows the
+  table's handle** rather than its minimum bet. See §9.1 for why that distinction was not
+  cosmetic.
 - **Trigger:** `uSurge < SURGE_PROB = 1/25`, where `uSurge` comes from digest hex span
   `[17,22)` — disjoint from the struck-zone span, so trigger and strike are independent
   (tested). Announced **before** anchoring opens; honesty of the announcement is verifiable
@@ -342,6 +344,55 @@ vs. Crash's "500x dream," with this exact mitigation sketched. Now implemented:
   pot, which is one of the flows behind the player-facing "long-run return ≈ 98%". Big stakes
   hunt the pot with proportionally better odds (high-roller appeal); small stakes can win
   extreme multipliers (pot/stake can exceed 500x) — both audiences served by one mechanism.
+
+### 9.1 The reset value must be affordable — the rules v3 correction
+
+The house tops the pot back up to its reset value after **every** win. That is a recurring
+operator cost of `reset × SURGE_PROB` per round, and it is funded from one place only: the
+house share of the rake. So the guarantee is affordable exactly while
+
+```
+reset · SURGE_PROB  <  split.house · (r/K) · H
+```
+
+where `H` is the table's handle per round. At production constants the right-hand side is
+`0.25 · H` — **a reset worth more than a quarter of a round's handle costs more than the
+table earns.**
+
+The reset used to be `max(500 credits, 20 · minStake)`. Below a 25-credit minimum bet the
+flat term always won, so the per-table scaling was inert on exactly the tiers it was written
+for, and the 500-credit floor stayed "ten times the Skiff table maximum" — the defect its own
+documentation named. Measured over 1,200 rounds by
+[`certification-sim.ts`](../../packages/core/scripts/certification-sim.ts):
+
+| Tier | Reset ÷ affordable | Re-seed cost | Operator net | Players received |
+|---|---|---|---|---|
+| Skiff | **8.45×** | 6.51% of handle | **−5.46%** | 105.97% |
+| Schooner | **1.67×** | 1.46% | **−0.47%** | 100.32% |
+| Flagship | 0.42× | 0.37% | +0.65% | 99.17% |
+| Galleon | 0.42× | 0.42% | +0.60% | 99.17% |
+| Leviathan | 0.55× | 0.48% | +0.48% | 99.39% |
+
+The two smallest tiers lost money on every round played and returned **more than 100%** to
+players. `surgeResetFor` in `core/jackpot.ts` now sizes the reset from the same settled-handle
+EMA that already sizes the house seed, takes a fixed fraction of what the rake share can fund
+(`SURGE_RESET_BUDGET_FRACTION = 0.35`), and refuses to exceed the affordability ceiling —
+affordability overrides the "worth 20 minimum bets" floor, because an unpayable guarantee is
+worse than a small one. After the change:
+
+| Tier | Reset | Re-seed cost | Operator net | Players receive |
+|---|---|---|---|---|
+| Skiff | 20.63 | 0.33% | **+0.69%** | 99.15% |
+| Schooner | 100.00 | 0.34% | **+0.64%** | 99.07% |
+| Flagship | 1,000.00 | 0.33% | **+0.69%** | 99.14% |
+| Galleon | 10,000.00 | 0.32% | **+0.70%** | 99.07% |
+| Leviathan | 100,000.00 | 0.33% | **+0.62%** | 99.26% |
+
+The re-seed cost is now uniform at ≈0.33% of handle at every tier, which is what tying it to
+handle is supposed to produce, and the three tiers that already worked kept their jackpot
+values unchanged. The **ceiling** is deliberately NOT adaptive: GLI-19 §2.4.2 permits a
+jackpot ceiling to move only upward once contributions exist, so it stays a pure function of
+the tier and therefore cannot move at all.
 
 ## 10. Storm Power — Salvage Multiplier Ladder v2 (reserve-funded, ×1 floor, capped tail)
 

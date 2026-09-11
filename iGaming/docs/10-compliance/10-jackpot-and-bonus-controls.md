@@ -8,7 +8,7 @@ into equal-or-better odds. GLI-19 **§4.13** (progressive jackpots), **§4.8** (
 (advertised odds and award limitations), **§2.4.2–2.4.3**, **§A.4.1**, **§A.6.5**.
 **Depends on:** [03-game-classification.md](03-game-classification.md) §6,
 [09-rtp-and-par-sheet.md](09-rtp-and-par-sheet.md)
-**Rules version:** 2 (in force 2026-09-11)
+**Rules version:** 3 (in force 2026-09-11)
 
 ---
 
@@ -55,13 +55,40 @@ Data substrate: `surge_pots` (pot + diversion), `surge_events` (every payout and
 §4.13.3 requires a jackpot that reaches a maximum to **remain there until it is won**, with
 further contributions credited to a **diversion pool** rather than lost.
 
-- **Ceiling** — `surgeCeilingFor(minStake, reset)`, per table, so a Skiff pot cannot advertise a
-  Leviathan number.
+- **Ceiling** — `surgeCeilingFor(minStake)`, a pure function of the tier, so a Skiff pot cannot
+  advertise a Leviathan number and the ceiling can never move (§2.4.2).
 - **Diversion pool** — everything the ceiling refuses. It is **not lost**: it funds the reset value
   after the next win, **before** the house contributes anything. So holding money back at the
   ceiling costs players nothing; it comes straight back as the next pot's opening balance.
-- **Reset value** — `surgeFloorFor(minStake)`, the table-sized floor the pot returns to, funded
-  from diversion first and by the house for the remainder.
+- **Reset value** — `surgeResetFor(...)`, funded from diversion first and by the house for the
+  remainder. Since **rules v3 it follows the table's HANDLE**, not its minimum bet: see §3.1.
+
+### 3.1 The reset value has to be affordable (rules v3)
+
+The house tops the pot back up after every win, so the reset is a recurring cost of
+`reset × surgeProb` per round, funded solely from the house share of the rake. It is
+affordable exactly while
+
+```
+reset · surgeProb  <  split.house · (r/K) · handlePerRound      →  reset < 0.25 × handle
+```
+
+The retired value, `max(500 credits, 20 × minStake)`, ignored that. Below a 25-credit minimum
+bet the flat term always won, so the per-table scaling was inert on the small tiers, and
+measured over 1,200 rounds **Skiff exceeded the affordability ceiling by 8.45× and Schooner by
+1.67×** — both tiers lost money on every round played (−5.46% and −0.47% of handle) and
+returned over 100% to players.
+
+`surgeResetFor` now takes a fixed fraction of what the rake share can fund
+(`SURGE_RESET_BUDGET_FRACTION = 0.35`) from the same settled-handle EMA that sizes the house
+seed, bounded below by the "worth 20 minimum bets" floor and above by the affordability
+ceiling. **Affordability overrides the floor** — an unpayable guarantee is worse than a small
+one. After the change every tier nets the operator +0.62% to +0.70% of handle and returns
+99.07%–99.26% to players, with the re-seed costing a uniform ≈0.33% of handle everywhere.
+
+The **ceiling** is deliberately not adaptive. §2.4.2 permits a jackpot ceiling to move only
+upward once contributions exist; making it a pure function of the tier means it cannot move at
+all, which satisfies the clause by construction.
 
 **Balancing identity** (Art. 17.2), exact in integer minor units:
 
@@ -149,7 +176,7 @@ Both are asserted in `core/test/compliance.test.ts`.
 
 | # | Item | Clause | Owner |
 |---|---|---|---|
-| 1 | **§2.4.2 parameter-change deferral** — increment-rate changes must defer to the next win; ceiling changes only upward | GLI §2.4.2 | Engineering |
+| 1 | **§2.4.2 increment-rate deferral** — a change to the contribution rate must defer to the next win. *(The ceiling limb is closed: it is a pure function of the tier and never moves — §3.1.)* | GLI §2.4.2 | Engineering |
 | 2 | Written monthly-balancing **procedure** and the incident contact matrix (the computation exists; the procedure does not) | Art. 17.2, Art. 16.1(b) | Compliance |
 | 3 | **§4.15.2 jackpot disable** — indication displayed, no increment or win while disabled, identical parameters on resumption | GLI §4.15.2 | Engineering |
 | 4 | Independent reconciliation of contributions and awards with sign-off for large awards | §A.6.5 | Finance |

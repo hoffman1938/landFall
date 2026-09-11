@@ -207,32 +207,49 @@ export const SURGE_PROB = 1 / 25; // expected surge frequency (~every 25 rounds)
  */
 export const SURGE_CEILING_MIN_STAKE_MULTIPLE = 5_000;
 
-export function surgeCeilingFor(minStakeMinor: number, resetMinor: number): number {
-  return Math.max(SURGE_CEILING_MIN_STAKE_MULTIPLE * minStakeMinor, resetMinor * 10);
+/**
+ * The ceiling depends ONLY on the table's minimum bet, never on the reset value.
+ *
+ * That is a GLI-19 §2.4.2 requirement, not a style choice: once contributions
+ * have been made, a jackpot ceiling may only ever be changed UPWARD. The reset
+ * value is now adaptive (it follows the table's handle — see `surgeResetFor` in
+ * jackpot.ts), so deriving the ceiling from it would let the ceiling fall when a
+ * table went quiet. Keeping it a pure function of the tier makes it a constant
+ * for the life of the table, which satisfies §2.4.2 by construction.
+ */
+export function surgeCeilingFor(minStakeMinor: number): number {
+  return SURGE_CEILING_MIN_STAKE_MULTIPLE * minStakeMinor;
 }
 
 /**
- * The pot floor the house re-seeds after each payout.
+ * The LOWER BOUND on the pot's reset value — "worth this many minimum bets".
  *
- * Pots are per TABLE (`surge_pots` is keyed by room) and are fed only by the
- * rake of rounds played at that table, so a Leviathan player's losses can never
- * pay out to a 1-credit Skiff bet. The floor, however, used to be a flat 500
- * credits everywhere, which is a different unfairness in both directions: ten
- * times the Skiff table maximum, and a tenth of one percent of the Leviathan
- * minimum bet — a jackpot a high-roller would not notice had been won.
+ * This used to be `max(500 credits, 20 × minStake)`, and the flat 500-credit
+ * term was a defect the function's own documentation described: it is ten times
+ * the Skiff table maximum. Below a 25-credit minimum bet the flat floor always
+ * won, so the per-table scaling was inert on exactly the tiers it was written
+ * for. Measured, it cost the operator 6.5% of handle on Skiff and 1.5% on
+ * Schooner against a house share of ~1% — both tiers returned over 100% to
+ * players and lost money on every round played.
  *
- * `surgeFloorFor` ties the floor to the table instead: never trivial in
- * absolute terms, and never trivial *for this table* either. Rooms may override
- * it in the rooms config; this is the default shape.
+ * The reset value is now derived from the table's HANDLE, which is the quantity
+ * it actually has to be paid out of (`surgeResetFor` in jackpot.ts). This
+ * constant survives only as the floor that keeps a quiet table's jackpot worth
+ * naming, and affordability overrides it — an unaffordable guarantee is worse
+ * than a small one.
  */
-export const SURGE_MIN_POT_MINOR = 500_00;
-
-/** A floor worth this many minimum bets at the table it belongs to. */
 export const SURGE_FLOOR_MIN_STAKE_MULTIPLE = 20;
 
 export function surgeFloorFor(minStakeMinor: number): number {
-  return Math.max(SURGE_MIN_POT_MINOR, SURGE_FLOOR_MIN_STAKE_MULTIPLE * minStakeMinor);
+  return SURGE_FLOOR_MIN_STAKE_MULTIPLE * minStakeMinor;
 }
+
+/**
+ * Opening pot for a table with no stored pot yet, before any handle history
+ * exists to size a reset from. Deliberately small: it is a starting value, not
+ * a guarantee, and the adaptive reset takes over from the first payout.
+ */
+export const SURGE_MIN_POT_MINOR = 20_00;
 /**
  * Flat-odds Golden Anchor (A4, P2, feature flag): every Nth surge round pays the
  * pot with EQUAL odds per surviving stake entry instead of stake-weighted odds —

@@ -49,7 +49,7 @@ import { displayRtpPercent, theoreticalRtp } from './rtp.js';
  * triage record for that: it is what a release manager reads to know whether a
  * build can ship or needs to wait for consent.
  */
-export const RULES_VERSION = 2;
+export const RULES_VERSION = 3;
 
 export interface RulesChange {
   version: number;
@@ -92,6 +92,22 @@ export const RULES_CHANGELOG: readonly RulesChange[] = [
       'figure its own stated derivation produces (§4.7.2).',
     material: true,
     limb: 'Art. 24¹.2(c) amount of winnings, (f) jackpot payout system',
+  },
+  {
+    version: 3,
+    effective: '2026-09-11',
+    summary:
+      'Storm Surge reset value now follows the table\'s handle instead of its minimum bet. The ' +
+      'previous value — max(500 credits, 20 x minimum bet) — was fixed to the tier, but the ' +
+      'house re-seeds the pot to it after every win, which is a recurring cost of reset x ' +
+      'surgeProb per round funded entirely from the house share of the rake. Measured over 1,200 ' +
+      'rounds the fixed value cost 6.5% of handle on Skiff and 1.5% on Schooner against a ~1% ' +
+      'house share, so both tiers lost money on every round played and returned over 100% to ' +
+      'players. The reset is now sized from the settled-handle EMA and capped at what the rake ' +
+      'share can fund. The jackpot CEILING is unchanged and remains a pure function of the tier, ' +
+      'because GLI-19 §2.4.2 permits a ceiling to move only upward once contributions exist.',
+    material: true,
+    limb: 'Art. 24¹.2(f) jackpot payout system',
   },
 ];
 

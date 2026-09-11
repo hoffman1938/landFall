@@ -46,6 +46,7 @@ import {
   payOutSurge,
   pickGoldenAnchorFlat,
   rollOverSurge,
+  surgeResetFor,
   stormReserveOpeningFor,
   surgeCeilingFor,
   unwinnableTiers,
@@ -322,14 +323,34 @@ export class RoundCoordinator {
 
   /**
    * GLI-19 §4.13.3 / §4.13.6(d) — the pot's ceiling and its RESET VALUE, the two
-   * figures the clause requires a progressive jackpot to define. The reset value
-   * is the table-sized floor the pot returns to after a win; the ceiling is
-   * where it stops incrementing and further contributions divert.
+   * figures the clause requires a progressive jackpot to define.
+   *
+   * The RESET VALUE FOLLOWS THE TABLE'S HANDLE (rules v3). The house tops the pot
+   * back up to it after every win, so it is a recurring operator cost of
+   * `reset × surgeProb` per round, funded entirely from the house share of the
+   * rake. A reset fixed to the tier's minimum bet ignores that constraint, and
+   * measured over 1,200 rounds the old fixed value cost 6.5% of handle on Skiff
+   * against a ~1% house share — the tier lost money on every round played and
+   * returned over 100% to players. `surgeResetFor` sizes it from the same
+   * settled-handle EMA that already sizes the house seed, and refuses to exceed
+   * what the rake share can fund.
+   *
+   * The CEILING stays a pure function of the tier. GLI-19 §2.4.2 permits a
+   * jackpot ceiling to move only upward once contributions exist, so deriving it
+   * from an adaptive reset would let it fall when a table went quiet.
    */
   private get surgePolicy(): SurgePotPolicy {
+    const handlePerRound = Math.max(this.handleEmaMinor ?? 0, this.cfg.liquidityFloorMinor);
     return {
-      resetMinor: this.cfg.surgeFloorMinor,
-      ceilingMinor: surgeCeilingFor(this.cfg.minStakeMinor, this.cfg.surgeFloorMinor),
+      resetMinor: surgeResetFor({
+        handlePerRoundMinor: handlePerRound,
+        rake: this.econ.rake,
+        houseShare: this.econ.rakeSplit.house,
+        zones: ZONE_COUNT,
+        surgeProb: this.surgeProb,
+        minimumMinor: this.cfg.surgeFloorMinor,
+      }),
+      ceilingMinor: surgeCeilingFor(this.cfg.minStakeMinor),
     };
   }
 

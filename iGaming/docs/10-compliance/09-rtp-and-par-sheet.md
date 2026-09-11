@@ -9,7 +9,7 @@ displayed, explain how it was determined and disclose the jackpot contribution. 
 a theme/paytable record carrying theoretical RTP and lifetime aggregates.
 **Depends on:** [03-game-classification.md](03-game-classification.md),
 [mathematical-model.md](../03-math/mathematical-model.md)
-**Rules version:** 2 (in force 2026-09-11)
+**Rules version:** 3 (in force 2026-09-11)
 
 > Not legal advice. Figures are derived from the shipped constants and re-derivable by running
 > `pnpm --filter @landfall/core sim`.
@@ -71,8 +71,40 @@ to it in the game-information dialog. Recorded as decisions-log #67.
 
 | Figure | Denominator | Why |
 |---|---|---|
-| **Theoretical** (§2) | Total handle, house seeds included | The seed faces the identical `−r/K` edge, so including it keeps the algebra exact |
+| **Theoretical** (§2) | Total handle, house seeds included | Keeps the pari-mutuel algebra exact — but see the correction below: it is **not** true that the seed faces the same edge as a player |
 | **Reported** (Order 240, Res. 455) | Player handle, house seeds excluded | Res. 455 Art. 2(d) defines GGR as **bets received minus winnings paid**, and house-seed money is not a bet received |
+
+> **Correction.** An earlier revision of this section justified the total-handle
+> denominator by asserting that "the seed faces the identical `−r/K` edge". **That is
+> false.** A uniform stake across all six harbours is `−r/K` only when the pools are
+> *balanced*; the survivor payout `P_struck/(T − P_struck)` is **convex** in the struck
+> pool, so against an imbalanced crowd a bettor present in every harbour collects
+> disproportionately from the heavy ones. By Jensen's inequality the seed is
+> systematically **+EV**, and it is the same mechanism math-model §4 already documents for
+> players — *being where the crowd is not is relatively +EV* — applied to a bettor who is
+> always partly where the crowd is not.
+>
+> Measured under production adaptive seeding, the seed gains **+0.086% of handle**. Under
+> the retired flat 50-credit seed it gained **+1.5%**, which is why the adaptive policy of
+> decisions-log #45 matters far more than a liquidity tuning change: it is also the control
+> that keeps this effect small. The effect concentrates on **thin tables**, where the seed
+> is largest relative to real handle:
+>
+> | Table state (Skiff) | Seed/harbour | Seed % of handle | Return on seed | Taken from players |
+> |---|---|---|---|---|
+> | 1 player | 12 cr | 73.4% | +0.5% | 0.34% of handle |
+> | 3 players | 4 cr | 23.5% | +6.2% | 1.47% of handle |
+> | 10–20 players | 1 cr | 1.5% | +1.2% | 0.02% of handle |
+> | 25–35 players | 1 cr | 0.8% | 0.0% | 0.00% of handle |
+>
+> This does **not** breach GLI §A.7.1(c) — the gain is ring-fenced out of operator revenue
+> into the segregated liquidity float (G8) and can only fund future seeds, the pot or the
+> reserve. But it does falsify the *argument* in
+> [03-game-classification.md](03-game-classification.md) §5.4(i), which rests the legal
+> position on the seed's "expected profit and loss … approximately zero". The defensible
+> position is the ring-fence, not the symmetry claim. **Open: §5.4(i) needs rewriting, and
+> the float needs a release policy** — `releaseFloat()` exists and is tested but nothing
+> calls it, so the ring-fenced gain currently accumulates instead of returning to players.
 
 `actualRtp()` returns both. Reporting one while computing the other is exactly the kind of
 mismatch that costs a week of a variance investigation, so the distinction is carried in the type
@@ -112,6 +144,44 @@ Implemented as `classifyRtpVariance()`; surfaced on `/api/compliance/report`.
 Total handle 33.29bn credits, against the **production** `drawZone` / `settleRound` /
 `stormPowerFromRoll` — never a reimplementation.
 
+### 6.1 What the operator actually keeps, and what players actually get
+
+The rake share is **not** the hold. Against it the operator funds three things that all move
+money toward players: the jackpot's floor **re-seed** after every payout, the Storm Reserve
+**backstop**, and any top-up the liquidity float needs. Measured over 2M rounds at production
+adaptive seeding:
+
+| | % of handle |
+|---|---|
+| Gross deduction (rake on the struck pool) | 1.9924% |
+| — of which the operator books (house share) | 0.9964% |
+| **less** house jackpot floor re-seeds | −0.2335% |
+| **less** Storm Reserve backstop | −0.0068% |
+| **= OPERATOR NET HOLD** | **≈ 0.76%** |
+| **PLAYER RTP, measured on player handle** | **≈ 99.15%** |
+| (ring-fenced house-seed gain — not operator revenue) | 0.0859% |
+
+> **Updated for rules v3.** At rules v2 the re-seed cost 0.66% of handle and the operator
+> netted 0.33%, because the reset value was fixed to the tier's minimum bet rather than to its
+> handle. On the two smallest tiers that made the table structurally loss-making — Skiff
+> returned 105.97% to players and lost the operator 5.46% of handle. The reset now follows the
+> handle and the cost is uniform at ≈0.33% of handle across all five tiers. See
+> [mathematical-model.md §9.1](../03-math/mathematical-model.md) for the derivation and the
+> before/after table.
+
+Two things follow that are worth stating to a reviewer before they are asked:
+
+1. **The jackpot floor re-seed is the operator's largest single cost** — about a quarter of
+   the rake share it keeps. It is not a rake flow; it is house money added after every payout
+   so the next pot is never trivial for the table. Since rules v3 it scales WITH handle, which
+   is what keeps it affordable on every tier; before that it was fixed to the tier and was
+   proportionally ruinous on the quiet ones.
+2. **Players receive more than the theoretical 99.00%**, because those re-seeds return on top
+   of the three rake flows §2 counts. A theoretical figure *below* the actual is the safe
+   direction for §A.6.2 monitoring, but the gap should be understood rather than discovered.
+
+### 6.2 Full 10M-round validation
+
 | Quantity | Measured | Theoretical |
 |---|---|---|
 | Gross take (rake) | 1.9970% | 2.0000% |
@@ -137,6 +207,7 @@ version is stamped on every round at creation.
 |---|---|---|---|---|
 | 1 | 2026-07-11 | Initial ruleset; ladder v2; cap 25× handle | 99.00% | Yes — (b), (c), (f) |
 | 2 | 2026-09-11 | Cap re-derived to 150× so every advertised tier is payable; reserve capitalized and never negative; house-seed P&L ring-fenced; surge ceiling and diversion pool; published return corrected 98% → 99.0% | 99.00% | Yes — (c), (f) |
+| 3 | 2026-09-11 | Jackpot reset value tied to table handle rather than minimum bet. The fixed value was unaffordable on the two smallest tiers, which lost the operator money on every round and returned over 100% to players | 99.00% | Yes — (f) |
 
 **The theoretical RTP is unchanged between v1 and v2**, and that is the point worth making to a
 reviewer: raising the cap did not change what the game returns in expectation — `E[M−1]` is a

@@ -11,7 +11,8 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "sim": "tsx scripts/simulate.ts"
+    "sim": "tsx scripts/simulate.ts",
+    "cert-sim": "tsx scripts/certification-sim.ts"
   },
   "dependencies": {
     "@noble/hashes": "^1.5.0",

@@ -15,6 +15,11 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '@noble/hashes/utils';
 import {
   HOUSE_SEED_MINOR,
+  LIQUIDITY_FLOOR_MINOR,
+  LIQUIDITY_MIN_SEED_MINOR,
+  houseSeedPerZone,
+  surgeResetFor,
+  updateHandleEma,
   RAKE,
   applyReserveRound,
   stormReserveOpeningFor,
@@ -51,10 +56,30 @@ function nextSeedHex(): string {
 }
 
 /** Synthesize a round's stakes: house seeds + a small crowd with mild imbalance. */
+/**
+ * Adaptive house seed, exactly as the coordinator computes it (decision #45).
+ *
+ * This used to be a FLAT `HOUSE_SEED_MINOR` per zone, which is the DEAD-TABLE
+ * CEILING — combined with the 5–30 synthetic players below, that is a table
+ * state production cannot produce, and it made the seed ~9% of handle when the
+ * shipped policy would have withdrawn it to ~1.5%. The gate was validating a
+ * seeding policy the game retired, and the difference is not cosmetic: a
+ * uniform seed is systematically +EV against an IMBALANCED crowd (the payout
+ * function is convex in the struck pool), so an oversized seed quietly moves
+ * money from players into the house's seed stakes rather than into the rake.
+ */
+const SIM_LIQUIDITY = {
+  floorMinor: LIQUIDITY_FLOOR_MINOR,
+  minSeedMinor: LIQUIDITY_MIN_SEED_MINOR,
+  maxSeedMinor: HOUSE_SEED_MINOR,
+};
+let simHandleEma: number | null = null;
+
 function synthesizeStakes(roundId: number): StakeEntry[] {
   const out: StakeEntry[] = [];
+  const seed = houseSeedPerZone(SIM_LIQUIDITY, simHandleEma ?? 0, ZONE_COUNT);
   for (let z = 0; z < ZONE_COUNT; z++) {
-    out.push({ id: `h-${z}`, zone: z, amountMinor: HOUSE_SEED_MINOR, isHouseSeed: true });
+    out.push({ id: `h-${z}`, zone: z, amountMinor: seed, isHouseSeed: true });
   }
   // Per-round crowd weights create realistic pool imbalance.
   const weights = Array.from({ length: ZONE_COUNT }, () => 0.2 + rnd());
@@ -77,6 +102,11 @@ function synthesizeStakes(roundId: number): StakeEntry[] {
           : 500_00 + Math.floor(rnd() * 4_500_00);
     out.push({ id: `p-${roundId}-${p}`, zone, amountMinor: stake, isHouseSeed: false });
   }
+  // Feed the settled real handle forward, exactly as the coordinator does.
+  simHandleEma = updateHandleEma(
+    simHandleEma,
+    out.reduce((a, e) => a + (e.isHouseSeed ? 0 : e.amountMinor), 0),
+  );
   return out;
 }
 
@@ -105,10 +135,35 @@ let cappedRounds = 0;
 let passThroughViolations = 0;
 
 // Surge pot dynamics (player return via Golden Anchor + house floor re-seeds).
+/**
+ * The reset value is ADAPTIVE (rules v3): it follows the table's handle, because
+ * the house re-seed has to be paid from the house share of the rake. A reset
+ * fixed to the tier made the two smallest tiers structurally loss-making —
+ * see `surgeResetFor` in core/jackpot.ts.
+ */
+const resetFor = (handlePerRoundMinor: number): number =>
+  surgeResetFor({
+    handlePerRoundMinor: Math.max(handlePerRoundMinor, LIQUIDITY_FLOOR_MINOR),
+    rake: RAKE,
+    houseShare: RAKE_SPLIT.house,
+    zones: ZONE_COUNT,
+    surgeProb: SURGE_PROB,
+    minimumMinor: SURGE_MIN_POT_MINOR,
+  });
 let surgePot = SURGE_MIN_POT_MINOR;
 let surgePaidToPlayers = 0;
 let houseReseeds = SURGE_MIN_POT_MINOR; // initial seed is house money
 let surgeRounds = 0;
+/**
+ * House-seed profit and loss, ring-fenced (G8). Tracked separately from the
+ * operator's rake because after the ring-fence it is NOT operator revenue —
+ * see packages/core/src/houseFloat.ts.
+ */
+let seedStakedSum = 0;
+let seedReturnedSum = 0;
+/** Player handle and player returns, for the RTP actually experienced. */
+let playerHandleSum = 0;
+let playerReturnedSum = 0;
 
 const t0 = Date.now();
 for (let i = 1; i <= ROUNDS; i++) {
@@ -139,15 +194,28 @@ for (let i = 1; i <= ROUNDS; i++) {
     passThroughViolations++;
   }
 
+  // Ring-fenced house-seed P&L, and the player-side handle/return the reported
+  // RTP is measured on (Res. 455 Art. 2(d): house seed is not a bet received).
+  for (const st of stakes) {
+    if (st.isHouseSeed) seedStakedSum += st.amountMinor;
+    else playerHandleSum += st.amountMinor;
+  }
+  for (const line of r.lines) {
+    if (line.isHouseSeed) seedReturnedSum += line.payoutMinor;
+    else playerReturnedSum += line.payoutMinor;
+  }
+
   // Surge pot dynamics.
   surgePot += surgeContrib;
   if (draw.uSurge < SURGE_PROB) {
     surgeRounds++;
     const winner = pickGoldenAnchor(stakes, draw.struckZone, draw.uWinner);
     if (winner) {
+      const reset = resetFor(simHandleEma ?? 0);
       surgePaidToPlayers += surgePot;
-      surgePot = SURGE_MIN_POT_MINOR;
-      houseReseeds += SURGE_MIN_POT_MINOR;
+      playerReturnedSum += surgePot;
+      surgePot = reset;
+      houseReseeds += reset;
     }
   }
 }
@@ -203,6 +271,42 @@ checks.push({
   ok:
     (reserveState.balanceMinor - reserveOpening) / handleSum > -0.0005 &&
     (reserveState.balanceMinor - reserveOpening) / handleSum < 0.001,
+});
+/**
+ * THE OPERATOR'S NET POSITION — the figure that answers "how much does the
+ * casino actually keep", as opposed to the gross rake share above.
+ *
+ * The rake share is not the hold. Against it the operator funds three things
+ * that all move money toward players: the jackpot's floor RE-SEED after every
+ * payout, the Storm Reserve BACKSTOP when a big storm outruns the fund, and
+ * (post ring-fence) any top-up the segregated liquidity float needs. Reporting
+ * the rake share alone as "hold" overstates the operator's take, and on these
+ * constants it overstates it by more than half.
+ */
+const operatorNet = houseShareSum - houseReseeds - reserveState.backstopTotalMinor;
+checks.push({
+  name: 'House jackpot floor re-seeds (operator cost)',
+  measured: pct(houseReseeds),
+  theory: 'unbounded by design — scales with surge frequency, not with handle',
+  ok: true,
+});
+checks.push({
+  name: 'OPERATOR NET HOLD (rake − re-seeds − backstop)',
+  measured: pct(operatorNet),
+  theory: `gross rake share ${pct(houseShareSum)} before its funding obligations`,
+  ok: operatorNet > 0,
+});
+checks.push({
+  name: 'Player RTP actually experienced (player handle basis)',
+  measured: `${((playerReturnedSum / playerHandleSum) * 100).toFixed(4)}%`,
+  theory: '≥ theoretical 99.00% — house re-seeds return on top of the rake flows',
+  ok: playerReturnedSum / playerHandleSum > 0.98,
+});
+checks.push({
+  name: 'Ring-fenced house-seed P&L (NOT operator revenue)',
+  measured: pct(seedReturnedSum - seedStakedSum),
+  theory: '≈ 0 in expectation (uniform stake across all six harbours)',
+  ok: Math.abs((seedReturnedSum - seedStakedSum) / handleSum) < 0.01,
 });
 checks.push({
   name: 'Surge return to players (pot payouts)',
