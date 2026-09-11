@@ -1,0 +1,342 @@
+# Game Classification — LANDFALL under Georgian law
+
+**Purpose:** the written position we will defend to the Revenue Service and the Selected Person on
+*what Landfall is*. This is the document that makes an unusual mechanic legible to a regulator whose
+vocabulary was written for slots and roulette.
+**Depends on:** [01-regulatory-framework.md](01-regulatory-framework.md)
+**Consumed by:** the Art. 24¹.1(d) "list and detailed description of games and critical
+products/services", [04-game-rules-regulatory.md](04-game-rules-regulatory.md),
+[09-rtp-and-par-sheet.md](09-rtp-and-par-sheet.md),
+[10-jackpot-and-bonus-controls.md](10-jackpot-and-bonus-controls.md)
+
+---
+
+## 1. The game, stated for a regulator
+
+Landfall is a fixed-duration, multiplayer, **pari-mutuel survivor** game of chance.
+
+Every round lasts approximately 20 seconds and has four phases: an anchor window in which players
+place a bet on one of **six harbors**; a locked phase during which no player action is possible; the
+landfall, at which **exactly one harbor is struck**; and settlement.
+
+The struck harbor is chosen by a **uniform random draw — probability exactly 1/6 per harbor** —
+derived cryptographically from a seed committed before the round opened. Every stake in the struck
+harbor is lost. Every stake in the other five harbors is returned to its owner, together with a
+pro-rata share of the struck harbor's pool after the operator's deduction.
+
+Formally, for pools `P_0 … P_5`, total handle `T`, struck harbor `z*` and deduction rate `r`:
+
+```
+A stake S in harbor z*   → pays 0
+A stake S in harbor i≠z* → pays  S + (1 − r) × P_z* × S / (T − P_z*)
+```
+
+Three properties follow, and they are the ones a regulator will want established:
+
+1. **The draw is independent of the money.** `P(z* = j) = 1/6` for every harbor, whatever the pools
+   contain. The draw function's only input is the round number — it takes no bet data, no pool
+   sizes, no participant list, no timestamp. It is structurally incapable of favouring or avoiding
+   a crowded harbor.
+2. **The operator carries no payout liability.** Settlement is pure redistribution of money already
+   staked in the same round, minus the deduction. The house can never owe more than the round
+   collected. There is no multiplier tail, no progressive obligation funded from future revenue,
+   and nothing to secure with a bank guarantee.
+3. **The operator's take is exact and invariant.** `E[take] = r × E[P_z*] = (r/K) × T` — the
+   deduction rate divided by the number of harbors, times the handle, **regardless of how the crowd
+   distributes itself**. At production parameters (`r = 0.12`, `K = 6`) that is **2% of handle
+   gross**, of which half is operator revenue and half returns to players through the jackpot and
+   bonus pools — a player-facing long-run return of **≈ 98%**.
+
+Reference implementation and proofs: [`packages/core/src/settlement.ts`](../../packages/core/src/settlement.ts),
+[math-model §1–§4](../03-math/mathematical-model.md),
+[rng-provably-fair-spec §1](../04-architecture/rng-provably-fair-spec.md).
+
+---
+
+## 2. Statutory classification
+
+### 2.1 It is a game of chance — Law Art. 3(a)
+
+> *"games of chance — games whose outcome depends wholly or partly on chance. They are conducted by
+> means of cards, dice …, a gaming wheel (roulette), a gaming machine, a casino table, a club table
+> and/or **other gaming equipment**, and participation in them offers the possibility of a monetary
+> win."*
+
+All three limbs are satisfied: the outcome depends **wholly** on chance (a uniform draw over six
+harbors); it is conducted by electronic gaming equipment within the "other gaming equipment" limb,
+in systemic-electronic form under Art. 11.2; and participation offers the possibility of a monetary
+win.
+
+Art. 4 does not exclude it — Landfall has an element of chance and does not exist to test knowledge,
+intellect, dexterity or skill. The crowd-reading layer redistributes expected value **between
+players** around a fixed house take and never removes the element of chance from the outcome
+(math-model §4). We say so plainly rather than marketing skill: **a player cannot change the
+probability that their harbor is struck.**
+
+### 2.2 It is none of the other statutory categories
+
+| Category | Law | Why not |
+|---|---|---|
+| Lottery | Art. 3(h) | Requires the state tender and exclusive lottery-organizer right under Art. 6. No tickets, no draw of a prize fund from ticket sales |
+| Instant / draw lottery | Art. 3(h.a–h.b) | No tickets |
+| Lotto | Art. 3(n.a) | No selection of numbers or symbols; no coincidence of combinations; conducted in a specially equipped building |
+| Bingo | Art. 3(n.b) | No numbered cards or scoreboard; no numeric combinations drawn from a device |
+| **Totalizator** | Art. 3(n.c) | **No event.** A totalizator requires bets on a forecast of a competition, game or event outcome. Landfall's outcome is generated by the game itself, not observed from the world. No odds are offered, no ticket is issued, no POS terminal applies |
+| Promotional draw | Art. 3(n.d) | Tickets are issued free of charge and a fee for participation is prohibited. Landfall takes stakes |
+| Gambling tournament | Art. 3(a¹) | Conducted by a casino or gambling club by means of a club table |
+
+**Landfall is therefore a game of chance arranged in systemic-electronic form** — and nothing else.
+
+### 2.3 Which family within games of chance
+
+Games of chance are organised only in a casino, a gaming machine salon, or a gambling club
+(Art. 3(a)), and the systemic-electronic permit rests on a casino or gaming-machine-salon permit
+(Art. 11.2¹). Landfall sits in the **gaming-machine family**, not the casino-table family:
+
+- Art. 3(g) defines a gaming machine as an *"electronic, mechanical or electromechanical device or
+  other specialized device that has a special program and/or mechanism which provides a monetary win
+  or the means of determining a monetary win"* — an RNG-driven electronic game.
+- Art. 3(d) defines a casino table as a table at which the game takes place **between a
+  representative of the casino and the player(s)** using roulette, cards or dice. Landfall has no
+  dealer, no representative of the house as counterparty, and no physical apparatus being simulated.
+
+The consequence that matters: the substantive technical standards for a systemic-electronic game
+come from **Order 222 Annex 1**, not Annex 2. Annex 2 governs physical gaming machines — cabinets,
+door switches, banknote acceptors, SAS and GAT ports — none of which exist here. §4.2 addresses the
+one Annex 2 provision that is nonetheless cited at us.
+
+> **Open question Q1.** The Critical Products list §1(q) names *"the combination lines of the game"*
+> — slot vocabulary with no direct Landfall analogue. Our position: the functional equivalent is the
+> **zone-to-settlement mapping** (six harbors, one struck, the pari-mutuel payout function), which we
+> disclose in full and submit as the artefact to be authorized under that head. Confirm acceptance
+> with the Selected Person early; it is a labelling question, not a substantive one, but a mismatch
+> at audit is expensive.
+
+---
+
+## 3. Critical products to be authorized
+
+From the Critical Products list, mapped to artefacts (per
+[01-regulatory-framework.md](01-regulatory-framework.md) §2.7):
+
+| § | Critical product | Artefact | Notes for the submission |
+|---|---|---|---|
+| 1(a) | Game of chance in systemic-electronic form | The Landfall game | The primary product |
+| 1(d) | **Random number generation platform** | `packages/core/src/rng.ts` — pre-committed SHA-256 hash chain + per-round `HMAC-SHA256` | Subject to GLI-19 Ch. 3 source-code review and statistical testing |
+| 1(f) | Systemic-electronic gaming platform and its components | `packages/server` — round coordinator, realtime hub, room manager, receipts, reporting | Map our modules onto the list's named components (core system, back office, engine, payment methods, reporting, integration module); the payment-methods component is **absent by design** on Route A and we say so |
+| 1(g), 1(h), 1(k), 1(l) | Remote gaming server / system / supplier servers / outcome-determining servers | The Georgian-hosted production deployment | One physical estate, four heads of the list. Subject to the Art. 9.1 **security seal** |
+| 1(p) | **Architecture of the game** | Round lifecycle `ANCHOR_OPEN → LOCKED_STORM → RESOLVED → COOLDOWN`; six zones; pari-mutuel settlement | This is the head under which the mechanic itself is authorized |
+| 1(q) | Combination lines | Zone-to-settlement mapping — see Q1 | |
+| 1(r) | Website supply, hosting, remote servicing | `packages/web` and its hosting | |
+| 1(s) | Software and **its updates** | Every release | The head that makes §7 of the licensing strategy bite |
+| — | **Jackpot platform** (Law Art. 3(cc), 3(dd)) | Storm Surge pot and Storm Power ladder | **Two separate authorizations** — the program and the control software (Order 222 Annex 1 Art. 17.1(b),(c)) |
+
+---
+
+## 4. Two provisions written for other games, and how they land here
+
+### 4.1 Peer-to-peer — Order 222 Annex 1 Chapter IV (Q2)
+
+Art. 2(r) defines a peer-to-peer game as *"the process of a game of chance … that takes place
+between two or more players, where the players compete with each other."*
+
+**Landfall is peer-to-peer in its economics and not in its procedure.** Players do not act against
+each other in turns, do not share a table position, and cannot affect one another's probability of
+being struck. But the money a survivor wins comes **entirely from other players' lost stakes**, and
+where the other players stood determines how much a survivor is paid. That is competition in
+substance, and we should say so rather than argue our way out of a chapter.
+
+Our position: **treat Chapter IV as applicable and satisfy Art. 13 in full**, because doing so is
+inexpensive and arguing the opposite is not.
+
+| Art. 13 | Requirement | Landfall's position |
+|---|---|---|
+| (a) | **Must not use automatic or computerized players to play against players** | **Satisfied by construction.** Practice bots exist only in demo: `botsAllowed` is hard-false unless `LANDFALL_ENV=demo`, a bots configuration outside demo is a **startup crash**, and CI boots the shipped config under `LANDFALL_ENV=production` and asserts the crash (decisions-log #50, #60, #62; security-review §1.24). We present this as a **regulatory control with an automated test**, and disclose it — see §5 for the house seed, which is a separate question |
+| (b) | Must give the player the possibility to be placed at a gaming table on a **random basis** | Landfall has no table seating — every player in a room participates in the same round, and harbor choice is the bet itself, not a seat. Room assignment for players with no preference is by stake tier and population (decisions-log #48). We disclose the routing rule and the reason it is not random: a player must never be seated at a tier they cannot afford |
+| (c) | Must define the **time required for the player to perform an action** | The anchor window is ~10 s, followed by the locked phase. Fixed, published, and shown as a countdown |
+| (d) | Must define the **consequences of failing to act** in time | A player who places no bet simply does not participate in that round — spectating is a first-class state and costs nothing. Stated in the rules |
+
+GLI-19 §4.11 adds requirements we should meet on the same reasoning: one position per player unless
+the rules allow otherwise (Landfall permits one bet, optionally split across two harbors, which is
+disclosed); the option to join a session where players are selected at random; **shills and
+proposition players clearly indicated** (§5); and warnings where bots could affect play.
+
+### 4.2 The 80% payout floor — Order 222 Annex 2 Art. 4.2(d)
+
+Annex 2 requires a **gaming machine** to *"mathematically provide the theoretical possibility of
+paying out at least 80% of the bet placed as winnings."* Annex 1 — which governs systemic-electronic
+games — sets **no explicit RTP floor**. GLI-19 §4.7.1 sets 75%, but expressly for **house-banked**
+games.
+
+Landfall is neither a physical gaming machine nor house-banked. It nevertheless clears both floors by
+a wide margin: survivors receive **88% of the struck pool**, the gross deduction is **2% of handle**,
+and the player-facing long-run return is **≈ 98%**.
+
+The obligation that actually binds is **Order 240 Art. 2.2(a.e)**: RTP is a reported figure in the
+electronic control system. So the work is not reaching a number — it is **defining** one for a
+pari-mutuel game, where "theoretical return" must be stated as a function of handle rather than of a
+paytable. [09-rtp-and-par-sheet.md](09-rtp-and-par-sheet.md) carries that definition.
+
+---
+
+## 5. The house seed — the position we must take, and take early
+
+**This is the single most likely challenge in the whole certification.** It deserves resolution now
+rather than during the technical audit.
+
+### 5.1 The facts
+
+The house holds a real account (`players.isHouse`, opening bankroll GEL 10,000,000 equivalent in
+`packages/server/src/house.ts`) and stakes into the pools. The stake is **uniform across all six
+harbors** — `houseSeedPerZone()` returns a single per-zone figure applied identically to every harbor
+([`packages/core/src/liquidity.ts`](../../packages/core/src/liquidity.ts)). Its size is a
+**top-up to a room liquidity floor**: the house makes up the shortfall between recent real handle
+and the floor, and falls away to a token seed as real players arrive. The input is an exponential
+moving average of **settled** rounds' non-house handle — never the live round's pools — and the
+figure is **published in the round header before the anchor window opens**. House stakes are flagged
+in the public lock snapshot. The house pays the deduction on its own seed like any player.
+
+### 5.2 Why it exists
+
+Not to make money. A survivor's return is `(1 − r) × P_z* / (T − P_z*)`, which for six uniform pools
+collapses to `(1 − r)/(K − 1) ≈ +17.6%` **every round, forever** — the pari-mutuel identity. Table
+size cannot move that mean. What a thin table destroys is **dispersion**, and dispersion is the game.
+Measured on the production settlement function, the same five players spread payouts over 6 pp at a
+flat 50-credit seed and 133 pp at a 1-credit seed (decisions-log #45). The seed exists so a quiet
+table still settles, and withdraws so the pools stay genuinely uneven.
+
+### 5.3 The exposure
+
+**GLI-19 §A.7.1** — Shills and Proposition Players:
+
+> *(a)* shills and proposition players **shall be clearly indicated to all other players**;
+> *(c)* **the operator shall not profit from the play (beyond the rake)**;
+> *(d)* if the wager is funded by the operator, **neither the operator nor the shill may profit from
+> the play, the funds may not be withdrawn, and so shall ultimately be lost/played.*
+
+House money staked into a player pool, winning and losing round by round, credited to a house balance
+that is also the operator's revenue account, is on its face the thing §A.7.1(c) and (d) prohibit.
+
+**Order 222 Annex 1 Art. 13(a)** is the sharper risk: *must not use automatic or computerized players
+to play against players.* The seed is placed by an algorithm. A literal reading reaches it.
+
+### 5.4 Our position
+
+Three arguments, in descending strength, plus one change.
+
+**(i) The seed takes no position and therefore does not "play against" anyone.** It is identical on
+all six harbors. A uniform stake across every possible outcome expresses no view, cannot win by
+predicting, and cannot be beaten by prediction. Its expected profit and loss, net of the deduction it
+pays on itself, is approximately zero — by the same symmetry that makes a player spread evenly across
+all six harbors face exactly the house edge and nothing else. It is a **float that makes the pool
+settle**, structurally closer to a prize-fund guarantee than to a competitor.
+
+**(ii) It is fully disclosed and pre-committed.** Published in the round header before anchoring
+opens, flagged in the public lock snapshot, derived only from settled history. It cannot steer the
+outcome — the draw takes no pool input at all (rng spec §1.2) — and it cannot react to where money is
+going in the live round, because it is fixed before the round opens. This satisfies §A.7.1(a) at the
+data layer. **Gap: it is not yet clearly indicated in the player-facing UI**, which is what
+§A.7.1(a) and GLI §4.11.1(c) actually require. That is a small UI change and it should be made.
+
+**(iii) It does not change any player's probability of anything.** `P(z* = j) = 1/6` with or without
+the seed. The seed changes payout *magnitude* — in the direction of making thin tables playable —
+never the odds.
+
+**The change we should make anyway — ring-fence the seed's profit and loss.**
+
+Argument (i) makes the *expected* profit zero, but the *realised* profit is not zero in any finite
+period, and it currently lands in the same house account as operator revenue. That is what
+§A.7.1(c)–(d) prohibits. The fix is contained and does not touch the mechanic:
+
+> Net profit and loss on house seed stakes accrues to a **segregated liquidity float**, not to
+> operator revenue. The float may fund only future seeds, the Storm Surge pot, or the Storm Reserve.
+> It is never withdrawable as revenue. Operator revenue is the **rake alone**.
+
+This maps precisely onto §A.7.1(d) — *neither may profit, the funds may not be withdrawn, and so
+shall ultimately be lost/played* — and it is materially what the design already intends: the seed is
+a liquidity cost, and decisions-log #45 already notes that the house paying rake on its own seed
+makes that cost decay toward zero as a room becomes self-sustaining. Ring-fencing makes the intent
+auditable instead of implicit.
+
+**Implementation sketch** (for the engineering backlog, not this document's scope): a distinct
+ledger for house-seed P&L separate from `rakeMinor`, the same treatment the Storm Reserve already
+receives in `storm_reserve_ledger`, with a monthly reconciliation alongside the Art. 17.2 jackpot
+balancing.
+
+### 5.5 If the position is rejected
+
+Fallback, in order of preference: (1) reduce the liquidity floor so seeds are token-only and accept
+that very thin tables are unplayable; (2) replace the seed with a **non-participating** minimum
+guaranteed payout underwritten by the operator, which pays out but never wins; (3) remove seeds
+entirely and gate rooms on a minimum live handle. All three degrade the product; the ring-fence does
+not. **Resolve with counsel and the Selected Person before paying the authorization fee.**
+
+---
+
+## 6. Jackpot and bonus classification
+
+Two distinct features, two distinct classifications. Full treatment in
+[10-jackpot-and-bonus-controls.md](10-jackpot-and-bonus-controls.md); the classification is settled
+here.
+
+### 6.1 Storm Surge — a progressive jackpot
+
+A fixed share of the deduction (`RAKE_SPLIT.surge = 0.25` of the rake, i.e. 0.5% of handle) feeds a
+visible, always-growing pot. Approximately one round in 25 is a surge round, announced before
+anchoring; after the storm, one surviving stake is drawn with odds proportional to stake and wins the
+whole pot.
+
+- **Georgian classification:** a **jackpot platform** and therefore a critical product (Law
+  Art. 3(cc), 3(dd)). Order 222 Annex 1 Art. 17 applies in full: clear accessible rules; **both the
+  program and the control software separately authorized**; **monthly balancing** with discrepancies
+  raised as incidents; **no cancellation of unpaid jackpots**; merge only into equal-or-better odds.
+- **GLI classification:** a **progressive jackpot** under §4.13.1(a) — it increases according to
+  credits wagered. §4.13.2 (display refresh ≤30 s), §4.13.6 (contributions not lost, no truncation,
+  reset to the reset value), §4.13.9 (multiple simultaneous triggers) and §2.4.2 (parameter changes
+  after contributions) all attach.
+- **Known gap:** the pot rolls over when no eligible survivor is drawn. Rollover is permitted;
+  *cancellation* is not. The decommissioning and transfer procedure required by §A.6.5(e) does not
+  exist yet (**G10**).
+
+### 6.2 Storm Power — a multiplier bonus with a disclosed-odds obligation
+
+A hidden category revealed at landfall multiplies survivors' salvage: never below ×1, a felt ×1.25
+roughly one round in 12.5, up to a nominal **×500 "Perfect Storm" at approximately 1 in 1,048,576**.
+The bonus above ×1 is funded from the Storm Reserve (`RAKE_SPLIT.stormReserve = 0.25` of the rake),
+and a round's total salvage is capped at a published multiple of the round handle.
+
+- **Georgian classification:** part of the authorized game's **architecture** and **amount of
+  winnings** (Law Art. 24¹.2(b),(c)) — changes to the ladder are material changes.
+- **GLI classification:** a bonus/feature under §4.8, and a **mystery award** under §4.8.6 in that
+  the category is not tied to a paytable combination.
+- **Two hard obligations, both currently unmet (G9):**
+  - **§4.7.3** — the odds of the highest advertised award must be at least once in **100,000,000**
+    games *unless the game artwork prominently displays the actual odds*. Perfect Storm at ~1 in
+    1.05 million is roughly **95× more frequent** than that threshold, so **the real odds must be
+    prominently displayed**. This is not optional and not a footnote.
+  - **§4.8.6** — a mystery award's artwork must indicate the **minimum and maximum** amounts
+    winnable. Ours are ×1 and ×500-subject-to-the-cap.
+  - **§4.7.4 / §4.13.3** — the salvage cap (25× handle) is a **limitation on awards** and must be
+    clearly explained on the game theme offering the prize. A player who sees "×500" and receives a
+    clamped figure without prior disclosure is exactly the harm these clauses exist to prevent.
+- **Solvency note:** the Storm Reserve may run negative on an early large storm, with the house
+  backstopping (decisions-log #3). That is a deliberate integrity choice — the alternative was
+  shrinking a disclosed payout at settlement — but an obligation fund that can run negative is a
+  bankroll-adequacy question under GLI §A.4.1 and needs a written policy (**G11**).
+
+---
+
+## 7. Summary of the classification
+
+| Question | Position |
+|---|---|
+| What is it? | A **game of chance** (Law Art. 3(a)) arranged in **systemic-electronic form** (Art. 11.2) |
+| Which family? | **Gaming-machine family** — RNG-driven electronic game, no dealer, no simulated physical apparatus. Standards from **Order 222 Annex 1** |
+| Which statutory categories are excluded? | Lottery, instant/draw lottery, lotto, bingo, totalizator, promotional draw, gambling tournament — §2.2 |
+| Peer-to-peer? | **Yes, treated as applicable.** Art. 13 satisfied in full — §4.1 |
+| House-banked? | **No.** Pari-mutuel; zero operator payout liability |
+| Theoretical return | ≈ **98%** player-facing; **2% of handle** gross deduction, invariant to crowd shape. Clears the Annex 2 80% and GLI 75% floors by a wide margin |
+| Jackpot | Storm Surge — **progressive jackpot / jackpot platform**, a separate critical product needing two authorizations |
+| Bonus | Storm Power — **mystery-award multiplier**, with a mandatory odds disclosure under GLI §4.7.3 |
+| House participation | Uniform, pre-committed, disclosed liquidity float. **Profit and loss to be ring-fenced** from operator revenue — §5.4 |
+| Open questions | Q1 (combination lines), Q2 (P2P — answered conservatively), Q4 (house seed) |
