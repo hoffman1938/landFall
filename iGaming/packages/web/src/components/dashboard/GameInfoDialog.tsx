@@ -37,6 +37,7 @@ import {
   STORM_POWER_APPLIES_TO,
   STORM_POWER_MAX_PAYOUT_MULTIPLE,
   TABLE_ROUTING_DISCLOSURE,
+  TIMING_DISCLOSURE,
   ZONE_COUNT,
   economyDisclosure,
   settlementFormulaDisclosure,
@@ -162,6 +163,15 @@ export function GameInfoDialog({ onClose }: { onClose(): void }) {
 
       <Panel title="How you are seated">
         <p>{TABLE_ROUTING_DISCLOSURE}</p>
+      </Panel>
+
+      {/*
+        Order 243 Annex 1 Art. 13(c)–(d): the time a player has to act, and what
+        happens if they do not act in time. Both stated, rather than left to be
+        inferred from the countdown on the board.
+      */}
+      <Panel title="How long you have, and what happens if you do nothing">
+        <p>{TIMING_DISCLOSURE}</p>
       </Panel>
 
       <Panel title="If something goes wrong">

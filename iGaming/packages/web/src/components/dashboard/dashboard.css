@@ -1039,6 +1039,32 @@
   line-height: 1.6;
   margin: 13px 0 0;
 }
+/*
+  A secondary choice under a primary one — quieter than a button, louder than
+  fine print, and a real control rather than a sentence. Used for the random
+  table placement Order 243 Annex 1 Art. 13(b) requires to be available.
+*/
+.gd-secondary-link {
+  display: block;
+  width: 100%;
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  background: none;
+  border: 1px solid var(--lf-line-2, #2a3340);
+  border-radius: 8px;
+  color: var(--lf-text-dim, #9aa7b4);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gd-secondary-link:hover:not(:disabled) {
+  color: var(--lf-text, #e6edf3);
+  border-color: var(--lf-line-1, #3a4652);
+}
+.gd-secondary-link:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .gd-dialog .gd-primary {
   font-size: 14px;
   min-height: 49px;

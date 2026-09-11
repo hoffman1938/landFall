@@ -5,11 +5,14 @@
  * docs/10-compliance/03-game-classification.md §5).
  *
  * The house stakes a seed on all six harbors every round and settles it under
- * the same pari-mutuel rules as a player. Its EXPECTED profit is zero by
- * symmetry: a uniform stake across every possible outcome expresses no view and
- * cannot win by predicting. But its REALISED profit is not zero in any finite
- * period, and it used to be credited to the same account as the rake — so on any
- * given month the operator's revenue contained an amount won from players by
+ * the same pari-mutuel rules as a player. It expresses no view and cannot win by
+ * predicting — but its expected profit is NOT zero, and saying so was an error
+ * this file's own header used to make. A uniform stake across all six harbours
+ * is slightly +EV against an imbalanced crowd, because the survivor payout is
+ * convex in the struck pool: the seed wins more when a heavy harbour is hit than
+ * it loses when a light one is. Measured over a million rounds it is +0.0875% of
+ * handle. That money used to be credited to the same account as the rake — so on
+ * any given month the operator's revenue contained an amount won from players by
  * house money staked against them. GLI-19 §A.7.1 is explicit:
  *
  *   (c) the operator shall not profit from the play (beyond the rake);
@@ -25,6 +28,13 @@
  * maps precisely onto §A.7.1(d) — the money is ultimately played or given back
  * to players, never banked — and onto §A.6.5(a), which says jackpot
  * contributions must not be assimilated into revenue.
+ *
+ * Segregation alone was not enough, and that was the second finding here. A
+ * ring-fenced fund that only ever accumulates is not "ultimately lost"; it is
+ * banked in a different account. `floatSurplusMinor` below is the other half:
+ * the float keeps its opening capitalization plus a few rounds of head-room and
+ * releases everything above that to the Storm Surge pot, which pays out to a
+ * player in full.
  *
  * Operator revenue after this change is THE RAKE ALONE, which is what the
  * economy documentation has always claimed it was.
@@ -123,6 +133,47 @@ export function applyFloatRound(
 
 /** The only three destinations float money may ever reach. */
 export type FloatRelease = 'SEED' | 'SURGE_POT' | 'STORM_RESERVE';
+
+/**
+ * HOW MUCH HEAD-ROOM THE FLOAT KEEPS BEFORE IT GIVES MONEY BACK.
+ *
+ * §A.7.1(d) does not merely require operator-funded wagers to be segregated; it
+ * requires the money to "ultimately be lost" — played back, not banked. A float
+ * that only ever accumulates satisfies the segregation limb and fails that one.
+ *
+ * And it does accumulate. `reconcileOperatorRevenue`'s own documentation says
+ * why: a uniform seed across all six harbours is +EV against an imbalanced
+ * crowd, because the survivor payout is convex in the struck pool. Measured over
+ * a million rounds of the release-gate simulation the float earns +0.0875% of
+ * handle — small, systematic, and taken out of what players receive. Left alone
+ * it grows without limit.
+ *
+ * So the float returns its surplus. Anything above its opening capitalization
+ * plus this much head-room is released to the Storm Surge pot, which pays out to
+ * a player in full. The head-room exists so the release is an occasional,
+ * legible ledger event rather than a few minor units every round.
+ */
+export const HOUSE_FLOAT_RELEASE_HEADROOM_ROUNDS = 5;
+
+/**
+ * The surplus a float should release now, or 0.
+ *
+ * Pure and integer, like everything else here: the caller decides when to ask
+ * and persists the row that `releaseFloat` returns.
+ *
+ * @param openingMinor    the float's disclosed opening capitalization
+ * @param roundSeedMinor  one round's full house seed, the head-room unit
+ */
+export function floatSurplusMinor(
+  state: HouseFloatState,
+  openingMinor: number,
+  roundSeedMinor: number,
+  headroomRounds = HOUSE_FLOAT_RELEASE_HEADROOM_ROUNDS,
+): number {
+  const threshold = openingMinor + Math.max(0, roundSeedMinor) * headroomRounds;
+  if (state.balanceMinor <= threshold) return 0;
+  return state.balanceMinor - openingMinor;
+}
 
 /**
  * Release float money to a player-facing fund.

@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
 import type { WebSocketServer } from 'ws';
 import {
+  RANDOM_ROOM,
   STARTING_BALANCE_MINOR,
   clientMessage,
   type ActionReceipt,
@@ -17,6 +18,7 @@ import {
   type SkipperRecordPublic,
 } from '@landfall/core';
 import type { ChatService } from './chat.js';
+import type { PracticeCredits } from './demoCredits.js';
 import type { CoordinatorEvents, RoundCoordinator } from './coordinator.js';
 import type { Db } from './db/index.js';
 import type { LimitsService } from './limits.js';
@@ -25,6 +27,7 @@ import { log } from './log.js';
 import { metrics } from './metrics.js';
 import { chatMessages, players, skipperRecords } from './db/schema.js';
 import { randomName } from './names.js';
+import { randomUnitInterval } from './random.js';
 
 /**
  * The transport surface the hub needs from a socket.
@@ -69,7 +72,24 @@ export class Hub {
     private chat: ChatService,
     private chainCommitment: string,
     private limits: LimitsService,
+    /** Demo builds only (`LANDFALL_ENV=demo`); absent everywhere else. */
+    private practice?: PracticeCredits,
   ) {}
+
+  /**
+   * A season rollover replaces the commitment mid-session (see `chain.ts`).
+   * WELCOME carries it, so a client that connected under the previous season
+   * would otherwise hold a commitment that does not cover the rounds it is
+   * currently watching — and would read an honest round as unverifiable.
+   */
+  rotateChainCommitment(commitment: string): void {
+    this.chainCommitment = commitment;
+    for (const s of this.sessions) {
+      if (s.playerId && s.ws.open) {
+        s.ws.send(JSON.stringify({ type: 'CHAIN_COMMITMENT', commitment } satisfies ServerMessage));
+      }
+    }
+  }
 
   /** Wired after construction (hub and rooms reference each other). */
   rooms!: RoomManager;
@@ -86,6 +106,7 @@ export class Hub {
       sendToPlayer: (playerId, msg) => this.sendToPlayerInRoom(roomId, playerId, msg),
       broadcastLandfall: (build) => this.broadcastLandfallToRoom(roomId, build),
       systemMessage: (text) => this.systemMessageToRoom(roomId, text),
+      roundSettled: () => this.offerPracticeCreditsIfStuck(),
     };
   }
 
@@ -174,6 +195,7 @@ export class Hub {
     const pid = session.playerId;
     if (pid && ![...this.sessions].some((s) => s.playerId === pid)) {
       this.limits.endSession(pid);
+      this.practice?.forget(pid);
     }
   }
 
@@ -266,6 +288,72 @@ export class Hub {
     return session.roomId ? (this.rooms.get(session.roomId) ?? null) : null;
   }
 
+  /**
+   * The smallest bet any table on this server will take. A player below it
+   * cannot play at all — not "cannot play here", but cannot play — which is the
+   * only condition that justifies a practice top-up in a demo build.
+   */
+  private cheapestMinStakeMinor(): number {
+    let cheapest = Infinity;
+    for (const room of this.rooms.rooms.values()) {
+      cheapest = Math.min(cheapest, room.cfg.minStakeMinor);
+    }
+    return Number.isFinite(cheapest) ? cheapest : 0;
+  }
+
+  /**
+   * Answer a practice-credit request, or offer one unprompted.
+   *
+   * The unsolicited path matters more than the requested one: a player who has
+   * just lost their last credits is looking at a table they can no longer bet
+   * on, and nothing else on screen explains why. `available: false` outside a
+   * demo build is what tells the client to render nothing at all rather than a
+   * button that would always fail.
+   */
+  private practiceCredits(session: Session, requested: boolean): void {
+    if (!session.playerId) return;
+    if (!this.practice) {
+      if (requested) {
+        this.send(session, {
+          type: 'PRACTICE_CREDITS',
+          available: false,
+          granted: false,
+          balanceMinor: 0,
+          amountMinor: 0,
+          reason: 'NOT_DEMO',
+        });
+      }
+      return;
+    }
+    const grant = this.practice.grant(session.playerId, this.cheapestMinStakeMinor());
+    if (!requested && !grant.granted && grant.reason !== 'COOLDOWN') return;
+    this.send(session, {
+      type: 'PRACTICE_CREDITS',
+      available: true,
+      granted: grant.granted,
+      balanceMinor: grant.balanceMinor,
+      amountMinor: grant.amountMinor,
+      ...(grant.reason ? { reason: grant.reason } : {}),
+      ...(grant.retryAt !== undefined ? { retryAt: grant.retryAt } : {}),
+    });
+  }
+
+  /**
+   * Called by the host after a round settles: anyone now unable to cover the
+   * smallest bet on the server is offered the practice float back.
+   */
+  offerPracticeCreditsIfStuck(): void {
+    if (!this.practice) return;
+    const cheapest = this.cheapestMinStakeMinor();
+    for (const session of this.sessions) {
+      if (!session.playerId || !session.ws.open) continue;
+      const player = this.db.select().from(players).where(eq(players.id, session.playerId)).get();
+      if (!player || player.isBot || player.isHouse) continue;
+      if (!this.practice.needsTopUp(player.balanceMinor, cheapest)) continue;
+      this.practiceCredits(session, false);
+    }
+  }
+
   private onMessage(session: Session, raw: string): void {
     let parsed: unknown;
     try {
@@ -280,6 +368,11 @@ export class Hub {
     const msg = result.data;
 
     if (msg.type === 'HELLO') return this.onHello(session, msg.playerId);
+
+    if (msg.type === 'REQUEST_PRACTICE_CREDITS') {
+      if (!session.playerId) return this.error(session, 'NO_HELLO', 'Say HELLO first.');
+      return this.practiceCredits(session, true);
+    }
 
     if (!session.playerId || !session.name) {
       return this.error(session, 'NO_HELLO', 'Say HELLO first.');
@@ -448,7 +541,22 @@ export class Hub {
     this.enterRoom(session, roomId);
   }
 
-  private joinRoom(session: Session, roomId: string): void {
+  private joinRoom(session: Session, requestedRoomId: string): void {
+    /*
+     * Order 243 Annex 1 Art. 13(b) / GLI-19 §4.11.1(b) — random placement, as an
+     * option the player can take. Resolved here rather than in the client so the
+     * selection is made by the server and cannot be steered from outside.
+     */
+    const roomId =
+      requestedRoomId === RANDOM_ROOM
+        ? this.rooms.randomRoomFor(
+            randomUnitInterval(),
+            session.playerId
+              ? (this.db.select().from(players).where(eq(players.id, session.playerId)).get()
+                  ?.balanceMinor ?? undefined)
+              : undefined,
+          )
+        : requestedRoomId;
     if (!this.rooms.get(roomId)) {
       return this.error(session, 'NO_SUCH_ROOM', 'That room does not exist.');
     }

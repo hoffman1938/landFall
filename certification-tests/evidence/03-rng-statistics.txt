@@ -1,0 +1,96 @@
+LANDFALL — RNG STATISTICAL EVIDENCE (GLI-19 §3.2)
+==============================================================================
+Generated        2026-09-11T20:50:07.302Z
+Construction     seed chain: SHA-256 pre-committed; draw: HMAC-SHA256(seed, "landfall:round:<id>")
+Streams          20 independent × 12,000 draws
+Single sample    500,000 draws
+Confidence       99% (α = 0.01)
+
+Every draw below comes from the PRODUCTION chain and the PRODUCTION draw
+function. Streams are seeded from their labels, so this report reproduces
+exactly on any machine.
+
+--- §3.2.3 DISTRIBUTION — the final outcome output ------------------------
+Struck harbour, observed frequency:
+  Harbour 1       83253   16.6506%   deviation -0.0161 points
+  Harbour 2       82796   16.5592%   deviation -0.1075 points
+  Harbour 3       83164   16.6328%   deviation -0.0339 points
+  Harbour 4       83455   16.6910%   deviation 0.0243 points
+  Harbour 5       83629   16.7258%   deviation 0.0591 points
+  Harbour 6       83703   16.7406%   deviation 0.0739 points
+  chi-square 6.7528  df 5  critical 15.0863  p = 0.2397  PASS
+
+--- §3.2.3 INTENDED DISTRIBUTION — the Storm Power ladder ------------------
+Tier             Multiplier      Expected p        Observed p     Expected n   Observed n
+----------------------------------------------------------------------------------------
+Category 1              ×1       9.1126e-1       9.1114e-1     455631.7       455571
+Category 2           ×1.25       8.0000e-2       8.0012e-2      40000.0        40006
+Category 3              ×2       7.6294e-3       7.6960e-3       3814.7         3848
+Category 4              ×5       1.0490e-3       1.1080e-3        524.5          554
+Category 5             ×25       5.2452e-5       4.2000e-5         26.2           21
+Category 6            ×100       4.7684e-6       0.0000e+0          2.4            0
+PERFECT STORM         ×500       9.5367e-7       0.0000e+0          0.5            0
+
+--- the jackpot trigger ---------------------------------------------------
+  Nominal probability        4.000000%
+  Implemented probability    4.000092%   (20-bit roll; this is the real figure)
+  Observed                   4.000000%   n = 20000
+  z = -0.0033   PASS at 99%
+
+--- the cosmetic weather draw (mapping is exactly uniform: 256 mod 4 = 0) --
+  CLEAR_TIDE      125228   25.0456%
+  HEAVY_FOG       124763   24.9526%
+  CROSSWIND       125476   25.0952%
+  HIGH_SWELL      124533   24.9066%
+
+--- §3.2.2 THE SEVEN-TEST BATTERY, PER STREAM -----------------------------
+p-values. A value below 0.01 is a rejection at the stated level.
+
+Stream   TotalDist   Overlaps    Coupon      Runs        Interplay   Serial      Duplicates
+----------------------------------------------------------------------------------------
+     1      0.6532      0.7848      0.3485      0.6428      0.8858      0.4160      0.8864
+     2      0.1135      0.2053      0.3927      0.5715      0.3127      0.5881      0.4452
+     3      0.9586      0.6398      0.4262      0.8391      0.9999      0.6633      0.6446
+     4      0.0243      0.1898      0.1888      0.3343      0.8511      0.8488      0.8799
+     5      0.7982      0.8961      0.6493      0.7418      0.3236      0.7185      0.2380
+     6      0.4510      0.6490      0.0050      0.1125      0.3177      0.7245      0.3016   <- rejection
+     7      0.7807      0.9696      0.4685      0.7796      0.6322      0.9592      0.4355
+     8      0.3424      0.1708      0.2127      0.5347      0.6129      0.7547      0.0400
+     9      0.4909      0.6893      0.4280      0.8248      0.3957      0.6123      0.9967
+    10      0.0318      0.0300      0.9601      0.3463      0.1554      0.2174      0.7719
+    11      0.4239      0.3151      0.3264      0.5408      0.6355      0.2420      0.2191
+    12      0.2598      0.5050      0.9754      0.6195      0.6876      0.2267      0.9577
+    13      0.0169      0.0112      0.2266      0.2255      0.2011      0.6581      0.5928
+    14      0.8551      0.9761      0.8560      0.2949      0.0875      0.4402      0.7719
+    15      0.6820      0.4394      0.3632      0.1803      0.4079      0.7754      0.0587
+    16      0.4374      0.2449      0.5767      0.7339      0.7001      0.3062      0.7286
+    17      0.9709      0.6455      0.8548      0.3079      0.3840      0.5619      0.4072
+    18      0.1930      0.4978      0.7745      0.3741      0.1528      0.7736      0.5704
+    19      0.5400      0.9863      0.6802      0.6550      0.2769      0.4078      0.7657
+    20      0.8256      0.6723      0.4302      0.7248      0.0007      0.9842      0.9577   <- rejection
+
+--- THE COLLECTIVE VERDICT ------------------------------------------------
+  Decisions                 140   (7 tests × 20 streams)
+  Expected rejections       1.4   at α = 0.01
+  Observed rejections       2
+
+  Per test:
+    total distribution       0/20 rejected
+    overlaps                 0/20 rejected
+    coupon collector         1/20 rejected
+    runs                     0/20 rejected
+    interplay correlation    1/20 rejected
+    serial correlation       0/20 rejected
+    duplicates               0/20 rejected
+
+  A single seeded run of seven tests at 99% rejects at least once about 7%
+  of the time against a perfect source, so "seven passes" is not a 99%
+  test — it is a 93% one that fails intermittently on correct code. The
+  rejection RATE across independent streams is the collective reading.
+
+  Kolmogorov-Smirnov of the pooled p-values against uniform(0,1):
+    D = 0.0745   critical 0.1378   PASS
+
+==============================================================================
+  VERDICT: all statistical tests PASSED at 99% confidence
+==============================================================================

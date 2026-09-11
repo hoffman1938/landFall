@@ -22,6 +22,37 @@ working document — the matrices are the analysis, this is the list of things t
 
 **Status:** ☐ Not started · ◐ In progress · ☑ Closed · ▽ Operator obligation, interface only
 
+> **Certification pass of 2026-09-12 (rules v4).** A second engineering pass, run against the
+> submitted regulatory PDF and driven by a new independent evidence suite at
+> [`certification-tests/`](../../../certification-tests). **Eight findings**, all closed; the full
+> account with measurements is in
+> [`certification-tests/docs/08-findings-and-fixes.md`](../../../certification-tests/docs/08-findings-and-fixes.md).
+> The three that would have been laboratory findings:
+>
+> 1. **The published RTP was wrong again, and wrong in a way that grew as a table got quieter.**
+>    The rules-v3 jackpot reset used `max(20 × minStake, budget)`; measured at every shipped tier
+>    the floor won, so the budget fraction was inert — the same defect, in the same function, that
+>    v3 had been written to fix. Measured hold was 0.26%–0.61% against a published 1.00%, and on a
+>    table thin enough for the floor to exceed the affordability ceiling the table returned **100%
+>    of handle**. Fixed at rules v4: the reset is exactly 35% of what the rake share can fund, the
+>    resulting flow is published as the fourth RTP term, and the hold now spans 0.6379%–0.6590%
+>    across the ladder against a published 0.6509%.
+> 2. **`GameControl.betsAllowed()` was called from nowhere.** "Disable all gaming activity" wrote
+>    an audit entry, reported DISABLED on the compliance endpoint, and went on accepting bets —
+>    see G32, now closed.
+> 3. **Settlement took 100% of the round when nobody survived.** Defended as unreachable, but
+>    `resolveRoomConfig` accepts `seedMinor: 0` and a crowd that all picks the struck harbour
+>    reaches it. Against a §4.7.1 floor of 75% it returned zero. Every bet is now refunded.
+>
+> Two availability defects also cost players money: the seed chain **halted the game permanently**
+> after ~55 hours (Order 240 Art. 3.1), and an exception in `lock()` **stranded accepted bets**
+> with no settlement and no further rounds (§4.16.2). Both fixed and guarded by
+> `server/test/resilience.test.ts`.
+>
+> **Reading the Georgian text directly, rather than through the GLI mapping, found one more:**
+> Order 243 Annex 1 Art. 13(b) requires the *possibility* of random table placement, which a
+> disclosure of the default routing rule does not create. See G43, reopened and re-closed.
+
 > **Engineering pass of 2026-09-11 (rules v2).** The code-side gaps below marked ☑ or ◐ were
 > worked in one pass; see `docs/09-remediation/decisions-log.md` rows 64–73 for every judgment
 > call and `packages/core/test/compliance.test.ts` for the executable form of each invariant.
@@ -48,6 +79,11 @@ working document — the matrices are the analysis, this is the list of things t
 | MEDIUM | 19 | Compliance, Engineering |
 | LOW | 4 | Engineering |
 | **Total** | **53** | |
+
+**After the 2026-09-12 certification pass:** G32 and G43 move to ☑, and G38's closure is extended
+with an independent statistical battery. The eight defects that pass found were **not** in this
+register — they were behaviours the register's own closures had assumed rather than verified, which
+is the argument for an evidence suite that exercises the shipped code rather than reading it.
 
 **After the 2026-09-11 engineering pass:** of the 52 rows actually tabulated below, **10 are
 closed (☑), 11 partially closed (◐) and 31 untouched (☐)**. *(The severity table above totals 53;
@@ -104,11 +140,11 @@ implement them.
 | **G29** | TLS 1.2 minimum to the operator platform, and **sender and recipient of every communication known**, are met in practice but undocumented as controls and untested against a real operator platform | Order 222 Annex 1 Arts. 10.2, 15.1(c); GLI §B.4 | Engineering | ☐ |
 | **G37** | No significant-event and alteration log with **value before and after** and the responsible user. This is the evidence that the material-change regime is being honoured. `decisions-log.md` plus git history is a strong substrate but is not a controlled record, and **CDN changes are not tracked at all** **→ Partial 2026-09-11.** `significant_events` records category, component, actor, reason and **value before and after**. *Still open: CDN change tracking and retention.* | GLI §2.9.5; Order 222 Annex 1 Art. 16.2 | Engineering | ◐ |
 | **G55** | No incident notification path — Art. 16.1(b) requires **immediate** notification to the operator, Revenue Service and/or Selected Person of anything endangering the security or integrity of the remote gaming server. No contact matrix, no timescale, no incident record | Order 222 Annex 1 Art. 16.1(b); Order 240 Art. 2.2(d) | Compliance | ☐ |
-| **G38** | Statistical testing incomplete. Draw uniformity (χ²) and independence-from-pools exist; the **full seven-test battery at 99% confidence** does not — chi-square, overlaps, coupon collector, runs, interplay correlation, serial correlation, duplicates. Extends an existing suite **→ Closed 2026-09-11.** All seven tests, over 12 independent streams with the rejection count compared against the 1% rate rather than a single seeded run. decisions-log #70. | GLI §3.2.2; also GLI §A.6.2 RNG output monitoring | Math + Engineering | ☑ |
+| **G38** | Statistical testing incomplete. Draw uniformity (χ²) and independence-from-pools exist; the **full seven-test battery at 99% confidence** does not — chi-square, overlaps, coupon collector, runs, interplay correlation, serial correlation, duplicates. Extends an existing suite **→ Closed 2026-09-11; extended 2026-09-12.** All seven tests, over 12 independent streams with the rejection count compared against the 1% rate rather than a single seeded run (decisions-log #70). The certification pack adds an independent battery over 20 streams, a Kolmogorov–Smirnov check that the pooled p-values are uniform, an exact bound on the harbour mapping's modulo bias (1.3 × 10⁻¹⁵ relative), and a printed statistical report. **One correction:** the runs-up-and-down statistic is derived for distinct continuous values and rejects a good six-symbol source in essentially every stream; the Wald–Wolfowitz form on a binary recoding is used instead. | GLI §3.2.2; also GLI §A.6.2 RNG output monitoring | Math + Engineering | ☑ |
 | **G39** | RNG **state compromise extension** — a hash chain is deterministic once the terminal secret is known, so compromise exposes the remainder of the season. The documented mitigation (mixing a public beacon unpredictable at commit time into each round's HMAC message) is on the roadmap, not implemented. Recommend promoting it into certification scope | GLI §3.3.2(c); rng spec §2 | Engineering | ☐ |
 | **G49** | Key management: the fairness chain terminal secret lives in the database in the local build — an explicitly documented local-build compromise that **must not survive to production**. The receipt signing key is already correctly separated (`server_secrets`) | GLI §§B.6.2, B.6.3 | Engineering | ☐ |
 | **G48** | No backup, restore, disaster-recovery or UPS posture. Order 240 Art. 3.4 requires **immediate restore** from backup; Art. 3.1 requires continuous 24-hour operation | Order 240 Arts. 3.1, 3.4; GLI §§B.3.3–B.3.9 | Engineering | ☐ |
-| **G32** | No disable capability: all gaming activity, individual game versions, or individual player logins; no disable-with-conclusion path; no audit-log entry with date, time and reason **→ Partial 2026-09-11.** `GameControl` disables all gaming, a room or a player, audit-logged with date, time and reason; a locked round always concludes. *Still open: operator-facing surface.* | GLI §§2.4.1, 4.15.1, A.6.3 | Engineering | ◐ |
+| **G32** | No disable capability: all gaming activity, individual game versions, or individual player logins; no disable-with-conclusion path; no audit-log entry with date, time and reason **→ Closed 2026-09-12.** The 2026-09-11 pass built `GameControl` and the read-only state endpoint but **never wired the gate**: `betsAllowed()` was called from nowhere in the codebase, so a disable recorded an audit entry, reported DISABLED, and kept accepting bets — worse than an absent control, because the compliance surface is what an inspector trusts. The gate is now consulted on the accept path for orders and signals (never for cancels — a refund is player protection); a locked round always concludes (§4.15.1); `POST /api/compliance/disable` and `/enable` are authenticated by `LANDFALL_OPS_TOKEN` in constant time and **refuse to act when the token is unset**; a reason is required, not defaulted (§A.6.3). `server/test/gameControl.test.ts`. | GLI §§2.4.1, 4.15.1, A.6.3 | Engineering | ☑ |
 | **G16** | No attestation surface allowing the operator's system to establish that the player device carries no outcome-determining logic, performs no unauthorized extraction and uses no automation. *The first limb is structurally true — the client contains no outcome logic — which is the strongest part of the answer* | Order 222 Annex 1 Art. 3.1(b); GLI §2.6.5(g) | Engineering | ☐ |
 | **G41** | Paytable presentation. A pari-mutuel game has no enumerable paytable; §4.4.1(d) requires all winning outcomes and payouts. Needs a **formula-as-paytable** presentation agreed with the laboratory in advance, plus an explicit §4.4.1(k) statement of what the Storm Power multiplier applies to **→ Closed 2026-09-11.** Formula-as-paytable and the §4.4.1(k) "what the multiplier applies to" statement both render from core. | GLI §§4.4.1(d), 4.4.1(j)–(l) | Product + Math | ☑ |
 | **G44** | Game recall incomplete player-side: §4.14.2 fields (funds before and after, **rake collected**, intermediate phases) are persisted and served by `/api/round/:id` but not rendered; §4.14.3 wants the last **50** events and the Wreck Log holds ~20 | GLI §§4.14.2, 4.14.3 | Engineering | ☐ |
@@ -133,7 +169,7 @@ implement them.
 | **G33** | `limits.ts` is built as a standalone responsible-gaming service; on Route A it must become an **interface** honouring operator-supplied limits and exclusions, where operator limits always win and self-imposed limits never override stricter ones | MEDIUM | GLI §§2.5.5, A.3.7, A.3.8 | Engineering | ☐ |
 | **G18** | Statement-of-activity components not exposed: won, lost, and **playing time in hours** | MEDIUM | Order 222 Annex 1 Art. 8.1(e) | Engineering | ☐ |
 | **G42** | Bonus clarity: surge rounds need the §4.8.1(c) "you are in a bonus" indication, and the community-bonus eligibility display of §4.8.4(b) | MEDIUM **→ Closed 2026-09-11.** "BONUS ROUND IN PROGRESS" plus a live eligibility line. | GLI §§4.8.1, 4.8.4 | Product | ☑ |
-| **G43** | Room routing (busiest affordable table) is not random placement; disclose the rule and the player-protection reason it exists | MEDIUM **→ Closed 2026-09-11.** `TABLE_ROUTING_DISCLOSURE`, rendered in the game-information dialog. | GLI §4.11.1(b); Order 222 Annex 1 Art. 13(b) | Compliance | ☑ |
+| **G43** | Room routing (busiest affordable table) is not random placement; disclose the rule and the player-protection reason it exists | MEDIUM **→ Reopened and re-closed 2026-09-12.** The 2026-09-11 closure disclosed the rule, which satisfies the GLI reading. **Order 243 Annex 1 Art. 13(b) is stricter**: it requires the *possibility* of random placement to exist, and a disclosure that placement is deterministic does not create a random alternative. `JOIN_ROOM` now accepts the sentinel `random` (server-resolved, uniform over the tables the balance affords), offered in the entry gate; the disclosure names the option. Art. 13(c)–(d) — the time to act and the consequence of not acting — were likewise true but unstated, and are now `TIMING_DISCLOSURE`. `certification-tests/suites/compliance/georgian-p2p.test.ts`. | GLI §4.11.1(b); Order 243 Annex 1 Art. 13(b)–(d) | Compliance | ☑ |
 | **G15** | No location detection: VPN, proxy, RDP, VM, rooted or jailbroken device; pre-game check and 30-minute/IP-change recheck; violation logging. Mostly ▽, but the pre-game check gates our round entry so we must expose the hook | MEDIUM | GLI §§2.7.2–2.7.4, C.5 | Engineering | ☐ |
 | **G46** | No in-product path for a player to report suspected cheating, collusion or bot usage. *The detection side is already strong — `collusion.ts` plus the offline scan* | MEDIUM **→ Partial 2026-09-11.** In-product "Report a concern" panel. *Still open: the operator routing path.* | GLI §A.7.3 | Engineering | ◐ |
 | **G31** | No documented time-synchronisation discipline across a multi-node deployment | MEDIUM | GLI §2.2.2 | Engineering | ☐ |

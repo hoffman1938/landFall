@@ -9,7 +9,14 @@
 import WebSocket from 'ws';
 import { verifyRound } from '@landfall/core';
 
-const URL = 'ws://localhost:8787/ws';
+/**
+ * Overridable so this can be pointed at a instance other than the default dev
+ * one — the certification pack runs it against its own port. Both the socket
+ * and the REST verification below derive from the same origin, so they cannot
+ * end up talking to two different servers.
+ */
+const ORIGIN = process.env.LANDFALL_SMOKE_ORIGIN ?? 'localhost:8787';
+const URL = `ws://${ORIGIN}/ws`;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface TestClient {
@@ -120,7 +127,7 @@ if (aExpected === 'SAFE' && lf.yourResult.netMinor <= 0) fail('SAFE should net p
 if (!b.chat.some((c) => c.text === 'good luck out there')) fail('chat not delivered to B');
 
 // Cryptographic + arithmetic verification from the public record.
-const rec = await (await fetch(`http://localhost:8787/api/round/${anchoredRound}`)).json();
+const rec = await (await fetch(`http://${ORIGIN}/api/round/${anchoredRound}`)).json();
 const v = verifyRound({
   roundId: rec.roundId,
   seedHex: rec.seedHex,

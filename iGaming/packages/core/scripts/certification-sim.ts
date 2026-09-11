@@ -123,6 +123,8 @@ import {
   WHALE_CAP_FRACTION,
   ZONE_COUNT,
   applyFloatRound,
+  floatSurplusMinor,
+  releaseFloat,
   applyReserveRound,
   contributeToSurge,
   drawZone,
@@ -278,12 +280,17 @@ for (const arg of process.argv.slice(2)) {
 
 const TIER = TIERS[CONFIG.tier];
 /**
- * The reset value is ADAPTIVE (rules v3): it follows the table's handle, because
- * that is the quantity the house re-seed has to be paid out of. The simulation
- * therefore recomputes it per round from the same settled-handle EMA the game
- * uses, and `SURGE_RESET_MIN` is only the lower bound.
+ * The reset value is ADAPTIVE and BUDGET-BOUND (rules v4): it is a fixed
+ * fraction of what the house share of the rake can fund at the table's handle,
+ * which is the quantity the re-seed has to be paid out of. The simulation
+ * recomputes it per round from the same settled-handle EMA the game uses.
+ *
+ * `SURGE_OPENING_POT` is a different thing and is used for one thing only: the
+ * pot a table opens with before it has ever paid one. It is NOT a floor under
+ * the reset — under rules v3 it was, it overrode the budget at every shipped
+ * tier, and the re-seed cost was consequently left out of the published RTP.
  */
-const SURGE_RESET_MIN = surgeFloorFor(TIER.minStake);
+const SURGE_OPENING_POT = surgeFloorFor(TIER.minStake);
 const SURGE_CEILING = surgeCeilingFor(TIER.minStake);
 const resetPolicy = (handlePerRoundMinor: number) => ({
   handlePerRoundMinor: Math.max(handlePerRoundMinor, TIER.floor),
@@ -291,7 +298,6 @@ const resetPolicy = (handlePerRoundMinor: number) => ({
   houseShare: RAKE_SPLIT.house,
   zones: ZONE_COUNT,
   surgeProb: SURGE_PROB,
-  minimumMinor: SURGE_RESET_MIN,
 });
 const LIQUIDITY = { floorMinor: TIER.floor, minSeedMinor: TIER.minSeed, maxSeedMinor: TIER.seed };
 
@@ -313,7 +319,7 @@ function configDigest(): string {
     whaleCap: WHALE_CAP_FRACTION,
     surgeProb: SURGE_PROB,
     ladder: STORM_POWER_LADDER,
-    tier: { ...TIER, surgeResetMin: SURGE_RESET_MIN, surgeResetBudget: SURGE_RESET_BUDGET_FRACTION, surgeCeiling: SURGE_CEILING },
+    tier: { ...TIER, surgeOpeningPot: SURGE_OPENING_POT, surgeResetBudget: SURGE_RESET_BUDGET_FRACTION, surgeCeiling: SURGE_CEILING },
   });
   return bytesToHex(sha256(new TextEncoder().encode(material)));
 }
@@ -576,6 +582,8 @@ interface SeasonStats {
   reserveMinBalanceMinor: number;
   reserveFinalMinor: number;
   floatBalanceMinor: number;
+  /** Ring-fenced house-seed surplus released back to the jackpot (§A.7.1(d)). */
+  floatReleasedMinor: number;
   floatTopUpMinor: number;
   floatPLMinor: number;
   jackpotPaidMinor: number;
@@ -611,12 +619,13 @@ function runSeason(
   const players = makePlayers(profiles, rng);
 
   let handleEma: number | null = null;
-  let potState = { potMinor: SURGE_RESET_MIN, diversionMinor: 0 };
+  let potState = { potMinor: SURGE_OPENING_POT, diversionMinor: 0 };
   let reserveState = {
     balanceMinor: stormReserveOpeningFor(TIER.floor),
     backstopTotalMinor: 0,
   };
-  let floatState = openFloat(houseFloatOpeningFor(TIER.seed, ZONE_COUNT, TIER.floor));
+  const floatOpening = houseFloatOpeningFor(TIER.seed, ZONE_COUNT, TIER.floor);
+  let floatState = openFloat(floatOpening);
   // Recomputed at the top of every round from the settled-handle EMA, exactly as
   // the coordinator's `surgePolicy` getter does. Declared without an initialiser
   // because the first assignment always precedes the first read.
@@ -627,7 +636,7 @@ function runSeason(
     playerReturnedMinor: 0, seedReturnedMinor: 0, rakeMinor: 0, houseShareMinor: 0,
     surgeContribMinor: 0, reserveContribMinor: 0, reserveOutMinor: 0,
     reserveBackstopMinor: 0, reserveMinBalanceMinor: reserveState.balanceMinor,
-    reserveFinalMinor: 0, floatBalanceMinor: 0, floatTopUpMinor: 0, floatPLMinor: 0,
+    reserveFinalMinor: 0, floatBalanceMinor: 0, floatReleasedMinor: 0, floatTopUpMinor: 0, floatPLMinor: 0,
     jackpotPaidMinor: 0, jackpotReseedMinor: 0, jackpotRollovers: 0, jackpotWins: 0,
     diversionMinor: 0, ceilingHits: 0, cappedRounds: 0, conservationViolations: 0,
     zoneCounts: Array(ZONE_COUNT).fill(0), tierCounts: Array(STORM_POWER_LADDER.length).fill(0),
@@ -742,7 +751,22 @@ function runSeason(
     floatState = floatRound.state;
     s.floatTopUpMinor += floatRound.topUpMinor;
 
-    const contribution = contributeToSurge(potState, surgeContrib, surgePolicy);
+    /*
+     * §A.7.1(d) — the float's surplus is released to the jackpot rather than
+     * accumulated. A uniform seed is +EV against an imbalanced crowd, so without
+     * this the ring-fenced fund grows forever and its profit is money taken out
+     * of what players receive. Same policy the coordinator runs.
+     */
+    const surplus = floatSurplusMinor(floatState, floatOpening, ZONE_COUNT * seedPerZone);
+    let floatReleased = 0;
+    if (surplus > 0) {
+      const released = releaseFloat(floatState, surplus, 'SURGE_POT');
+      floatState = released.state;
+      floatReleased = released.releasedMinor;
+      s.floatReleasedMinor += floatReleased;
+    }
+
+    const contribution = contributeToSurge(potState, surgeContrib + floatReleased, surgePolicy);
     potState = contribution.state;
     if (contribution.toDiversionMinor > 0) s.ceilingHits++;
 
@@ -941,7 +965,7 @@ function report(seed: number, run: number, runs: number): RunResult {
   log(`Table                   ${TIER.name} (${cr0(TIER.minStake)}–${cr0(TIER.maxStake)} credits per round)`);
   log(`Zones / rake / cap      ${ZONE_COUNT} harbours · rake ${pct(RAKE, 2)} of the struck pool · payout cap ${STORM_POWER_MAX_PAYOUT_MULTIPLE}x handle`);
   log(`Rake split              house ${RAKE_SPLIT.house} / surge ${RAKE_SPLIT.surge} / reserve ${RAKE_SPLIT.stormReserve}`);
-  log(`Jackpot                 reset adaptive (min ${cr0(SURGE_RESET_MIN)}) · ceiling ${cr0(SURGE_CEILING)} · ~1 round in ${Math.round(1 / SURGE_PROB)}`);
+  log(`Jackpot                 reset = ${SURGE_RESET_BUDGET_FRACTION.toFixed(2)} x affordable (rules v4) · opening pot ${cr0(SURGE_OPENING_POT)} · ceiling ${cr0(SURGE_CEILING)} · ~1 round in ${Math.round(1 / SURGE_PROB)}`);
   log('');
   log('Outcomes are drawn by the PRODUCTION RNG (SHA-256 chain + HMAC) and settled');
   log('by the PRODUCTION settlement. Only player behaviour uses a convenience PRNG.');
@@ -955,13 +979,19 @@ function report(seed: number, run: number, runs: number): RunResult {
   log(`Base pari-mutuel return                 1 - r/K               ${pct(theory.baseReturn).padStart(9)}`);
   log(`Storm Surge (jackpot)                   split.surge*r/K       ${pct(theory.surgeReturn).padStart(9)}`);
   log(`Storm Power (ladder)                    E[M-1]*(1-r)/K        ${pct(theory.stormPowerReturn).padStart(9)}`);
+  log(`Jackpot reset (house-funded)            budget*split.house*r/K${pct(theory.jackpotReseedReturn).padStart(9)}`);
   log('--------------------------------------------------------------------------');
   log(`THEORETICAL RTP                                               ${pct(theory.totalRtp).padStart(9)}`);
   log(`Operator theoretical hold                                     ${pct(theory.operatorHold).padStart(9)}`);
   log('');
-  log('Note: the theoretical figure counts the three RAKE-FUNDED flows only. It does');
-  log('not count the house jackpot floor re-seed, which is additional operator money');
-  log('returning to players, so measured return runs ABOVE theory. See CASH DESK.');
+  log('All FOUR return flows are counted, including the house-funded jackpot reset');
+  log('(rules v4). Under rules v3 that flow was omitted from the model while the');
+  log('reset was not a fixed fraction of anything, and measured return therefore ran');
+  log('0.25-0.75 points ABOVE the published figure, by a margin that grew as a table');
+  log('got quieter. The reset term is exact IN EXPECTATION; in any finite window it');
+  log('moves with the jackpot COUNT, which is Poisson at the surge rate. Compare the');
+  log('measured trigger rate below against 4.00% before reading anything into the');
+  log('difference between the CASH DESK re-seed figure and the 0.35% modelled here.');
 
   log('');
   log('--- STORM POWER LADDER (as disclosed to players) -------------------------');
@@ -1112,22 +1142,38 @@ function report(seed: number, run: number, runs: number): RunResult {
   const affordableReset = affordableResetMinor(resetPolicy(handlePerRound));
   const liveReset = surgeResetFor(resetPolicy(handlePerRound));
   const resetAffordable = liveReset <= affordableReset;
+  /*
+   * Rules v4 makes a second, stronger claim than affordability: the reset is
+   * EXACTLY `budgetFraction` of the ceiling at every table size, which is what
+   * lets the flow be published as a term of theoretical RTP. Affordability alone
+   * was the v3 property, and it was satisfied by a policy whose cost still moved
+   * with table population.
+   */
+  const budgetShare = affordableReset === 0 ? 0 : liveReset / affordableReset;
+  const budgetExact = Math.abs(budgetShare - SURGE_RESET_BUDGET_FRACTION) < 0.01;
   log('');
   log('--- JACKPOT AFFORDABILITY ------------------------------------------------');
-  log(`Reset value (at this handle)${cr(liveReset).padStart(18)}   adaptive, rules v3`);
+  log(`Reset value (at this handle)${cr(liveReset).padStart(18)}   adaptive, rules v4`);
   log(`Handle per round (measured) ${cr(handlePerRound).padStart(18)}`);
   log(`Affordable reset ceiling    ${cr(affordableReset).padStart(18)}   = house share of rake / surge rate`);
-  log(`Reset / affordable          ${(liveReset / affordableReset).toFixed(2).padStart(18)}x   ` +
+  log(`Reset / affordable          ${budgetShare.toFixed(2).padStart(18)}x   ` +
     `${resetAffordable ? 'PASS' : 'FAIL — the re-seed costs more than the table earns'}`);
+  log(`Budgeted share (rules v4)   ${SURGE_RESET_BUDGET_FRACTION.toFixed(2).padStart(18)}x   ` +
+    `${budgetExact ? 'PASS — the cost is a fixed fraction of handle, so it is in the RTP model' : 'FAIL — the reset is not the budgeted share; the published RTP term is wrong'}`);
   if (!resetAffordable) {
     log('');
     log('  The house guarantees a minimum jackpot by topping the pot back up to the');
     log('  reset value after every win. On this table that guarantee is larger than');
     log('  the entire rake share it is funded from, so the operator loses money on');
-    log('  every round played. `surgeFloorFor()` returns max(SURGE_MIN_POT_MINOR,');
-    log('  20 x minStake), and below a 25-credit minimum bet the flat floor wins —');
-    log('  so the per-table scaling the function was written for is inert on exactly');
-    log('  the small tiers it was meant to fix.');
+    log('  every round played.');
+  }
+  if (!budgetExact) {
+    log('');
+    log('  The reset is not the budgeted fraction of what the rake share can fund.');
+    log('  That makes the re-seed cost a function of table population rather than a');
+    log('  constant fraction of handle — which is exactly the rules-v3 defect, where');
+    log('  a `20 x minStake` floor overrode the budget at every shipped tier and the');
+    log('  published RTP figure described an economy the code did not run.');
   }
 
   log('');
@@ -1136,6 +1182,7 @@ function report(seed: number, run: number, runs: number): RunResult {
   log(`House seed returned         ${cr(s.seedReturnedMinor).padStart(18)}`);
   log(`Float profit and loss       ${cr(s.floatPLMinor).padStart(18)}   ${pct(s.floatPLMinor / s.handleMinor)} of handle`);
   log(`Operator capital added      ${cr(s.floatTopUpMinor).padStart(18)}`);
+  log(`Surplus released to jackpot ${cr(s.floatReleasedMinor).padStart(18)}   ${pct(s.floatReleasedMinor / s.handleMinor)} of handle — §A.7.1(d)`);
   log(`Closing float balance       ${cr(s.floatBalanceMinor).padStart(18)}`);
   log('');
   log('The float\'s profit is NOT operator revenue: it may fund only future seeds,');
@@ -1234,7 +1281,7 @@ function report(seed: number, run: number, runs: number): RunResult {
   log('which are the only places operator money is genuinely at risk.');
 
   const allTestsPass =
-    zoneChi.pass && tierChi.pass && surgeZ <= 2.576 &&
+    zoneChi.pass && tierChi.pass && surgeZ <= 2.576 && budgetExact &&
     s.conservationViolations === 0 && s.reserveMinBalanceMinor >= 0 && worstReserveMin >= 0 &&
     resetAffordable && s.operatorNetMinor > 0;
 

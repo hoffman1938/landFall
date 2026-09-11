@@ -1,0 +1,147 @@
+LANDFALL — BUILD AND CONFIGURATION IDENTITY
+==============================================================================
+Generated        2026-09-11T20:50:46.648Z
+Rules version    v4
+
+--- SOURCE DIGEST ---------------------------------------------------------
+  Files           43
+  Bytes           418,756
+  SHA-256         71d462626fd64441ff51e0a9f0c34de30f22508d4dea9ea0a58c74d768fbc6d4
+
+  Per-component manifest (the same one `server/src/selfVerify.ts` builds):
+    5f109d7040f0cb1c    18678  core/src/constants.ts
+    b77f2822b166d3f4    10403  core/src/houseFloat.ts
+    0e8b30b2622e600c      362  core/src/index.ts
+    2c15085f51b2dff9    16263  core/src/jackpot.ts
+    1e56d66a87affca7     7257  core/src/liquidity.ts
+    c06b60a54eacc4c8    18090  core/src/messages.ts
+    1e9230a91ff6707b     8249  core/src/presentation.ts
+    21de00041cc5b229     5983  core/src/rng.ts
+    0d3362c12006a7c1    10217  core/src/rtp.ts
+    5e0fa05614aee7ee    16933  core/src/rules.ts
+    c91f716920981ea4     9543  core/src/settlement.ts
+    7c0eb3fdff5f1b44     5220  core/src/tide.ts
+    f007845cfa9a6235     7330  core/src/verify.ts
+    5d4f13e229dff05e     2986  server/config/rooms.json
+    0c67aeed4e1d90fe    17240  server/src/app.ts
+    9acbc84e6b6c5a47    11712  server/src/bots.ts
+    c5c5e99ed59c2ca6     4981  server/src/chain.ts
+    cb3d91befc00e42c     2569  server/src/chat.ts
+    2a0b85c1ee601dda      744  server/src/clock.ts
+    181caddb3c819cec     9198  server/src/collusion.ts
+    8c335a96942561eb    82180  server/src/coordinator.ts
+    65d596d7f2bd08e0      989  server/src/db/database.ts
+    77918900f9e5c948     5537  server/src/db/ddl.ts
+    ece5ba2cf456d28e     2464  server/src/db/index.ts
+    2bd67a96019f05a4    17937  server/src/db/repository.ts
+    da0bebcd385d4ea4    13580  server/src/db/schema.ts
+    f124305cd7d336dc     7456  server/src/demoCredits.ts
+    04e98a49f4fe525b     4622  server/src/gameControl.ts
+    78ec84b2d42532df     1064  server/src/house.ts
+    a841aa7b5a54a83c    24193  server/src/hub.ts
+    8c5de7045411bb69     2105  server/src/index.ts
+    e4d60feb0315518a     8143  server/src/limits.ts
+    99fa93ae00c094a8     3631  server/src/log.ts
+    b1c1183b54109882     8629  server/src/main.ts
+    a04691aa51de211d     5138  server/src/metrics.ts
+    9fdc5bf16e6a2628      867  server/src/names.ts
+    d5ed706662c2f4ce     1237  server/src/random.ts
+    73b74f496f72fb85     2267  server/src/receipts.ts
+    de3ae29701df09f8    12904  server/src/reporting.ts
+    4f0a1e9e28cb7e57     1227  server/src/rooms-file.ts
+    746d1d290b5cec94    11346  server/src/rooms.ts
+    0e71ca2ed94e6643     7919  server/src/runtimeVerify.ts
+    c4cfa68ea7b0ce4a     9363  server/src/selfVerify.ts
+
+--- CONFIGURATION DIGEST --------------------------------------------------
+  SHA-256         5554f32b4891ade6217fb886e6b9a091374010bd37c6441362864b14ee135909
+
+  The values behind it:
+    Harbours per round             6
+    Rake on the struck pool        12.00%   (permitted range 6%-20%)
+    Rake split                     house 0.5 / jackpot 0.25 / reserve 0.25
+    Payout liability cap           150× round handle
+    Round-share cap per player     25%
+    Jackpot trigger probability    4.0000%   (~1 round in 25)
+    Jackpot reset budget           35% of what the house rake share can fund
+    Seed chain length              10,000 rounds per season
+
+    Storm Power ladder:
+      Category 1       ×     1   955529/1048576   1 in 1
+      Category 2       ×  1.25   83886/1048576   1 in 13
+      Category 3       ×     2   8000/1048576   1 in 131
+      Category 4       ×     5   1100/1048576   1 in 953
+      Category 5       ×    25   55/1048576   1 in 19,065
+      Category 6       ×   100   5/1048576   1 in 209,715
+      PERFECT STORM    ×   500   1/1048576   1 in 1,048,576
+
+--- THE PUBLISHED ECONOMY -------------------------------------------------
+  Theoretical return to player   99.3491%
+    base pari-mutuel             98.0000%
+    jackpot contribution         0.5000%
+    multiplier ladder            0.4991%
+    house-funded jackpot reset   0.3500%
+  Operator theoretical hold      0.6509%
+
+  As shown to players:
+    "99.3%"
+    Return to player is 99.3% of everything staked, made of 98.00% returned by the pari-mutuel split, 0.50% paid back through the jackpot, 0.50% paid back through the storm multiplier, and 0.35% put back into the jackpot by the house every time it is won. The operator keeps 0.65%. This is a theoretical figure computed from the game's own constants, not a measurement of past play, and it holds at every table and every table size.
+
+--- RULES CHANGE LOG (GLI-19 §A.5.1; Law Art. 24¹.2) ----------------------
+  v1  2026-07-11  MATERIAL
+      Art. 24¹.2(b) architecture, (c) amount of winnings, (f) jackpot payout system
+      Initial ruleset: six harbors, uniform 1-in-6 draw, pari-mutuel
+      settlement at 12% rake on the struck pool, Storm Power ladder v2 (×1
+      floor, ×500 nominal top tier) capped at 25× round handle, Storm Surge
+      progressive jackpot at ~1 round in 25.
+
+  v2  2026-09-11  MATERIAL
+      Art. 24¹.2(c) amount of winnings, (f) jackpot payout system
+      Storm Power liability cap raised from 25× to 150× round handle so that
+      every advertised tier — including the ×500 Perfect Storm — is payable in
+      full at the reference pool shape (GLI-19 §4.4.1(f)); at 25× the top tier
+      was clamped in essentially every round and could never be paid at its
+      advertised value. Storm Reserve gains a disclosed opening capitalization
+      and can no longer run negative — shortfalls are booked as an explicit
+      house backstop. House-seed profit and loss ring-fenced into a segregated
+      liquidity float that may fund only future seeds, the jackpot or the
+      reserve, never operator revenue (GLI-19 §A.7.1(c)–(d)). Storm Surge
+      gains a ceiling with a diversion pool and a defined reset value
+      (§4.13.3, §4.13.6). Player-facing return corrected from 98% to 99.0%,
+      the figure its own stated derivation produces (§4.7.2).
+
+  v3  2026-09-11  MATERIAL
+      Art. 24¹.2(f) jackpot payout system
+      Storm Surge reset value now follows the table's handle instead of its
+      minimum bet. The previous value — max(500 credits, 20 x minimum bet) —
+      was fixed to the tier, but the house re-seeds the pot to it after every
+      win, which is a recurring cost of reset x surgeProb per round funded
+      entirely from the house share of the rake. Measured over 1,200 rounds
+      the fixed value cost 6.5% of handle on Skiff and 1.5% on Schooner
+      against a ~1% house share, so both tiers lost money on every round
+      played and returned over 100% to players. The reset is now sized from
+      the settled-handle EMA and capped at what the rake share can fund. The
+      jackpot CEILING is unchanged and remains a pure function of the tier,
+      because GLI-19 §2.4.2 permits a ceiling to move only upward once
+      contributions exist.
+
+  v4  2026-09-11  MATERIAL
+      Art. 24¹.2(c) amount of winnings, (f) jackpot payout system
+      Storm Surge reset value is now exactly 35% of what the house share of
+      the rake can fund, with no minimum able to override it, and the
+      resulting house-funded flow is published as the fourth term of
+      theoretical return to player. Under v3 the reset was max(20 x minimum
+      bet, budget): measured at every shipped tier the floor won, so the
+      budget fraction was inert and the re-seed cost was neither constant nor
+      disclosed. The published figure (98.999% return, 1.00% hold) therefore
+      described an economy the code did not run - measured return was
+      99.25%-99.74% and measured hold 0.26%-0.61%, and on a table thin enough
+      for the floor to exceed the affordability ceiling the reset became the
+      ceiling exactly and the table returned 100% of handle. Return to player
+      is now 99.3% at every tier and every table size, matching its own stated
+      derivation as GLI-19 4.7.2(a) requires.
+
+==============================================================================
+  Quote BOTH digests in any report that cites figures from this pack.
+  A figure without them describes an unidentified build.
+==============================================================================

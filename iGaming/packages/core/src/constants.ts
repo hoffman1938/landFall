@@ -30,16 +30,22 @@ export const STARTING_BALANCE_MINOR = 50_000_00;
 
 /**
  * Rake split — where each round's rake goes (fractions of the rake, sum = 1):
- *   house        -> operator revenue (net hold ≈ RAKE/ZONE_COUNT × house = 1% of handle)
+ *   house        -> operator revenue, which also funds the jackpot reset value
  *   surge        -> Storm Surge progressive pot (returns to players)
  *   stormReserve -> Storm Reserve funding the Storm Power ladder's E[M−1] overpayment
- * Player-facing long-run return ≈ 99.0% — survivors receive (1−RAKE) = 88% of
- * the wrecked pool, and the surge and reserve shares come back to players on top
- * of that. The figure used to be quoted as 98%, which is the BASE term alone
- * (1 − RAKE/ZONE_COUNT) and ignores the two return flows the same sentence
- * listed; GLI-19 §4.7.2 requires a displayed return to match its own stated
- * derivation. The single source is `theoreticalRtp()` in rtp.ts — never retype
- * the number, call `economyDisclosure()`.
+ *
+ * Player-facing long-run return is 99.3% of handle, and there are FOUR flows in
+ * it, not three: the pari-mutuel pass-through (1 − r/K = 98.00%), the Storm
+ * Surge pot (0.50%), the Storm Power ladder (0.50%), and the house-funded
+ * JACKPOT RESET (0.35%) — the last of which is operator capital that reaches a
+ * player the next time the pot pays. The operator keeps 0.65%.
+ *
+ * The figure has been wrong twice, in the same direction, for the same reason —
+ * a return flow existed in the code and not in the model. It was first quoted as
+ * 98% (the base term alone, ignoring the pot and the ladder), and then as 99.0%
+ * (ignoring the reset). GLI-19 §4.7.2 requires a displayed figure to match its
+ * own stated derivation. The single source is `theoreticalRtp()` in rtp.ts —
+ * never retype the number, call `economyDisclosure()`.
  */
 export interface RakeSplit {
   house: number;

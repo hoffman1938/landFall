@@ -1,0 +1,22 @@
+
+LANDFALL economy simulation — 1,000,000 rounds in 18.9s
+constants: RAKE=0.12 split=0.5/0.25/0.25 cap=150× surgeProb=0.04
+handle: 3,037,704,785.09 credits · capped rounds: 0 · surge rounds: 40102
+reserve: opening 45000.00 · min balance 9115.28 · final 345860.06 · house backstop 0.00 credits
+
+PASS  Gross take (rake): measured 2.0052% · theory 2.0000% (r/K)
+PASS  Operator hold (house share): measured 1.0028% · theory ≈ 1.0000%
+PASS  Surge funding: measured 0.5012% · theory ≈ 0.5000%
+PASS  Storm Reserve inflow: measured 0.5012% · theory ≈ 0.5000%
+PASS  Storm Reserve outflow (ladder overpayment): measured 0.4913% · theory ≤ inflow (funding invariant)
+PASS  Reserve drift (balance − opening, % of handle): measured 0.0099% · theory ≈ 0, slightly positive
+PASS  House jackpot floor re-seeds (operator cost, = the RTP reset term): measured 0.3510% · theory 0.3500% = budget × split.house × r/K
+PASS  OPERATOR NET HOLD (rake − re-seeds − backstop): measured 0.6518% · theory 0.6509% (gross rake share 1.0028% less its funding obligations)
+PASS  Player RTP actually experienced (player handle basis): measured 99.3370% · theory 99.3491% theoretical (total-handle basis)
+PASS  Ring-fenced house-seed P&L (NOT operator revenue): measured 0.0875% · theory small and positive — a uniform seed is +EV against an imbalanced crowd
+PASS  House-seed surplus released to players (§A.7.1(d), not banked): measured 0.0875% · theory ≈ the float's P&L 0.0875%; the float keeps only its opening capital
+PASS  Surge return to players (pot payouts): measured 0.9397% · theory ≈ surge funding + floor re-seeds + released float surplus (0.9397%)
+PASS  Survivor pass-through at ×1 (exact): measured 0 violations · theory 0
+PASS  Solo-player EV (10.00 vs seeds, ×1): measured -2.527% · theory -2.564% of stake
+
+All checks PASS

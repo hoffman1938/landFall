@@ -15,11 +15,18 @@ export { createApp, type AppOps } from './app.js';
 export { BotManager, DEFAULT_BOT_COUNT, seatBots } from './bots.js';
 export { ensureChain, type ChainHandle } from './chain.js';
 export { ChatService } from './chat.js';
+export {
+  PracticeCredits,
+  DEMO_PRACTICE_FLOAT_MINOR,
+  DEMO_TOPUP_COOLDOWN_MS,
+  type PracticeGrant,
+} from './demoCredits.js';
 export { monotonicMs } from './clock.js';
 export {
   DEFAULT_ECONOMY,
   DEFAULT_ROOM,
   RoundCoordinator,
+  type BetGate,
   type CoordinatorEvents,
   type EconomyConfig,
   type RoomConfig,
@@ -35,9 +42,17 @@ export {
 export * as schema from './db/schema.js';
 export { ensureHousePlayer, HOUSE_BANKROLL_MINOR } from './house.js';
 export { Hub, type HubConnection, type HubSocket } from './hub.js';
+export { GameControl, type DisableScope, type DisableState } from './gameControl.js';
 export { LimitsService } from './limits.js';
 export { instanceId, log } from './log.js';
 export { metrics } from './metrics.js';
+export {
+  runtimeConfigManifest,
+  runtimeControlManifest,
+  type ControlVerifier,
+  type RuntimeVerificationResult,
+  type VerificationTrigger,
+} from './runtimeVerify.js';
 export {
   RoomManager,
   isDemoEnv,

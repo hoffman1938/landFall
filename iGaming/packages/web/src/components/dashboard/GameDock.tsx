@@ -41,6 +41,10 @@ export function GameDock({ stage, canBet, maxMinor, result, reveal }: Props) {
   const commit = useStore((s) => s.commitSimpleBet);
   const select = useStore((s) => s.selectSimpleZone);
   const cancel = useStore((s) => s.cancelOrder);
+  const balance = useStore((s) => s.balanceMinor);
+  const practiceAvailable = useStore((s) => s.practiceCreditsAvailable);
+  const practiceRetryAt = useStore((s) => s.practiceCreditsRetryAt);
+  const restorePractice = useStore((s) => s.requestPracticeCredits);
   const [draft, setDraft] = useState<{ text: string; forStake: number } | null>(null);
   const input = draft?.forStake === stake ? draft.text : (stake / 100).toFixed(2);
   const parsed = Number(input);
@@ -86,13 +90,42 @@ export function GameDock({ stage, canBet, maxMinor, result, reveal }: Props) {
     sub = `Harbor ${zone + 1} · this round only`;
   }
 
+  /*
+   * OUT OF PRACTICE CREDITS (demo builds only).
+   *
+   * A player whose balance can no longer cover the table minimum previously
+   * reached a dead end: every bet rejected, no explanation on the deck beyond
+   * "Not enough available credits", and nothing to do about it — the balance
+   * only ever went down and nothing in the product put credits back. This is
+   * the way out, and it renders ONLY when the server has said the deployment is
+   * a demo, because a real-money build must never show a button that mints
+   * money. `practiceCreditsAvailable` is false until the server says otherwise.
+   */
+  const outOfCredits = balance < min;
+  const practiceCooldown =
+    practiceRetryAt !== null && practiceRetryAt > Date.now()
+      ? Math.ceil((practiceRetryAt - Date.now()) / 1000)
+      : 0;
+
   const secondary =
-    fleet && stage === 'choose'
+    practiceAvailable && outOfCredits && stage !== 'storm'
+      ? {
+          kind: 'practice' as const,
+          label: practiceCooldown > 0 ? `Restore in ${practiceCooldown}s` : 'Restore practice credits',
+          sub:
+            practiceCooldown > 0
+              ? 'Practice credits can be restored once a minute'
+              : 'Virtual credits, no cash value',
+          onClick: restorePractice,
+          enabled: practiceCooldown === 0,
+        }
+      : fleet && stage === 'choose'
       ? {
           kind: 'cancel' as const,
           label: 'Cancel bet',
           sub: `${fmt(fleet.stakeMinor)} back to your balance`,
           onClick: cancel,
+          enabled: canBet,
         }
       : !fleet && stage === 'choose' && lastFleet
         ? {
@@ -104,6 +137,7 @@ export function GameDock({ stage, canBet, maxMinor, result, reveal }: Props) {
               setStake(Math.min(maxMinor, Math.max(min, lastFleet.stakeMinor)));
               select(lastFleet.primaryZone);
             },
+            enabled: canBet,
           }
         : null;
 
@@ -211,9 +245,11 @@ export function GameDock({ stage, canBet, maxMinor, result, reveal }: Props) {
             })}
           </div>
           <span id="gd-stake-limit" className="gd-control-hint">
-            {maxMinor < min
-              ? 'Not enough available credits'
-              : `Min ${fmt(min)} · Max now ${fmt(maxMinor)}`}
+            {outOfCredits
+              ? 'Out of credits for this table'
+              : maxMinor < min
+                ? 'Not enough available credits'
+                : `Min ${fmt(min)} · Max now ${fmt(maxMinor)}`}
           </span>
         </div>
         <div className="gd-primary-group">
@@ -245,7 +281,7 @@ export function GameDock({ stage, canBet, maxMinor, result, reveal }: Props) {
             <button
               type="button"
               className={secondary.kind === 'cancel' ? 'gd-cancel' : 'gd-repeat'}
-              disabled={!canBet}
+              disabled={!secondary.enabled}
               onClick={secondary.onClick}
             >
               <strong>{secondary.label}</strong>

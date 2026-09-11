@@ -1,0 +1,12 @@
+# The suite runs on the application workspace's toolchain rather than carrying a
+# second copy of vitest that could drift from the one the product's own tests use.
+# `run.sh` creates this link if it is missing.
+node_modules
+
+# The evidence pack is GENERATED — `./run.sh --evidence` rebuilds it, and every
+# figure in it is deterministic. It is committed deliberately when a submission
+# is prepared, so the exclusion below is commented out rather than absent: a
+# reviewer should be able to read the pack without running it, but a stale pack
+# in a working branch is worse than none.
+#
+# evidence/

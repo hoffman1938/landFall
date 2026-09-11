@@ -10,7 +10,7 @@
  *
  * Copy discipline: every word comes from `strings.ts`, and no new economy
  * figure appears here. A5 fixes the player-facing set at "survivors receive 88%
- * of the wrecked pool" and "long-run return ≈ 99.0%" — both live in the Rules
+ * of the wrecked pool" and "long-run return ≈ 99.3%" — both live in the Rules
  * sheet, one tap away. The pitch here is "5 of the 6 survive", which is exact,
  * and it names the loss in the same breath rather than burying it.
  *

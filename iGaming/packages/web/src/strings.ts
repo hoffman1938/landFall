@@ -112,7 +112,7 @@ export const STR = {
  * fact about this game and it is exact, and the loss is named in the same
  * breath rather than buried. No new economy figures appear here: A5 fixes the
  * player-facing set at "survivors receive 88% of the wrecked pool" and
- * "long-run return ≈ 99.0%", and both live in the Rules sheet. Neither is
+ * "long-run return ≈ 99.3%", and both live in the Rules sheet. Neither is
  * retyped: `economyDisclosure()` in @landfall/core derives both.
  */
 export const WELCOME_POINTS: readonly { title: string; body: string }[] = [

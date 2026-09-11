@@ -13,6 +13,7 @@ import {
   SKILL_DISCLOSURE,
   STORM_POWER_APPLIES_TO,
   TABLE_ROUTING_DISCLOSURE,
+  TIMING_DISCLOSURE,
   ZONE_COUNT,
   drawPresentation,
   drawZone,
@@ -30,7 +31,7 @@ import { instanceId } from './log.js';
 import { metrics } from './metrics.js';
 import { significantEvents } from './db/schema.js';
 import type { GameControl } from './gameControl.js';
-import type { ControlProgramVerifier } from './selfVerify.js';
+import type { ControlVerifier } from './runtimeVerify.js';
 import {
   betTransactionsCsv,
   ecsReport,
@@ -47,17 +48,33 @@ import {
 export interface AppOps {
   /** Readiness: is this instance able to serve traffic right now? */
   ready(): { ready: boolean; reason?: string };
+  /**
+   * Shared secret for the operator control endpoints (§2.4.1 disable/enable).
+   * When undefined those routes answer 503 and refuse to act: an unauthenticated
+   * kill switch on a gaming platform is a worse finding than a missing one.
+   */
+  opsToken?: string | undefined;
   /** Called on a metrics scrape, to refresh live gauges before rendering. */
   sampleGauges?(): void;
-  /** Control-program self-verification (G17), for the on-demand endpoint. */
-  verifier?: ControlProgramVerifier | undefined;
+  /**
+   * Control-program self-verification (G17), for the on-demand endpoint.
+   * Structural rather than the concrete Node verifier, because the Worker host
+   * supplies a configuration-scope verifier instead (`runtimeVerify.ts`) — and
+   * previously supplied none at all, so the endpoint 503'd on the deployed demo.
+   */
+  verifier?: ControlVerifier | undefined;
   /** Disable-on-demand service (G32). */
   control?: GameControl | undefined;
 }
 
 export function createApp(
   db: Db,
-  chainCommitment: string,
+  /**
+   * The season commitment. A FUNCTION where the host can roll seasons over, so
+   * `/api/chain` answers with the commitment in force now rather than the one
+   * that happened to be current when the process booted (see `chain.ts`).
+   */
+  chainCommitment: string | (() => string),
   surgeProb: number,
   econ: EconomyConfig = DEFAULT_ECONOMY,
   ops?: AppOps,
@@ -109,7 +126,10 @@ export function createApp(
     });
   });
 
-  app.get('/api/chain', (c) => c.json({ commitment: chainCommitment }));
+  const commitmentNow = (): string =>
+    typeof chainCommitment === 'function' ? chainCommitment() : chainCommitment;
+
+  app.get('/api/chain', (c) => c.json({ commitment: commitmentNow() }));
 
   app.get('/api/history', (c) => {
     const rows = db
@@ -222,6 +242,7 @@ export function createApp(
         houseSeed: HOUSE_SEED_DISCLOSURE,
         skill: SKILL_DISCLOSURE,
         tableRouting: TABLE_ROUTING_DISCLOSURE,
+        timing: TIMING_DISCLOSURE,
       },
       interruption: INTERRUPTION_RULES,
     });
@@ -302,7 +323,95 @@ export function createApp(
     return c.json(ops.control.state());
   });
 
+  /**
+   * §2.4.1 — DISABLE ON DEMAND, and its inverse.
+   *
+   * `GameControl` and the read-only state endpoint above both existed before
+   * these routes did, and there was no way to actually invoke a disable and no
+   * code path that consulted one. The gate is now enforced in the coordinator's
+   * accept path; this is the operator's hand on it.
+   *
+   * AUTHENTICATION is a bearer token from `LANDFALL_OPS_TOKEN`, compared in
+   * constant time. On Route A the operator's own platform owns identity and
+   * would drive these routes machine-to-machine, so a shared secret is the right
+   * shape. Where the secret is unset the routes refuse rather than defaulting
+   * open — §2.4.1 asks for the ability to disable gaming, not for anyone on the
+   * internet to have it.
+   */
+  const authorized = (c: { req: { header(name: string): string | undefined } }): boolean => {
+    const expected = ops?.opsToken;
+    if (!expected) return false;
+    const header = c.req.header('authorization') ?? '';
+    const presented = header.startsWith('Bearer ') ? header.slice(7) : '';
+    return timingSafeEqualString(presented, expected);
+  };
+
+  app.post('/api/compliance/disable', async (c) => {
+    if (!ops?.control) return c.json({ error: 'control not configured' }, 503);
+    if (!ops.opsToken) return c.json({ error: 'operator control disabled: no LANDFALL_OPS_TOKEN' }, 503);
+    if (!authorized(c)) return c.json({ error: 'unauthorized' }, 401);
+    const body = await readJson(c);
+    const scope = (str(body.scope) ?? 'ALL').toUpperCase();
+    if (scope !== 'ALL' && scope !== 'ROOM' && scope !== 'PLAYER') {
+      return c.json({ error: 'scope must be ALL, ROOM or PLAYER' }, 400);
+    }
+    const target = str(body.target);
+    if (scope !== 'ALL' && !target) return c.json({ error: `${scope} scope requires a target` }, 400);
+    // §A.6.3 — the audit entry carries date, time and REASON, so the reason is
+    // required rather than defaulted to something meaningless.
+    const reason = (str(body.reason) ?? '').trim();
+    if (!reason) return c.json({ error: 'reason is required (GLI-19 §A.6.3)' }, 400);
+    const actor = str(body.actor) ?? 'operator';
+    return c.json(ops.control.disable(scope, reason, actor, target));
+  });
+
+  app.post('/api/compliance/enable', async (c) => {
+    if (!ops?.control) return c.json({ error: 'control not configured' }, 503);
+    if (!ops.opsToken) return c.json({ error: 'operator control disabled: no LANDFALL_OPS_TOKEN' }, 503);
+    if (!authorized(c)) return c.json({ error: 'unauthorized' }, 401);
+    const body = await readJson(c);
+    const scope = (str(body.scope) ?? 'ALL').toUpperCase();
+    if (scope !== 'ALL' && scope !== 'ROOM' && scope !== 'PLAYER') {
+      return c.json({ error: 'scope must be ALL, ROOM or PLAYER' }, 400);
+    }
+    const target = str(body.target);
+    if (scope !== 'ALL' && !target) return c.json({ error: `${scope} scope requires a target` }, 400);
+    ops.control.enable(scope, str(body.actor) ?? 'operator', target);
+    return c.json(ops.control.state());
+  });
+
   return app;
+}
+
+/**
+ * A JSON body field, but only when it really is a string. Coercing with
+ * `String()` would turn a nested object into "[object Object]" and put that in
+ * an audit-log reason field, which is exactly the kind of record §A.6.3 exists
+ * to prevent being useless.
+ */
+function str(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** Body of an operator control request; a malformed body is an empty object. */
+async function readJson(c: { req: { json(): Promise<unknown> } }): Promise<Record<string, unknown>> {
+  try {
+    const body = await c.req.json();
+    return body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Constant-time string comparison. Length is not secret here (the token is a
+ * deployment constant), but the per-character comparison must not short-circuit.
+ */
+function timingSafeEqualString(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 /**

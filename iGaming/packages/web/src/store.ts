@@ -122,6 +122,14 @@ interface State {
   roomLiquidityFloorMinor: number;
   /** Rounds in which this client flew a flag — mirrors the B4 cooldown for the UI. */
   myFlagRounds: number[];
+  /**
+   * Demo practice credits (server `demoCredits.ts`). False until the server says
+   * otherwise, so a build that is not a demo never renders the offer — the
+   * client must not advertise a capability the deployment refuses.
+   */
+  practiceCreditsAvailable: boolean;
+  /** When the next top-up may be asked for, epoch ms; null when not rate-limited. */
+  practiceCreditsRetryAt: number | null;
   round: RoundHeader | null;
   phase: PhaseInfo | null;
   pools: PoolsState | null;
@@ -249,6 +257,8 @@ interface State {
   joinRoom(roomId: string): void;
   sendSignal(kind: SignalKind, zone?: number): void;
   sendChat(text: string): void;
+  /** Demo builds only: ask the server to restore the practice float. */
+  requestPracticeCredits(): void;
   setFleetMode(mode: FleetMode): void;
   setStakeInput(minor: number): void;
   openVerify(roundId: number | null): void;
@@ -351,19 +361,83 @@ export const useStore = create<State>((set, get) => {
     return true;
   }
 
+  /**
+   * Reconnect backoff. GLI-19 §2.6.4 requires the client to stop gaming and say
+   * so when the link to the platform is lost; `connected: false` already gates
+   * every action, and this governs how hard we try to get it back.
+   *
+   * A flat one-second retry is fine against a browser tab sleeping and wrong
+   * against an outage: a few thousand clients retrying in lockstep every second
+   * is exactly the load a recovering server cannot absorb. Exponential with a
+   * ceiling, reset the moment a socket opens.
+   */
+  const RECONNECT_MIN_MS = 1_000;
+  const RECONNECT_MAX_MS = 15_000;
+  let reconnectDelayMs = RECONNECT_MIN_MS;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function scheduleReconnect() {
+    if (reconnectTimer !== null) return; // close and error can both fire
+    const delay = reconnectDelayMs;
+    reconnectDelayMs = Math.min(RECONNECT_MAX_MS, Math.round(reconnectDelayMs * 1.8));
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+  }
+
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    try {
+      ws = new WebSocket(`${proto}://${location.host}/ws`);
+    } catch {
+      // Construction itself can throw (blocked scheme, exhausted handles).
+      // Retrying is the only sensible response, and crashing the store is not.
+      set({ connected: false, orderPending: false });
+      scheduleReconnect();
+      return;
+    }
     ws.onopen = () => {
+      reconnectDelayMs = RECONNECT_MIN_MS;
       const saved = localStorage.getItem('landfall.playerId') ?? undefined;
       send({ type: 'HELLO', ...(saved ? { playerId: saved } : {}) });
     };
     ws.onclose = () => {
       set({ connected: false, orderPending: false });
-      setTimeout(connect, 1_000);
+      scheduleReconnect();
+    };
+    /*
+     * `error` fires before `close` on a failed handshake, and on some browsers
+     * a socket that errors never closes cleanly at all. Without a handler the
+     * page kept a dead socket and simply stopped receiving rounds, with the
+     * connection dot still showing green.
+     */
+    ws.onerror = () => {
+      set({ connected: false, orderPending: false });
+      try {
+        ws?.close();
+      } catch {
+        /* already closing */
+      }
+      scheduleReconnect();
     };
     ws.onmessage = (ev) => {
-      const msg = JSON.parse(ev.data as string);
+      /*
+       * A frame that is not the JSON this protocol speaks must not take the
+       * socket handler down with it: an uncaught throw here aborts the rest of
+       * the callback, so any state the message would have set is lost silently
+       * and the player sees a frozen board with a healthy connection.
+       */
+      // Untyped on purpose, exactly as before: the switch below narrows each
+      // frame by hand and there is no runtime schema on this side of the wire.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let msg: any;
+      try {
+        msg = JSON.parse(ev.data as string);
+      } catch {
+        return;
+      }
+      if (!msg || typeof msg.type !== 'string') return;
       switch (msg.type) {
         case 'WELCOME': {
           const fleet =
@@ -670,6 +744,36 @@ export const useStore = create<State>((set, get) => {
             },
           });
           break;
+        /**
+         * A new season's seed-chain commitment (server `chain.ts`). Adopting it
+         * immediately is what keeps the verify sheet honest: a client still
+         * holding the previous season's commitment would show an honest round
+         * as unverifiable.
+         */
+        case 'CHAIN_COMMITMENT':
+          set({ chainCommitment: msg.commitment as string });
+          break;
+
+        /**
+         * Demo practice credits. `available: false` means this build is not a
+         * demo and the offer must never be rendered at all.
+         */
+        case 'PRACTICE_CREDITS': {
+          const granted = msg.granted === true;
+          set({
+            practiceCreditsAvailable: msg.available === true,
+            practiceCreditsRetryAt: typeof msg.retryAt === 'number' ? msg.retryAt : null,
+            ...(granted
+              ? {
+                  balanceMinor: msg.balanceMinor as number,
+                  toast: `Practice credits restored — ${(((msg.amountMinor as number) ?? 0) / 100).toFixed(2)} added. Virtual credits, no cash value.`,
+                  toastTone: 'info' as const,
+                }
+              : {}),
+          });
+          break;
+        }
+
         case 'SYSTEM_MESSAGE': {
           const kind = msg.text.includes('GOLDEN ANCHOR')
             ? ('golden' as const)
@@ -708,6 +812,8 @@ export const useStore = create<State>((set, get) => {
     playerId: null,
     name: null,
     balanceMinor: 0,
+    practiceCreditsAvailable: false,
+    practiceCreditsRetryAt: null,
     chainCommitment: null,
     round: null,
     phase: null,
@@ -956,6 +1062,14 @@ export const useStore = create<State>((set, get) => {
     sendChat(text) {
       const trimmed = text.trim();
       if (trimmed) send({ type: 'CHAT', text: trimmed });
+    },
+    /**
+     * Ask for the practice float back (demo builds only). The server decides —
+     * it refuses outside a demo, refuses while the player can still afford a
+     * bet, and rate-limits. The client only ever asks.
+     */
+    requestPracticeCredits() {
+      send({ type: 'REQUEST_PRACTICE_CREDITS' });
     },
     setFleetMode(mode) {
       set({ fleetMode: mode });

@@ -42,22 +42,19 @@
  *
  *     reset · surgeProb  <  split.house · (r/K) · handlePerRound
  *
- * At production constants the right-hand side is 0.25 × handle per round, so a
- * reset worth more than a quarter of a round's handle costs more than the table
- * earns. This fraction is how much of that ceiling the guarantee is allowed to
- * take: 0.35 leaves roughly two thirds of the house share as actual margin.
+ * This fraction is how much of that ceiling the guarantee is allowed to take.
+ * At 0.35 the re-seed consumes just over a third of the house share and leaves
+ * the rest as margin — and because `surgeResetFor` below now takes this figure
+ * UNCONDITIONALLY, that split is exact at every tier and every table size
+ * rather than being an aspiration a floor could override.
  *
- * WHY THIS EXISTS AT ALL. The reset used to be `max(500 credits, 20 × minStake)`
- * — an absolute floor with a per-table term bolted on. Below a 25-credit minimum
- * bet the flat floor always won, so the per-table scaling was inert on exactly
- * the small tiers it was written for, and the 500-credit floor stayed "ten times
- * the Skiff table maximum", which is the thing its own documentation called a
- * defect. Measured over 1,200 rounds it cost the operator 6.5% of handle on
- * Skiff and 1.5% on Schooner, against a house share of ~1% — both tiers were
- * structurally loss-making and returned over 100% to players.
+ * It is therefore also an RTP PARAMETER, not merely a business one: the flow it
+ * governs appears in `theoreticalRtp()` as
  *
- * The fix is to tie the reset to the quantity it actually has to be paid out of:
- * the table's HANDLE, not its minimum bet.
+ *     jackpotReseedReturn = budgetFraction · split.house · r/K
+ *
+ * so changing it moves the published return to player and is a material change
+ * under Law Art. 24¹.2(c). Change it in `RULES_CHANGELOG` or not at all.
  */
 export const SURGE_RESET_BUDGET_FRACTION = 0.35;
 
@@ -71,11 +68,6 @@ export interface ResetPolicyInput {
   zones: number;
   /** Probability a round is a surge round. */
   surgeProb: number;
-  /**
-   * Lower bound, so a quiet table still advertises something rather than a
-   * jackpot of nothing. Affordability still wins over it — see `surgeResetFor`.
-   */
-  minimumMinor: number;
   budgetFraction?: number;
 }
 
@@ -90,22 +82,49 @@ export function affordableResetMinor(input: ResetPolicyInput): number {
 }
 
 /**
- * The reset value for a table, given what it is actually turning over.
+ * The reset value for a table: a FIXED FRACTION of what the rake share can fund.
  *
- * Three bounds, and the order matters:
- *   1. the BUDGET figure — a fixed fraction of what the rake share can fund;
- *   2. a MINIMUM, so a quiet table still has a jackpot worth naming;
- *   3. the AFFORDABILITY CEILING, which overrides the minimum.
+ * RULES V4 — WHY THE "MINIMUM" IS GONE, AND WHY THAT IS AN RTP FIX.
  *
- * Affordability wins on purpose. Where a table is too thin to fund even the
- * minimum, the honest answer is a smaller jackpot, not a guarantee the operator
- * cannot pay — an unaffordable promise is how a tier ends up returning more than
- * it takes, which is the defect this function replaces.
+ * Rules v3 replaced a flat 500-credit floor with `max(20 × minStake, budget)`,
+ * capped by affordability. The intent was that `budgetFraction` would bind and
+ * leave roughly two thirds of the house share as margin. It never did. Measured
+ * across all five shipped tiers, `20 × minStake` exceeded the budget figure at
+ * every realistic handle, so the floor won every time and `budgetFraction` was
+ * inert — the SAME defect, in the same function, that v3 was written to fix.
+ * The v3 test that claimed to pin the two-thirds property passed `minimum: 0`,
+ * which is precisely why it did not catch this.
+ *
+ * The consequences were not cosmetic:
+ *
+ *   - The operator's realised hold fell to 0.26%–0.61% of handle against a
+ *     DISCLOSED 1.00%, and measured player return ran at 99.25%–99.74% against
+ *     a DISPLAYED 98.999%. GLI-19 §4.7.2(a) requires displayed return to match
+ *     its own stated derivation; it did not.
+ *   - Worse, the failure mode was handle-dependent. `surgeResetFor` clamps to
+ *     the affordability ceiling, so on a table thin enough that `20 × minStake`
+ *     exceeded the ceiling the reset became the ceiling exactly — the house
+ *     then spent its ENTIRE rake share on the re-seed and the table returned
+ *     100% of handle. A return that moves with table population is not a
+ *     return-to-player figure at all; it is an unpriced liability.
+ *
+ * With the reset defined purely as `budgetFraction × affordable`, the re-seed
+ * cost per round is
+ *
+ *     reset × surgeProb = budgetFraction · houseShare · r/K · handle
+ *
+ * — a CONSTANT fraction of handle, independent of tier and of population. That
+ * is what makes it expressible as a term in `theoreticalRtp()` (rtp.ts), which
+ * is where it now appears, and what makes the displayed figure true at every
+ * table on every round.
+ *
+ * `surgeFloorFor()` in constants.ts survives as the OPENING pot for a table
+ * that has never paid one — a one-off house cost, not a recurring guarantee.
  */
 export function surgeResetFor(input: ResetPolicyInput): number {
   const ceiling = affordableResetMinor(input);
   const budget = Math.floor(ceiling * (input.budgetFraction ?? SURGE_RESET_BUDGET_FRACTION));
-  return Math.max(0, Math.min(ceiling, Math.max(input.minimumMinor, budget)));
+  return Math.max(0, Math.min(ceiling, budget));
 }
 
 /** Where a round's rake share can go. Exactly one of these, never revenue. */

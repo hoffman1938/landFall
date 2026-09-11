@@ -49,6 +49,11 @@ export interface SettlementResult {
   houseDeltaMinor: number;
   /** True when maxSalvageMinor clamped the Storm Power payout (published, never silent). */
   powerCapped: boolean;
+  /**
+   * True when NO harbour survived, so there was nobody to pay the struck pool to
+   * and every stake was returned in full. See the degenerate branch below.
+   */
+  allStakesRefunded: boolean;
   survivorPoolMinor: number;
   lines: SettlementLine[];
 }
@@ -93,19 +98,46 @@ export function settleRound(
   }));
 
   if (survivorPoolMinor === 0) {
-    // Degenerate: nobody survived to receive salvage (cannot occur with house seeds on).
-    // With no survivors the struck stakes are consumed by rake in full to keep
-    // conservation explicit; Storm Power has nothing to multiply.
+    /*
+     * NOBODY SURVIVED — every stake in the round sat on the harbour the storm
+     * hit. There is no survivor pool, so there is nothing to redistribute the
+     * struck pool TO, and the pari-mutuel rule has nothing to say.
+     *
+     * THE ROUND IS THEREFORE A NO-OP AND EVERY BET IS RETURNED IN FULL.
+     *
+     * This used to book the ENTIRE struck pool as rake — a 100% hold on that
+     * round. It was defended as unreachable, because the house seeds a stake on
+     * every harbour and five of the six always survive. That defence does not
+     * hold: `resolveRoomConfig` accepts a room with `seedMinor: 0`, and a room
+     * with no seeds whose players all crowd one harbour reaches exactly this
+     * branch. "Unreachable, and if reached the operator takes everything" is not
+     * a position to put in front of a test laboratory — GLI-19 §4.7.1 sets a 75%
+     * floor for ANY wagering configuration, and this configuration returned zero.
+     *
+     * Refunding is also the only arithmetic that is not arbitrary: destroying
+     * 88% of the pool and banking 12% of it expresses no rule at all, and it
+     * matches what `INTERRUPTION_RULES` already promises for a round that cannot
+     * be settled.
+     */
+    const refunded: SettlementLine[] = struck.map((s) => ({
+      ...s,
+      // The outcome field records what happened to the MONEY, and the money came
+      // back. `allStakesRefunded` is what tells a caller why.
+      outcome: 'SAFE' as const,
+      salvageMinor: 0,
+      payoutMinor: s.amountMinor,
+    }));
     const result: SettlementResult = {
       struckZone,
       struckPoolMinor,
-      rakeMinor: struckPoolMinor,
+      rakeMinor: 0,
       distributedMinor: 0,
       salvageTotalMinor: 0,
       houseDeltaMinor: 0,
       powerCapped: false,
+      allStakesRefunded: true,
       survivorPoolMinor,
-      lines,
+      lines: refunded,
     };
     assertConservation(result);
     return result;
@@ -144,6 +176,7 @@ export function settleRound(
     salvageTotalMinor: salvageTotal,
     houseDeltaMinor: salvageTotal - distributable,
     powerCapped,
+    allStakesRefunded: false,
     survivorPoolMinor,
     lines,
   };

@@ -49,7 +49,7 @@ import { displayRtpPercent, theoreticalRtp } from './rtp.js';
  * triage record for that: it is what a release manager reads to know whether a
  * build can ship or needs to wait for consent.
  */
-export const RULES_VERSION = 3;
+export const RULES_VERSION = 4;
 
 export interface RulesChange {
   version: number;
@@ -108,6 +108,23 @@ export const RULES_CHANGELOG: readonly RulesChange[] = [
       'because GLI-19 §2.4.2 permits a ceiling to move only upward once contributions exist.',
     material: true,
     limb: 'Art. 24¹.2(f) jackpot payout system',
+  },
+  {
+    version: 4,
+    effective: '2026-09-11',
+    summary:
+      'Storm Surge reset value is now exactly 35% of what the house share of the rake can fund, ' +
+      'with no minimum able to override it, and the resulting house-funded flow is published as ' +
+      'the fourth term of theoretical return to player. Under v3 the reset was ' +
+      'max(20 x minimum bet, budget): measured at every shipped tier the floor won, so the ' +
+      'budget fraction was inert and the re-seed cost was neither constant nor disclosed. The ' +
+      'published figure (98.999% return, 1.00% hold) therefore described an economy the code did ' +
+      'not run - measured return was 99.25%-99.74% and measured hold 0.26%-0.61%, and on a table ' +
+      'thin enough for the floor to exceed the affordability ceiling the reset became the ceiling ' +
+      'exactly and the table returned 100% of handle. Return to player is now 99.3% at every tier ' +
+      'and every table size, matching its own stated derivation as GLI-19 4.7.2(a) requires.',
+    material: true,
+    limb: 'Art. 24\u00b9.2(c) amount of winnings, (f) jackpot payout system',
   },
 ];
 
@@ -237,9 +254,28 @@ export const INTERRUPTION_RULES: readonly { title: string; body: string }[] = [
  * the rule that replaces it must be disclosed. Gap G43.
  */
 export const TABLE_ROUTING_DISCLOSURE =
-  'Tables are not assigned at random. A player who has not chosen one is seated at the busiest ' +
-  'table whose bet range they can afford. Affordability always wins over population, so you are ' +
-  'never seated at a table you cannot play — and you can change table yourself at any time.';
+  'You choose your table. A player who has not chosen one is seated at the busiest table whose ' +
+  'bet range they can afford — that is a liquidity decision, not a revenue one, because a game ' +
+  'whose payouts come from other players needs those players in the same room. Affordability ' +
+  'always wins over population, so you are never seated at a table you cannot play. You can ' +
+  'change table at any time, and you can ask to be seated at a RANDOM table you can afford.';
+
+/**
+ * Order 243 Annex 1 Art. 13(c)–(d) — a Peer-to-Peer system must define THE TIME
+ * A PLAYER HAS TO ACT and THE CONSEQUENCE OF NOT ACTING IN TIME. Both are
+ * disclosed here rather than left to be inferred from a countdown on screen.
+ *
+ * Landfall's answer is unusually simple and worth stating as such: the only
+ * action is placing a bet, the window is published to the millisecond in every
+ * round header, and the consequence of missing it is that no bet was placed —
+ * not a forfeit, not a default wager, not a penalty. There is no turn to lose.
+ */
+export const TIMING_DISCLOSURE =
+  'Betting is open for the first ten seconds of each round, and the exact moment it closes is ' +
+  'shown on the clock and published with the round. The last three seconds are Blind Fog: the ' +
+  'table stops updating and each player may make one final change. If you do not bet before ' +
+  'betting closes, nothing happens — no bet is placed, nothing is taken from your balance, and ' +
+  'you watch the round as a spectator. There is no turn to miss and no penalty for sitting out.';
 
 /**
  * GLI §4.11.1(c) / §A.7.1(a) — house money in the pools must be CLEARLY
@@ -286,9 +322,12 @@ export function economyDisclosure(rake: number = RAKE, zones: number = ZONE_COUN
     derivation:
       `Return to player is ${displayRtpPercent(breakdown)} of everything staked, made of ` +
       `${(breakdown.baseReturn * 100).toFixed(2)}% returned by the pari-mutuel split, ` +
-      `${(breakdown.surgeReturn * 100).toFixed(2)}% paid back through the jackpot, and ` +
-      `${(breakdown.stormPowerReturn * 100).toFixed(2)}% paid back through the storm multiplier. ` +
-      `The operator keeps ${(breakdown.operatorHold * 100).toFixed(2)}%.`,
+      `${(breakdown.surgeReturn * 100).toFixed(2)}% paid back through the jackpot, ` +
+      `${(breakdown.stormPowerReturn * 100).toFixed(2)}% paid back through the storm multiplier, and ` +
+      `${(breakdown.jackpotReseedReturn * 100).toFixed(2)}% put back into the jackpot by the house ` +
+      `every time it is won. The operator keeps ${(breakdown.operatorHold * 100).toFixed(2)}%. ` +
+      `This is a theoretical figure computed from the game's own constants, not a measurement of ` +
+      `past play, and it holds at every table and every table size.`,
     surgeFrequency: `about 1 round in ${Math.round(1 / SURGE_PROB)}`,
   };
 }

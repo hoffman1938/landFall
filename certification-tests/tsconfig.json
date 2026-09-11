@@ -1,0 +1,24 @@
+{
+  "//": [
+    "The certification suite compiles against the SHIPPED SOURCE, not a built",
+    "artefact and not a copy. The path mappings below are what make that true,",
+    "and they are the same mappings `vitest.config.ts` declares as aliases —",
+    "one for the test runner, one for `tsx` and the editor.",
+    "",
+    "`@landfall/server-src` reaches modules the server package deliberately",
+    "keeps out of its public surface (its SQLite host, which the Cloudflare",
+    "build replaces). The lifecycle suites need it to stand a real game up; the",
+    "alternative would be widening the product's exports for a test's benefit."
+  ],
+  "extends": "../iGaming/tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "types": ["node"],
+    "paths": {
+      "@landfall/core": ["../iGaming/packages/core/src/index.ts"],
+      "@landfall/server": ["../iGaming/packages/server/src/index.ts"],
+      "@landfall/server-src/*": ["../iGaming/packages/server/src/*"]
+    }
+  },
+  "include": ["suites", "simulations", "vitest.config.ts"]
+}

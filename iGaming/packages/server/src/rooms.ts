@@ -18,6 +18,7 @@ import {
   DEFAULT_ECONOMY,
   DEFAULT_ROOM,
   RoundCoordinator,
+  type BetGate,
   type CoordinatorEvents,
   type RoomConfig,
   type Timings,
@@ -182,11 +183,13 @@ export class RoomManager {
     makeEvents: (roomId: string) => CoordinatorEvents,
     /** F1/F2: one shared service — limits follow the player across rooms. */
     limits?: LimitsService,
+    /** G32: one shared disable gate — an operator disable covers every room. */
+    control?: BetGate,
   ) {
     for (const cfg of configs) {
       this.rooms.set(
         cfg.roomId,
-        new RoundCoordinator(repo, chain, makeEvents(cfg.roomId), cfg, limits),
+        new RoundCoordinator(repo, chain, makeEvents(cfg.roomId), cfg, limits, control),
       );
     }
   }
@@ -227,6 +230,32 @@ export class RoomManager {
       }
     }
     return bestId;
+  }
+
+  /**
+   * A table chosen AT RANDOM from those the player can afford.
+   *
+   * Order 243 Annex 1 Art. 13(b) — Peer-to-Peer games: the system "must give the
+   * player the possibility to be placed at a gaming table on a random basis".
+   * GLI-19 §4.11.1(b) asks for the same thing in different words.
+   *
+   * This is a genuinely separate obligation from disclosing the default routing
+   * rule, and the distinction is easy to miss: the default (busiest affordable
+   * table) exists for liquidity and is disclosed, but disclosure alone does not
+   * satisfy a clause that requires the OPTION to exist. So the option exists,
+   * and the entry gate offers it.
+   *
+   * Affordability still applies — "at random" cannot mean "at a table you cannot
+   * play". `u` is a uniform in [0,1) supplied by the caller, so the selection is
+   * testable and the module stays free of a randomness source of its own.
+   */
+  randomRoomFor(u: number, balanceMinor?: number): string {
+    const eligible = [...this.rooms.values()].filter(
+      (room) => balanceMinor === undefined || balanceMinor >= room.cfg.minStakeMinor,
+    );
+    if (eligible.length === 0) return this.defaultRoomId;
+    const index = Math.min(eligible.length - 1, Math.floor(Math.max(0, u) * eligible.length));
+    return eligible[index]!.cfg.roomId;
   }
 
   /** Lobby hint per room — display and routing only, never odds (C2). */

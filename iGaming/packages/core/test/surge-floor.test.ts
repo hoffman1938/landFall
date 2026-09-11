@@ -1,20 +1,27 @@
 /**
- * The jackpot's RESET VALUE has to be something the table can actually pay for.
+ * The jackpot's RESET VALUE has to be something the table can actually pay for,
+ * AND it has to cost a knowable fraction of handle — those are two different
+ * properties, and this file has now been written twice because only the first
+ * was pinned.
  *
- * It used to be `max(500 credits, 20 × minStake)` — an absolute floor with a
- * per-table term bolted on. Below a 25-credit minimum bet the flat floor always
- * won, so the per-table scaling was inert on exactly the small tiers it was
- * written for. That mattered because the house re-seeds the pot to this value
- * after EVERY win: a recurring cost of `reset × surgeProb` per round, paid from
- * the house share of the rake and nothing else.
+ * v1 was `max(500 credits, 20 × minStake)`: a flat floor with a per-table term
+ * bolted on, where the flat term always won below a 25-credit minimum bet.
+ * Measured over 1,200 rounds it cost 6.5% of handle on Skiff against a ~1%
+ * house share; both small tiers lost money on every round played.
  *
- * Measured over 1,200 rounds it cost the operator 6.5% of handle on Skiff and
- * 1.5% on Schooner against a house share of ~1%. Both tiers lost money on every
- * round played and returned over 100% to players.
+ * v3 replaced it with `max(20 × minStake, budgetFraction × affordable)`, capped
+ * by affordability — and the floor won at EVERY shipped tier, so the budget
+ * fraction was inert exactly as the flat term had been. The test that claimed
+ * to pin the "two thirds of the house share stays as margin" property called
+ * `surgeResetFor` with `minimum: 0`, so it never once exercised the branch that
+ * production takes. That is the bug in the old test, and it is why the checks
+ * below never pass a minimum: THERE IS NO LONGER ONE TO PASS.
  *
- * The reset now follows the table's HANDLE, which is the quantity it has to be
- * paid out of. These tests pin the affordability property rather than any
- * particular number, so a future tuning change cannot re-break it.
+ * v4: the reset is `budgetFraction × affordable`, unconditionally. That makes
+ * the re-seed cost a constant fraction of handle at every tier and every table
+ * size, which is what lets it be published as the fourth term of theoretical
+ * RTP (`core/rtp.ts`) instead of silently inflating realised return above the
+ * displayed figure.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -28,6 +35,7 @@ import {
   surgeCeilingFor,
   surgeFloorFor,
   surgeResetFor,
+  theoreticalRtp,
 } from '../src/index.js';
 
 /** The shipped tier ladder — each rung steps ×10 from the last. */
@@ -39,27 +47,37 @@ const TIERS = [
   { room: 'leviathan', minStakeMinor: 5_000_00, maxStakeMinor: 500_000_00, liquidityFloorMinor: 22_500_00 },
 ];
 
-const policy = (handlePerRoundMinor: number, minimumMinor: number) => ({
+/** Handle per round measured in the certification simulation at each tier. */
+const MEASURED_HANDLE: Record<string, number> = {
+  skiff: 155_00,
+  schooner: 654_00,
+  flagship: 6_871_00,
+  galleon: 54_937_00,
+  leviathan: 464_315_00,
+};
+
+const policy = (handlePerRoundMinor: number) => ({
   handlePerRoundMinor,
   rake: RAKE,
   houseShare: RAKE_SPLIT.house,
   zones: ZONE_COUNT,
   surgeProb: SURGE_PROB,
-  minimumMinor,
 });
 
 describe('jackpot reset value — affordability', () => {
   /**
-   * THE INVARIANT. The re-seed costs `reset` every `1/surgeProb` rounds and is
-   * funded from `split.house × r/K` of handle. If the reset exceeds that, the
-   * table loses money on every round it plays.
+   * THE FIRST INVARIANT. The re-seed costs `reset` every `1/surgeProb` rounds
+   * and is funded from `split.house × r/K` of handle. If the reset exceeds
+   * that, the table loses money on every round it plays.
    */
   it('never costs more than the house share of the rake can fund, at any tier', () => {
     for (const tier of TIERS) {
-      // Sweep from a dead table up to a very busy one.
-      for (const handle of [tier.liquidityFloorMinor, tier.minStakeMinor * 50, tier.minStakeMinor * 5_000]) {
-        const reset = surgeResetFor(policy(handle, surgeFloorFor(tier.minStakeMinor)));
-        const costPerRound = reset * SURGE_PROB;
+      for (const handle of [
+        tier.liquidityFloorMinor,
+        MEASURED_HANDLE[tier.room]!,
+        tier.minStakeMinor * 5_000,
+      ]) {
+        const costPerRound = surgeResetFor(policy(handle)) * SURGE_PROB;
         const houseSharePerRound = (RAKE_SPLIT.house * RAKE * handle) / ZONE_COUNT;
         expect(
           costPerRound,
@@ -70,69 +88,102 @@ describe('jackpot reset value — affordability', () => {
   });
 
   /**
-   * The regression this change exists for. At the retired fixed value the two
-   * smallest tiers were unaffordable by a wide margin — Skiff by more than 8×.
+   * THE SECOND INVARIANT, and the one v3 lacked. Affordability alone is not
+   * enough: a reset that merely stays under the ceiling can still consume a
+   * variable share of it, which makes return to player a function of table
+   * population. Pin the SHARE, at every tier, at the handle each tier actually
+   * turns over.
    */
-  it('the retired fixed reset was unaffordable on Skiff and Schooner', () => {
-    const RETIRED = (minStake: number): number => Math.max(500_00, 20 * minStake);
-    // Handle per round measured in the certification simulation at each tier.
-    const measured: Record<string, number> = {
-      skiff: 128_00, schooner: 628_00, flagship: 5_462_00, galleon: 49_357_00, leviathan: 455_145_00,
-    };
-    const unaffordable: string[] = [];
+  it('consumes exactly the budgeted share of the house rake at every shipped tier', () => {
     for (const tier of TIERS) {
-      const ceiling = affordableResetMinor(policy(measured[tier.room]!, 0));
-      if (RETIRED(tier.minStakeMinor) > ceiling) unaffordable.push(tier.room);
-    }
-    expect(unaffordable).toEqual(['skiff', 'schooner']);
-
-    // …and the replacement is affordable on every one of them.
-    for (const tier of TIERS) {
-      const ceiling = affordableResetMinor(policy(measured[tier.room]!, 0));
-      const reset = surgeResetFor(policy(measured[tier.room]!, surgeFloorFor(tier.minStakeMinor)));
-      expect(reset, tier.room).toBeLessThanOrEqual(ceiling);
+      for (const handle of [tier.liquidityFloorMinor, MEASURED_HANDLE[tier.room]!]) {
+        const reset = surgeResetFor(policy(handle));
+        const ceiling = affordableResetMinor(policy(handle));
+        expect(reset / ceiling, `${tier.room} at handle ${handle}`).toBeCloseTo(
+          SURGE_RESET_BUDGET_FRACTION,
+          3,
+        );
+      }
     }
   });
 
-  it('affordability overrides the minimum — an unpayable guarantee is worse than a small one', () => {
-    // A table so thin the "worth 20 minimum bets" floor cannot be funded.
-    const thin = policy(10_00, 500_00);
-    const reset = surgeResetFor(thin);
-    expect(reset).toBeLessThan(500_00);
-    expect(reset).toBeLessThanOrEqual(affordableResetMinor(thin));
+  /**
+   * THE REGRESSION GUARD, stated as the thing that actually went wrong: under
+   * v3 the `20 × minStake` floor beat the budget figure at every shipped tier,
+   * so the tuning parameter did nothing. If a floor is ever reintroduced, this
+   * is the test that has to be argued with.
+   */
+  it('the retired v3 floor would have overridden the budget at every shipped tier', () => {
+    const overridden: string[] = [];
+    for (const tier of TIERS) {
+      const handle = MEASURED_HANDLE[tier.room]!;
+      const budget = Math.floor(affordableResetMinor(policy(handle)) * SURGE_RESET_BUDGET_FRACTION);
+      if (surgeFloorFor(tier.minStakeMinor) > budget) overridden.push(tier.room);
+    }
+    expect(overridden).toEqual(TIERS.map((t) => t.room));
+
+    // …and the shipped policy is the budget figure at each of them.
+    for (const tier of TIERS) {
+      const handle = MEASURED_HANDLE[tier.room]!;
+      const budget = Math.floor(affordableResetMinor(policy(handle)) * SURGE_RESET_BUDGET_FRACTION);
+      expect(surgeResetFor(policy(handle)), tier.room).toBe(budget);
+    }
+  });
+
+  /**
+   * The worst case the v3 floor produced: a table thin enough that the floor
+   * exceeded the affordability CEILING got `reset = ceiling`, so the house spent
+   * its whole rake share on the re-seed and the table returned 100% of handle.
+   */
+  it('cannot return the whole house share, however thin the table is', () => {
+    for (const handle of [1_00, 10_00, 90_00, 500_00]) {
+      const reset = surgeResetFor(policy(handle));
+      const ceiling = affordableResetMinor(policy(handle));
+      expect(reset).toBeLessThan(ceiling);
+      expect(reset * SURGE_PROB).toBeLessThan((RAKE_SPLIT.house * RAKE * handle) / ZONE_COUNT);
+    }
+  });
+
+  it('the flow it produces is exactly the published RTP term', () => {
+    const published = theoreticalRtp().jackpotReseedReturn;
+    expect(published).toBeCloseTo(
+      SURGE_RESET_BUDGET_FRACTION * RAKE_SPLIT.house * (RAKE / ZONE_COUNT),
+      12,
+    );
+    for (const tier of TIERS) {
+      const handle = MEASURED_HANDLE[tier.room]!;
+      const measured = (surgeResetFor(policy(handle)) * SURGE_PROB) / handle;
+      expect(measured, tier.room).toBeCloseTo(published, 4);
+    }
   });
 
   it('rises with the table, so a busier room plays for a bigger jackpot', () => {
-    const minimum = surgeFloorFor(1_00);
-    const quiet = surgeResetFor(policy(100_00, minimum));
-    const busy = surgeResetFor(policy(1_000_00, minimum));
-    const packed = surgeResetFor(policy(10_000_00, minimum));
+    const quiet = surgeResetFor(policy(100_00));
+    const busy = surgeResetFor(policy(1_000_00));
+    const packed = surgeResetFor(policy(10_000_00));
     expect(busy).toBeGreaterThan(quiet);
     expect(packed).toBeGreaterThan(busy);
   });
 
-  it('leaves roughly two thirds of the house share as margin', () => {
-    const handle = 10_000_00;
-    const reset = surgeResetFor(policy(handle, 0));
-    const ceiling = affordableResetMinor(policy(handle, 0));
-    expect(reset / ceiling).toBeCloseTo(SURGE_RESET_BUDGET_FRACTION, 2);
-  });
-
-  it('returns whole minor units', () => {
+  it('returns whole minor units, and never a negative one', () => {
     for (const tier of TIERS) {
-      const reset = surgeResetFor(policy(tier.liquidityFloorMinor, surgeFloorFor(tier.minStakeMinor)));
+      const reset = surgeResetFor(policy(tier.liquidityFloorMinor));
       expect(Number.isInteger(reset)).toBe(true);
+      expect(reset).toBeGreaterThanOrEqual(0);
     }
+    // Degenerate configs return zero rather than NaN or a negative.
+    expect(surgeResetFor({ ...policy(1_000_00), surgeProb: 0 })).toBe(0);
+    expect(surgeResetFor({ ...policy(1_000_00), zones: 0 })).toBe(0);
+    expect(surgeResetFor(policy(0))).toBe(0);
   });
 });
 
 describe('jackpot ceiling', () => {
   /**
    * GLI-19 §2.4.2 — once contributions have been made, a jackpot ceiling may be
-   * changed only UPWARD. The reset value is adaptive now, so deriving the
-   * ceiling from it would let the ceiling fall when a table went quiet. Making
-   * it a pure function of the tier satisfies the clause by construction: it
-   * cannot move at all.
+   * changed only UPWARD. The reset value is adaptive, so deriving the ceiling
+   * from it would let the ceiling fall when a table went quiet. Making it a pure
+   * function of the tier satisfies the clause by construction: it cannot move.
    */
   it('depends only on the tier, so it can never move downward', () => {
     for (const tier of TIERS) {
@@ -151,7 +202,12 @@ describe('jackpot ceiling', () => {
   });
 });
 
-describe('surgeFloorFor — now the lower bound only', () => {
+describe('surgeFloorFor — now the OPENING pot only', () => {
+  /**
+   * Its one surviving use is the opening balance of a table that has never paid
+   * a jackpot: a single house cost at room creation, not a recurring guarantee.
+   * It is deliberately no longer an input to `surgeResetFor`.
+   */
   it('is worth the configured number of minimum bets at every tier', () => {
     for (const tier of TIERS) {
       expect(surgeFloorFor(tier.minStakeMinor) / tier.minStakeMinor).toBe(

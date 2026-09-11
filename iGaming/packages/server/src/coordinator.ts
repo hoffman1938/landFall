@@ -21,6 +21,7 @@ import {
   LIQUIDITY_MIN_SEED_MINOR,
   houseSeedPerZone,
   updateHandleEma,
+  updateHandleMeanEma,
   MAX_STAKE_MINOR,
   MIN_STAKE_MINOR,
   RAKE,
@@ -39,7 +40,9 @@ import {
   computeTideBands,
   assertSingleWinner,
   contributeToSurge,
+  floatSurplusMinor,
   houseFloatOpeningFor,
+  releaseFloat,
   drawPresentation,
   drawZone,
   openFloat,
@@ -97,12 +100,37 @@ export function flagHonest(kind: SignalKind, zone: number, fleetZones: Set<numbe
   return kind === 'FLEE' ? !fleetZones.has(zone) : fleetZones.has(zone);
 }
 
+/**
+ * The disable-on-demand gate (GLI-19 §2.4.1, §4.15.1, §A.6.3 — gap G32).
+ *
+ * `GameControl` satisfies this structurally. It is declared here as a narrow
+ * interface rather than imported so the coordinator keeps no dependency on the
+ * operator surface, and so a test can pass a two-line stub.
+ *
+ * THIS BEING WIRED IS THE WHOLE CONTROL. `GameControl` and
+ * `/api/compliance/game-state` both existed already, and `betsAllowed()` was
+ * called from nowhere at all — so "disable all gaming activity" recorded an
+ * audit entry, reported DISABLED on the compliance endpoint, and then kept
+ * taking bets. A control surface that reports a state it does not enforce is
+ * worse than not having one, because it is the surface an inspector trusts.
+ */
+export interface BetGate {
+  betsAllowed(roomId: string, playerId: string): { allowed: boolean; reason?: string };
+}
+
 export interface CoordinatorEvents {
   broadcast(msg: unknown): void;
   sendToPlayer(playerId: string, msg: unknown): void;
   /** Per-player payload variants for LANDFALL (yourResult/balance). */
   broadcastLandfall(build: (playerId: string) => unknown): void;
   systemMessage(text: string): void;
+  /**
+   * Fired once per settled round, after every balance has been written and
+   * broadcast. The hub uses it to notice players whose balance can no longer
+   * cover a bet anywhere on the server. Optional so tools and tests can supply
+   * three functions instead of four.
+   */
+  roundSettled?(): void;
 }
 
 interface LiveFleet {
@@ -273,6 +301,15 @@ export class RoundCoordinator {
    */
   private seedMinor: number;
   private handleEmaMinor: number | null = null;
+  /**
+   * A SYMMETRIC mean estimate of settled real handle, used only to size the
+   * jackpot reset. `handleEmaMinor` above is deliberately asymmetric because the
+   * house seed it drives is a player-protection mechanism; that asymmetry is a
+   * bias wherever the estimate stands in for an average, and the jackpot reset
+   * is linear in it, so the bias would land directly on the published return to
+   * player. See `updateHandleMeanEma` in core/liquidity.ts for the measurement.
+   */
+  private handleMeanMinor: number | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
   private parkAfterRound = false;
@@ -305,8 +342,22 @@ export class RoundCoordinator {
    * why GLI-19 §A.7.1(c)–(d) requires the separation.
    */
   private floatState: HouseFloatState;
+  /**
+   * The float's disclosed opening capitalization — the level it is returned to
+   * when it releases its surplus. Held rather than recomputed so a config change
+   * to the seed ceiling cannot silently move the release threshold for a float
+   * that is already funded.
+   */
+  private readonly floatOpeningMinor: number;
   /** B4: per-player roundIds of recently flown flags (cooldown window). */
   private flagHistory = new Map<string, number[]>();
+  /**
+   * Set for the life of a round once it has been voided, so a second failure in
+   * the same round cannot refund the same stakes twice. The DB guard below only
+   * covers SETTLED rounds; a void deliberately does not set `settled_at`,
+   * because a voided round has no settlement to report.
+   */
+  private roundVoided = false;
   /** Boat counts at fog start (E2): lock − fog = the replay's net movement arrows. */
   private fogBoatCounts: number[] | null = null;
 
@@ -325,22 +376,50 @@ export class RoundCoordinator {
    * GLI-19 §4.13.3 / §4.13.6(d) — the pot's ceiling and its RESET VALUE, the two
    * figures the clause requires a progressive jackpot to define.
    *
-   * The RESET VALUE FOLLOWS THE TABLE'S HANDLE (rules v3). The house tops the pot
-   * back up to it after every win, so it is a recurring operator cost of
-   * `reset × surgeProb` per round, funded entirely from the house share of the
-   * rake. A reset fixed to the tier's minimum bet ignores that constraint, and
-   * measured over 1,200 rounds the old fixed value cost 6.5% of handle on Skiff
-   * against a ~1% house share — the tier lost money on every round played and
-   * returned over 100% to players. `surgeResetFor` sizes it from the same
-   * settled-handle EMA that already sizes the house seed, and refuses to exceed
-   * what the rake share can fund.
+   * The RESET VALUE IS A FIXED FRACTION of what the house share of the rake can
+   * fund at this table's handle (rules v4). The house tops the pot back up to it
+   * after every win, so it is a recurring operator cost of `reset × surgeProb`
+   * per round; pinning it to `budgetFraction × affordable` makes that cost a
+   * constant fraction of handle, which is what lets it be published as the
+   * fourth term of theoretical return to player (`core/rtp.ts`) instead of
+   * silently inflating the realised figure above the displayed one.
+   *
+   * Under rules v3 a `max(20 × minimum bet, budget)` floor overrode the budget
+   * at every shipped tier, and on a table thin enough for the floor to exceed
+   * the affordability ceiling the reset became the ceiling exactly — the house
+   * spent its whole rake share on the re-seed and the table returned 100% of
+   * handle. `surgeResetFor` no longer accepts a minimum at all.
+   *
+   * `handlePerRound` is the settled-handle EMA of REAL (non-house) stakes,
+   * floored at the room's guaranteed liquidity. The rake is taken on the total
+   * handle, house seed included, so sizing the reset from the smaller figure is
+   * deliberately conservative: the re-seed can only ever cost less than the
+   * budget, never more.
    *
    * The CEILING stays a pure function of the tier. GLI-19 §2.4.2 permits a
    * jackpot ceiling to move only upward once contributions exist, so deriving it
    * from an adaptive reset would let it fall when a table went quiet.
    */
   private get surgePolicy(): SurgePotPolicy {
-    const handlePerRound = Math.max(this.handleEmaMinor ?? 0, this.cfg.liquidityFloorMinor);
+    /*
+     * TOTAL handle, not player handle.
+     *
+     * `handleMeanMinor` tracks REAL (non-house) stakes, because that is what the
+     * house seed is sized against and using total handle there would be
+     * circular. The jackpot reset is different: the published RTP term expresses
+     * its cost as a fraction of TOTAL handle, so sizing the reset from the
+     * player-only figure makes the realised flow systematically low by exactly
+     * the seed's share — measured at 0.32%–0.35% against a modelled 0.35%, and
+     * worst on the thinnest tier where the seed's share is largest.
+     *
+     * The seed for the coming round is already fixed and published, so adding it
+     * back is neither circular nor a guess. The floor is the table's guaranteed
+     * TOTAL handle, which is what `houseSeedPerZone` tops a quiet table up to.
+     */
+    const handlePerRound = Math.max(
+      this.cfg.liquidityFloorMinor,
+      (this.handleMeanMinor ?? 0) + ZONE_COUNT * this.seedMinor,
+    );
     return {
       resetMinor: surgeResetFor({
         handlePerRoundMinor: handlePerRound,
@@ -348,7 +427,6 @@ export class RoundCoordinator {
         houseShare: this.econ.rakeSplit.house,
         zones: ZONE_COUNT,
         surgeProb: this.surgeProb,
-        minimumMinor: this.cfg.surgeFloorMinor,
       }),
       ceilingMinor: surgeCeilingFor(this.cfg.minStakeMinor),
     };
@@ -361,6 +439,8 @@ export class RoundCoordinator {
     readonly cfg: RoomConfig = DEFAULT_ROOM,
     /** Responsible-gambling service (F1/F2), shared across rooms. Optional for tests/tools. */
     private limits?: LimitsService,
+    /** Disable-on-demand gate (G32), shared across rooms. Optional for tests/tools. */
+    private control?: BetGate,
   ) {
     validateRakeConfig(cfg.econ.rake, cfg.econ.rakeSplit);
     if (!Number.isInteger(cfg.econ.maxPayoutMultiple) || cfg.econ.maxPayoutMultiple < 1) {
@@ -435,10 +515,15 @@ export class RoundCoordinator {
     // The segregated float opens with disclosed operator capital sized to fund
     // several fully-seeded rounds, so a top-up means the float is genuinely
     // exhausted rather than merely new.
+    this.floatOpeningMinor = houseFloatOpeningFor(
+      cfg.seedMinor,
+      ZONE_COUNT,
+      cfg.liquidityFloorMinor,
+    );
     const floatBalance = repo.lastFloatBalance(cfg.roomId);
     this.floatState =
       floatBalance === undefined
-        ? openFloat(houseFloatOpeningFor(cfg.seedMinor, ZONE_COUNT, cfg.liquidityFloorMinor))
+        ? openFloat(this.floatOpeningMinor)
         : { balanceMinor: floatBalance, contributedMinor: 0, releasedMinor: 0 };
 
     // Storm Surge pot: load or seed the reset value (house-funded, auditable).
@@ -530,7 +615,7 @@ export class RoundCoordinator {
     this.parkAfterRound = false;
     if (this.running) return;
     this.running = true;
-    this.beginRound();
+    this.guardPhase('beginRound', () => this.beginRound());
   }
 
   /** Finish accepted bets on their normal schedule, then stop opening rounds. */
@@ -559,6 +644,10 @@ export class RoundCoordinator {
     return {
       roundId: this.roundId,
       chainIndex: this.chainIndex,
+      // Per-round rather than per-connection: a season rollover changes it
+      // mid-session, and a client verifying against a stale commitment would
+      // read an honest round as a failed one.
+      chainCommitment: this.chain.commitment,
       houseSeedMinor: this.seedMinor,
       fogStartsAt: this.fogStartsAt,
       weather: this.weather,
@@ -723,6 +812,17 @@ export class RoundCoordinator {
     });
     if (this.phase !== 'ANCHOR_OPEN' || Date.now() >= this.phaseEndsAt) {
       return reject('ROUND_LOCKED', 'Anchors are locked for this round.');
+    }
+    // §4.15.1 — a disable stops NEW bets at once; a round already locked still
+    // concludes normally, which is why this gate is here and not in `resolve`.
+    if (this.control) {
+      const gate = this.control.betsAllowed(this.cfg.roomId, playerId);
+      if (!gate.allowed) {
+        return reject(
+          'GAMING_DISABLED',
+          `Betting is paused at this table${gate.reason ? `: ${gate.reason}` : ''}. Any bet already accepted will settle normally.`,
+        );
+      }
     }
     if (mode === 'SPLIT') {
       if (secondaryZone === null || secondaryZone === primaryZone) {
@@ -919,6 +1019,9 @@ export class RoundCoordinator {
     if (this.phase !== 'ANCHOR_OPEN' || Date.now() >= this.phaseEndsAt) {
       return { ok: false, code: 'ROUND_LOCKED', message: 'Signals are closed for this round.' };
     }
+    if (this.control && !this.control.betsAllowed(this.cfg.roomId, playerId).allowed) {
+      return { ok: false, code: 'GAMING_DISABLED', message: 'Betting is paused at this table.' };
+    }
     if (this.signals.has(playerId)) {
       return {
         ok: false,
@@ -976,6 +1079,7 @@ export class RoundCoordinator {
     this.fogStarted = false;
     this.fogBoatCounts = null;
     this.receiptSeq = 0;
+    this.roundVoided = false;
 
     // The rules version is stamped at round CREATION, not at settlement: GLI-19
     // §A.5.1 binds a wager to the rules in force when it was accepted (G45).
@@ -1037,8 +1141,8 @@ export class RoundCoordinator {
       );
     }
     const fogDelay = Math.max(0, this.fogStartsAt - Date.now());
-    this.fogTimer = setTimeout(() => this.beginFog(), fogDelay);
-    this.timer = setTimeout(() => this.lock(), this.timings.anchorMs);
+    this.fogTimer = setTimeout(() => this.guardPhase('beginFog', () => this.beginFog()), fogDelay);
+    this.timer = setTimeout(() => this.guardPhase('lock', () => this.lock()), this.timings.anchorMs);
   }
 
   private lock(): void {
@@ -1146,6 +1250,8 @@ export class RoundCoordinator {
    * recur. This does the first three; the fourth is `gameControl.disable`.
    */
   private voidRound(reason: string): void {
+    if (this.roundVoided || this.roundId === 0) return;
+    this.roundVoided = true;
     const snapshot = this.lockSnapshot;
     this.repo.inTransaction(() => {
       if (this.repo.roundSettledAt(this.roundId) !== null) return;
@@ -1187,15 +1293,78 @@ export class RoundCoordinator {
   }
 
   private resolve(struckZone: number): void {
+    this.guardPhase('settlement', () => this.resolveOrThrow(struckZone));
+  }
+
+  /**
+   * THE ROUND LOOP'S FAULT BOUNDARY (GLI-19 §4.16, §A.6.4; Order 240 Art. 3.1).
+   *
+   * Every phase transition runs from a `setTimeout` callback, which means an
+   * exception in one of them does not propagate to any caller — it escapes to
+   * the host as an unhandled error and THE LOOP SIMPLY STOPS. Settlement was
+   * already guarded, because the conservation assert is expected to be able to
+   * fire there. The other two transitions were not, and they are the ones where
+   * stopping is most expensive:
+   *
+   *   - `lock()` persists the stakes. A player's balance is debited when their
+   *     order is ACCEPTED, several seconds earlier, so a throw here left the
+   *     money gone, no stake rows written, no settlement coming and no further
+   *     rounds — the exact "wager held in an interrupted game with nothing to
+   *     resolve it" that §4.16.2 exists to prevent.
+   *   - `beginRound()` consumes a chain seed and inserts the round row. A throw
+   *     here ends the game for every table in the process.
+   *
+   * The remedy is the one §A.6.4 prescribes and the one `voidRound` already
+   * implements: return every wager in full, record the incident, and carry on.
+   * Continuing is the point — a loop that dies on a transient database error
+   * strands every bet accepted after it, and a game that cannot deal the next
+   * round is not "safe", it is unavailable.
+   */
+  private guardPhase(what: string, fn: () => void): void {
     try {
-      this.resolveOrThrow(struckZone);
+      fn();
     } catch (err) {
-      // The conservation assert is the loudest thing that can land here, and it
-      // firing means the settlement arithmetic disagreed with itself — so the
-      // one thing we must NOT do is pay it out anyway.
-      this.voidRound(err instanceof Error ? err.message : String(err));
+      const reason = err instanceof Error ? err.message : String(err);
+      log.error('round phase failed — voiding and continuing', {
+        room: this.cfg.roomId,
+        roundId: this.roundId,
+        phase: what,
+        reason,
+      });
+      metrics.counter(
+        'landfall_round_phase_failures_total',
+        'Round-loop phase transitions that threw. Each one voids its round and refunds every bet.',
+        { room: this.cfg.roomId, phase: what },
+      );
+      try {
+        this.voidRound(`${what}: ${reason}`);
+      } catch (voidErr) {
+        // A refund that itself fails is the worst case in this file. It must
+        // still not stop the loop, and it must be impossible to miss.
+        log.error('VOID FAILED — bets may be unrefunded, manual reconciliation required', {
+          room: this.cfg.roomId,
+          roundId: this.roundId,
+          reason: voidErr instanceof Error ? voidErr.message : String(voidErr),
+        });
+      }
+      // Drop anything the failed round left behind, so the next one starts from
+      // a clean table rather than inheriting half a round's state.
+      this.fleets.clear();
+      this.signals.clear();
+      this.finalOrders.clear();
+      this.lockSnapshot = null;
+      if (this.timer) clearTimeout(this.timer);
+      if (this.tideTimer) clearTimeout(this.tideTimer);
+      if (this.fogTimer) clearTimeout(this.fogTimer);
+      this.tideTimer = null;
+      this.fogTimer = null;
+      if (this.parkAfterRound || !this.running) {
+        this.stop();
+        return;
+      }
       this.setPhase('COOLDOWN', this.timings.cooldownMs);
-      this.timer = setTimeout(() => this.beginRound(), this.timings.cooldownMs);
+      this.events.broadcast({ type: 'PHASE', phase: this.phaseInfo() });
+      this.timer = setTimeout(() => this.guardPhase('beginRound', () => this.beginRound()), this.timings.cooldownMs);
     }
   }
 
@@ -1219,10 +1388,12 @@ export class RoundCoordinator {
     // room's estimate, which sizes the next round's seed. Bot stakes count —
     // they are traffic that genuinely disperses the pools, and demo is meant
     // to behave like a populated table.
-    this.handleEmaMinor = updateHandleEma(
-      this.handleEmaMinor,
-      snapshot.reduce((a, entry) => a + (entry.isHouseSeed ? 0 : entry.amountMinor), 0),
+    const realHandleMinor = snapshot.reduce(
+      (a, entry) => a + (entry.isHouseSeed ? 0 : entry.amountMinor),
+      0,
     );
+    this.handleEmaMinor = updateHandleEma(this.handleEmaMinor, realHandleMinor);
+    this.handleMeanMinor = updateHandleMeanEma(this.handleMeanMinor, realHandleMinor);
 
     const stakeOwner = new Map<string, string>(); // stakeId -> playerId
     for (const entry of this.liveStakeEntries(true)) stakeOwner.set(entry.id, entry.playerId);
@@ -1308,6 +1479,45 @@ export class RoundCoordinator {
       // Segregated liquidity float ledger (G8).
       const floatRound = applyFloatRound(this.floatState, seedStakedMinor, seedReturnedMinor);
       this.floatState = floatRound.state;
+
+      /*
+       * §A.7.1(d) — THE FLOAT'S SURPLUS IS PLAYED BACK, NOT BANKED.
+       *
+       * Segregating house-seed profit satisfies "the operator shall not profit";
+       * only returning it satisfies "the funds shall ultimately be lost". And
+       * there IS a surplus to return: a uniform seed across all six harbours is
+       * +EV against an imbalanced crowd, because the survivor payout is convex
+       * in the struck pool. Measured over a million rounds it is +0.0875% of
+       * handle — small, systematic, and taken out of what players receive.
+       *
+       * Anything above the float's disclosed opening capitalization (plus a few
+       * rounds of head-room, so this is an occasional ledger event rather than a
+       * few minor units every round) goes to the Storm Surge pot, which pays out
+       * to a player in full. Booked BEFORE the ledger row below, so the recorded
+       * balance is the one the float actually closed the round on.
+       */
+      const surplus = floatSurplusMinor(
+        this.floatState,
+        this.floatOpeningMinor,
+        ZONE_COUNT * this.seedMinor,
+      );
+      let floatReleasedMinor = 0;
+      if (surplus > 0) {
+        const released = releaseFloat(this.floatState, surplus, 'SURGE_POT');
+        floatReleasedMinor = released.releasedMinor;
+        this.floatState = released.state;
+        this.repo.insertSignificantEvent({
+          category: 'JACKPOT',
+          component: `liquidity_float.${this.cfg.roomId}`,
+          actor: 'system',
+          reason:
+            'liquidity float surplus released to the Storm Surge pot — ring-fenced house-seed ' +
+            'profit returned to players (GLI-19 §A.7.1(d))',
+          valueBefore: String(released.state.balanceMinor + floatReleasedMinor),
+          valueAfter: String(released.state.balanceMinor),
+        });
+      }
+
       this.repo.insertFloatLedger({
         roomId: this.cfg.roomId,
         roundId: this.roundId,
@@ -1315,7 +1525,7 @@ export class RoundCoordinator {
         returnedMinor: floatRound.returnedMinor,
         netMinor: floatRound.netMinor,
         topUpMinor: floatRound.topUpMinor,
-        balanceMinor: floatRound.state.balanceMinor,
+        balanceMinor: this.floatState.balanceMinor,
       });
       if (housePlayer && floatRound.topUpMinor > 0) {
         // Operator capital entering the float is a real movement on the house
@@ -1360,9 +1570,11 @@ export class RoundCoordinator {
       // SOFTWARE to be authorized separately — the accounting cannot be code
       // inlined here if it has to be certified on its own.
       const policy = this.surgePolicy;
+      // The round's surge share, plus any liquidity-float surplus released
+      // above — both are player money on its way to a player.
       const contribution = contributeToSurge(
         { potMinor: this.surgePotMinor, diversionMinor: this.surgeDiversionMinor },
-        surgeContribMinor,
+        surgeContribMinor + floatReleasedMinor,
         policy,
       );
       let potState = contribution.state;
@@ -1512,6 +1724,19 @@ export class RoundCoordinator {
         `⛈ ${power.label} STORM — all salvage ×${mult}${mult >= 25 ? '!!!' : '!'}`,
       );
     }
+    /*
+     * The no-survivor round. Every stake sat on the harbour the storm hit, so
+     * there was nobody to redistribute to and every bet was returned in full.
+     * It cannot happen while the house seeds every harbour, but a room may be
+     * configured with no seed at all, and a refund the player is not told about
+     * reads as a settlement error.
+     */
+    if (settlement.allStakesRefunded) {
+      this.events.systemMessage(
+        `Every bet in round #${this.roundId} was on Harbour ${struckZone + 1}, so there was nobody ` +
+          `to share the pot with. The round paid nothing out and every bet has been returned in full.`,
+      );
+    }
     // Honesty over silence: if the liability cap clamped the payout, say so.
     if (settlement.powerCapped) {
       this.events.systemMessage(
@@ -1535,14 +1760,22 @@ export class RoundCoordinator {
       }
     }
 
+    // After every balance is written and published: a player who can no longer
+    // cover the smallest bet on the server is stuck, and in a demo build that is
+    // the moment to say so (server/src/demoCredits.ts).
+    this.events.roundSettled?.();
+
     if (this.parkAfterRound) this.stop();
-    else this.timer = setTimeout(() => this.cooldown(), this.timings.resolvedMs);
+    else this.timer = setTimeout(() => this.guardPhase('cooldown', () => this.cooldown()), this.timings.resolvedMs);
   }
 
   private cooldown(): void {
     this.setPhase('COOLDOWN', this.timings.cooldownMs);
     this.events.broadcast({ type: 'PHASE', phase: this.phaseInfo() });
-    this.timer = setTimeout(() => this.beginRound(), this.timings.cooldownMs);
+    this.timer = setTimeout(
+      () => this.guardPhase('beginRound', () => this.beginRound()),
+      this.timings.cooldownMs,
+    );
   }
 
   private setPhase(phase: RoundPhase, durationMs: number): void {

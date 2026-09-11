@@ -71,6 +71,21 @@ export const cancelOrderMsg = z.object({
 });
 
 /** Switch rooms (C1). Any live order in the old room is cancelled+refunded first. */
+/**
+ * Join a table.
+ *
+ * `roomId` names one. The sentinel `"random"` asks the server to seat the player
+ * at a table chosen at random from those they can afford — Order 243 Annex 1
+ * Art. 13(b) requires a Peer-to-Peer system to "give the player the possibility
+ * to be placed at a gaming table on a random basis", and GLI-19 §4.11.1(b) asks
+ * for the same. Disclosing the default routing rule does not satisfy a clause
+ * that requires the option to exist, so the option exists.
+ *
+ * A room may not be named `random`; `resolveRoomConfigs` would have to reject it
+ * for the sentinel to be ambiguous, and no shipped tier uses the name.
+ */
+export const RANDOM_ROOM = 'random';
+
 export const joinRoomMsg = z.object({
   type: z.literal('JOIN_ROOM'),
   roomId: z.string().min(1).max(64),
@@ -107,8 +122,18 @@ export const setExclusionMsg = z.object({
   minutes: z.number().int().min(1).max(EXCLUSION_MAX_MINUTES),
 });
 
+/**
+ * Demo builds only: ask for the practice float back after losing it.
+ *
+ * The server refuses outside `LANDFALL_ENV=demo`, so the message existing in the
+ * protocol is not the same as the capability existing in a deployment — see
+ * `server/src/demoCredits.ts` for why the two are separated.
+ */
+const practiceCreditsMsg = z.object({ type: z.literal('REQUEST_PRACTICE_CREDITS') });
+
 export const clientMessage = z.discriminatedUnion('type', [
   helloMsg,
+  practiceCreditsMsg,
   anchorMsg,
   fleetOrderMsg,
   chatMsg,
@@ -313,6 +338,27 @@ export type ServerMessage =
       sessionStartAt: number;
     }
   | { type: 'ROUND_HEADER'; round: RoundHeader; phase: PhaseInfo; tideReport: TideReport }
+  /**
+   * A new season's seed-chain commitment, published the moment the previous
+   * season is exhausted and BEFORE any round is drawn against it. Historical
+   * rounds keep verifying against the `prevChainValue` stored on each of them.
+   */
+  | { type: 'CHAIN_COMMITMENT'; commitment: string }
+  /**
+   * Demo practice credits: the outcome of a REQUEST_PRACTICE_CREDITS, and the
+   * server's unsolicited offer when a player's balance can no longer cover the
+   * smallest bet at the cheapest table. `available` is false in any build that
+   * is not a demo, which is how the client knows never to offer it.
+   */
+  | {
+      type: 'PRACTICE_CREDITS';
+      available: boolean;
+      granted: boolean;
+      balanceMinor: number;
+      amountMinor: number;
+      reason?: string;
+      retryAt?: number;
+    }
   | {
       type: 'TIDE_REPORT';
       tideReport: TideReport;
@@ -413,6 +459,17 @@ export type ServerMessage =
 export interface RoundHeader {
   roundId: number;
   chainIndex: number;
+  /**
+   * The seed-chain commitment covering THIS round.
+   *
+   * A season is a finite pre-committed chain (`SEED_CHAIN_LENGTH` seeds). When
+   * one is exhausted the server mints the next season and publishes its
+   * commitment, so a client that joined under the old one is not left verifying
+   * against a commitment that no longer covers the rounds it is watching.
+   * Per-round rather than per-connection for exactly that reason. Optional so a
+   * client can still read a header from a host that predates the field.
+   */
+  chainCommitment?: string;
   houseSeedMinor: number;
   /** Epoch ms when Blind Fog begins during ANCHOR_OPEN. */
   fogStartsAt: number;

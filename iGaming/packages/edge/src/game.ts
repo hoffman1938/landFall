@@ -25,8 +25,10 @@ import { DEFAULT_TIMINGS, SURGE_PROB, validateRakeConfig } from '@landfall/core'
 import {
   ChatService,
   DEFAULT_ECONOMY,
+  GameControl,
   Hub,
   LimitsService,
+  PracticeCredits,
   RoomManager,
   createApp,
   DrizzleSqliteRepository,
@@ -35,6 +37,7 @@ import {
   isDemoEnv,
   log,
   resolveRoomConfigs,
+  runtimeControlManifest,
   seatBots,
   type BotManager,
   type Db,
@@ -82,22 +85,70 @@ export class LandfallGame extends DurableObject<Env> {
     const chain = ensureChain(db);
     const chat = new ChatService(db);
     const limits = new LimitsService(repo);
-    const hub = new Hub(db, chat, chain.commitment, limits);
 
     // C5 lives in `resolveRoomConfigs`: a room asking for bots outside
     // LANDFALL_ENV=demo throws here, and the Durable Object fails to boot —
     // exactly the startup crash the Node host produces.
     const demo = isDemoEnv(this.env.LANDFALL_ENV);
+    // Demo practice credits: virtual, no cash value, and constructed only in a
+    // demo build. Without it a player who lost their float on this host — which
+    // is the host the public demo actually runs on — could never bet again.
+    const practice = demo ? new PracticeCredits(repo, true) : undefined;
+    const hub = new Hub(db, chat, chain.commitment, limits, practice);
+    chain.onRollover((commitment) => {
+      hub.rotateChainCommitment(commitment);
+      repo.insertSignificantEvent({
+        category: 'INTEGRITY',
+        component: 'seed_chain',
+        actor: 'system',
+        reason:
+          'season seed chain exhausted; next season minted and committed before its first round',
+        valueAfter: commitment,
+      });
+    });
+
     const configs = resolveRoomConfigs(roomsJson, demo, DEFAULT_TIMINGS, surgeProb, econ);
-    const rooms = new RoomManager(repo, chain, configs, (roomId) => hub.events(roomId), limits);
+    // G32 — the disable gate every coordinator consults on the accept path.
+    const control = new GameControl(repo);
+    const rooms = new RoomManager(
+      repo,
+      chain,
+      configs,
+      (roomId) => hub.events(roomId),
+      limits,
+      control,
+    );
     hub.rooms = rooms;
 
-    const app = createApp(db, chain.commitment, surgeProb, econ, {
+    const app = createApp(db, () => chain.commitment, surgeProb, econ, {
       // On this host readiness is not "has the loop started": the object boots
       // on demand and parks itself when empty, so an idle game is healthy. The
       // database check inside createApp is the real signal.
       ready: () => ({ ready: true }),
       sampleGauges: () => hub.sampleGauges(),
+      control,
+      // §2.4.1 operator control is authenticated or unavailable. Set
+      // LANDFALL_OPS_TOKEN as a Worker secret to enable it.
+      opsToken: this.env.LANDFALL_OPS_TOKEN,
+      /*
+       * §2.3.2 CONTROL-PROGRAM SELF-VERIFICATION ON THIS HOST.
+       *
+       * The Node verifier digests source files off disk; a Worker has no
+       * filesystem, so that verifier cannot run here and the endpoint used to
+       * answer 503 on the host the public demo actually runs on — which is the
+       * worst place for a compliance surface to be missing.
+       *
+       * What a Worker CAN digest is the thing §2.3.2(b) cares most about and the
+       * thing Law Art. 24¹.2 makes a material-change surface: the RESOLVED
+       * GAMING CONFIGURATION — the room tiers, the rake and its split, the
+       * liability cap, the Storm Power ladder, the rules version. The bundle's
+       * code identity is established at deploy time by Cloudflare's immutable
+       * version id rather than by a runtime file walk, and the report says so
+       * rather than implying a coverage it does not have.
+       */
+      verifier: {
+        verify: (trigger) => runtimeControlManifest(repo, configs, econ, surgeProb, trigger),
+      },
     });
 
     log.info('landfall durable object booted', {

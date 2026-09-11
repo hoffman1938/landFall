@@ -19,7 +19,14 @@ import {
   LIQUIDITY_MIN_SEED_MINOR,
   houseSeedPerZone,
   surgeResetFor,
+  theoreticalRtp,
+  applyFloatRound,
+  floatSurplusMinor,
+  houseFloatOpeningFor,
+  openFloat,
+  releaseFloat,
   updateHandleEma,
+  updateHandleMeanEma,
   RAKE,
   applyReserveRound,
   stormReserveOpeningFor,
@@ -74,6 +81,14 @@ const SIM_LIQUIDITY = {
   maxSeedMinor: HOUSE_SEED_MINOR,
 };
 let simHandleEma: number | null = null;
+/**
+ * A separate, SYMMETRIC mean estimate, used only to size the jackpot reset.
+ * The asymmetric EMA above is a player-protection device for the house seed;
+ * used as an average it under-tracks a spiky crowd badly, and the reset is
+ * linear in it — which put this simulation's re-seed at 0.2345% of handle
+ * against a modelled 0.3500%. See `updateHandleMeanEma` in core/liquidity.ts.
+ */
+let simHandleMean: number | null = null;
 
 function synthesizeStakes(roundId: number): StakeEntry[] {
   const out: StakeEntry[] = [];
@@ -103,10 +118,9 @@ function synthesizeStakes(roundId: number): StakeEntry[] {
     out.push({ id: `p-${roundId}-${p}`, zone, amountMinor: stake, isHouseSeed: false });
   }
   // Feed the settled real handle forward, exactly as the coordinator does.
-  simHandleEma = updateHandleEma(
-    simHandleEma,
-    out.reduce((a, e) => a + (e.isHouseSeed ? 0 : e.amountMinor), 0),
-  );
+  const realHandle = out.reduce((a, e) => a + (e.isHouseSeed ? 0 : e.amountMinor), 0);
+  simHandleEma = updateHandleEma(simHandleEma, realHandle);
+  simHandleMean = updateHandleMeanEma(simHandleMean, realHandle);
   return out;
 }
 
@@ -136,19 +150,24 @@ let passThroughViolations = 0;
 
 // Surge pot dynamics (player return via Golden Anchor + house floor re-seeds).
 /**
- * The reset value is ADAPTIVE (rules v3): it follows the table's handle, because
- * the house re-seed has to be paid from the house share of the rake. A reset
- * fixed to the tier made the two smallest tiers structurally loss-making —
- * see `surgeResetFor` in core/jackpot.ts.
+ * The reset value is a FIXED FRACTION of what the house share of the rake can
+ * fund at this table's handle (rules v4). That is what makes the re-seed a
+ * constant fraction of handle and therefore a publishable term of theoretical
+ * RTP — see `surgeResetFor` in core/jackpot.ts and `theoreticalRtp` in
+ * core/rtp.ts.
  */
-const resetFor = (handlePerRoundMinor: number): number =>
+const resetFor = (playerHandlePerRoundMinor: number, seedPerZoneMinor: number): number =>
   surgeResetFor({
-    handlePerRoundMinor: Math.max(handlePerRoundMinor, LIQUIDITY_FLOOR_MINOR),
+    // TOTAL handle, matching the coordinator — see its `surgePolicy` for why the
+    // player-only figure would make this flow systematically low.
+    handlePerRoundMinor: Math.max(
+      LIQUIDITY_FLOOR_MINOR,
+      playerHandlePerRoundMinor + ZONE_COUNT * seedPerZoneMinor,
+    ),
     rake: RAKE,
     houseShare: RAKE_SPLIT.house,
     zones: ZONE_COUNT,
     surgeProb: SURGE_PROB,
-    minimumMinor: SURGE_MIN_POT_MINOR,
   });
 let surgePot = SURGE_MIN_POT_MINOR;
 let surgePaidToPlayers = 0;
@@ -161,6 +180,17 @@ let surgeRounds = 0;
  */
 let seedStakedSum = 0;
 let seedReturnedSum = 0;
+/**
+ * The float itself, stepped through the PRODUCTION control functions. §A.7.1(d)
+ * requires operator-funded wagers to be ultimately lost or played, not banked,
+ * and a uniform seed is +EV against an imbalanced crowd — so a float that only
+ * accumulates fails the clause and quietly takes that profit out of what players
+ * receive. The surplus is released to the jackpot, exactly as the coordinator
+ * does it.
+ */
+const floatOpening = houseFloatOpeningFor(HOUSE_SEED_MINOR, ZONE_COUNT, LIQUIDITY_FLOOR_MINOR);
+let floatState = openFloat(floatOpening);
+let floatReleasedSum = 0;
 /** Player handle and player returns, for the RTP actually experienced. */
 let playerHandleSum = 0;
 let playerReturnedSum = 0;
@@ -205,13 +235,28 @@ for (let i = 1; i <= ROUNDS; i++) {
     else playerReturnedSum += line.payoutMinor;
   }
 
+  // Segregated liquidity float, and the release of its surplus (§A.7.1(d)).
+  {
+    const seedStaked = stakes.reduce((a, e) => a + (e.isHouseSeed ? e.amountMinor : 0), 0);
+    const seedReturned = r.lines.reduce((a, l) => a + (l.isHouseSeed ? l.payoutMinor : 0), 0);
+    floatState = applyFloatRound(floatState, seedStaked, seedReturned).state;
+    const seedPerZone = houseSeedPerZone(SIM_LIQUIDITY, simHandleEma ?? 0, ZONE_COUNT);
+    const surplus = floatSurplusMinor(floatState, floatOpening, ZONE_COUNT * seedPerZone);
+    if (surplus > 0) {
+      const released = releaseFloat(floatState, surplus, 'SURGE_POT');
+      floatState = released.state;
+      floatReleasedSum += released.releasedMinor;
+      surgePot += released.releasedMinor;
+    }
+  }
+
   // Surge pot dynamics.
   surgePot += surgeContrib;
   if (draw.uSurge < SURGE_PROB) {
     surgeRounds++;
     const winner = pickGoldenAnchor(stakes, draw.struckZone, draw.uWinner);
     if (winner) {
-      const reset = resetFor(simHandleEma ?? 0);
+      const reset = resetFor(simHandleMean ?? 0, houseSeedPerZone(SIM_LIQUIDITY, simHandleEma ?? 0, ZONE_COUNT));
       surgePaidToPlayers += surgePot;
       playerReturnedSum += surgePot;
       surgePot = reset;
@@ -284,38 +329,74 @@ checks.push({
  * constants it overstates it by more than half.
  */
 const operatorNet = houseShareSum - houseReseeds - reserveState.backstopTotalMinor;
+/*
+ * The re-seed is now a MODELLED flow, not an unbounded cost: rules v4 fixes the
+ * reset at `budgetFraction × affordable`, so the expected cost per round is
+ * `budgetFraction × split.house × r/K` of handle, which is exactly the
+ * `jackpotReseedReturn` term of the published RTP. The band is wide because the
+ * cost is paid per WIN and wins are Poisson at the surge rate.
+ */
+const theory = theoreticalRtp();
+const reseedRate = houseReseeds / handleSum;
 checks.push({
-  name: 'House jackpot floor re-seeds (operator cost)',
+  name: 'House jackpot floor re-seeds (operator cost, = the RTP reset term)',
   measured: pct(houseReseeds),
-  theory: 'unbounded by design — scales with surge frequency, not with handle',
-  ok: true,
+  theory: `${(theory.jackpotReseedReturn * 100).toFixed(4)}% = budget × split.house × r/K`,
+  ok: Math.abs(reseedRate - theory.jackpotReseedReturn) < 0.0005,
 });
 checks.push({
   name: 'OPERATOR NET HOLD (rake − re-seeds − backstop)',
   measured: pct(operatorNet),
-  theory: `gross rake share ${pct(houseShareSum)} before its funding obligations`,
-  ok: operatorNet > 0,
+  theory: `${(theory.operatorHold * 100).toFixed(4)}% (gross rake share ${pct(houseShareSum)} less its funding obligations)`,
+  ok: operatorNet > 0 && Math.abs(operatorNet / handleSum - theory.operatorHold) < 0.001,
 });
+/*
+ * Measured on PLAYER handle (Res. 455 Art. 2(d): house seed is not a bet
+ * received), while the theoretical figure is defined on total handle — so the
+ * two are close but not identical by construction, and the band reflects that
+ * rather than pretending they are the same quantity.
+ */
 checks.push({
   name: 'Player RTP actually experienced (player handle basis)',
   measured: `${((playerReturnedSum / playerHandleSum) * 100).toFixed(4)}%`,
-  theory: '≥ theoretical 99.00% — house re-seeds return on top of the rake flows',
-  ok: playerReturnedSum / playerHandleSum > 0.98,
+  theory: `${(theory.totalRtp * 100).toFixed(4)}% theoretical (total-handle basis)`,
+  ok: Math.abs(playerReturnedSum / playerHandleSum - theory.totalRtp) < 0.005,
 });
+/*
+ * The seed's P&L is NOT zero in expectation: a uniform stake across all six
+ * harbours is slightly +EV against an imbalanced crowd, because the survivor
+ * payout is convex in the struck pool. Claiming zero was an error in the
+ * original ring-fence documentation. What matters for §A.7.1(d) is that the
+ * surplus is RELEASED to players rather than banked, so the two are checked
+ * together: the profit is real, and essentially all of it goes back.
+ */
 checks.push({
   name: 'Ring-fenced house-seed P&L (NOT operator revenue)',
   measured: pct(seedReturnedSum - seedStakedSum),
-  theory: '≈ 0 in expectation (uniform stake across all six harbours)',
+  theory: 'small and positive — a uniform seed is +EV against an imbalanced crowd',
   ok: Math.abs((seedReturnedSum - seedStakedSum) / handleSum) < 0.01,
 });
 checks.push({
+  name: 'House-seed surplus released to players (§A.7.1(d), not banked)',
+  measured: pct(floatReleasedSum),
+  theory: `≈ the float's P&L ${pct(seedReturnedSum - seedStakedSum)}; the float keeps only its opening capital`,
+  ok:
+    Math.abs(floatState.balanceMinor - floatOpening) <=
+    ZONE_COUNT * HOUSE_SEED_MINOR * 6,
+});
+/*
+ * The pot has three inflows now, not two: the surge share of the rake, the
+ * house re-seed after each win, and the liquidity float's released surplus.
+ * Everything that goes in comes out — Order 222 Art. 17.3 forbids cancelling an
+ * unpaid jackpot — so the identity is exact up to what is still sitting in the
+ * live pot at the end of the run.
+ */
+const potInflows = surgeContribSum + houseReseeds + floatReleasedSum;
+checks.push({
   name: 'Surge return to players (pot payouts)',
   measured: pct(surgePaidToPlayers),
-  theory: `≈ surge funding + floor re-seeds`,
-  ok:
-    Math.abs(surgePaidToPlayers - (surgeContribSum + houseReseeds - surgePot)) /
-      Math.max(1, surgeContribSum) <
-    0.05,
+  theory: `≈ surge funding + floor re-seeds + released float surplus (${pct(potInflows - surgePot)})`,
+  ok: Math.abs(surgePaidToPlayers - (potInflows - surgePot)) / Math.max(1, surgeContribSum) < 0.05,
 });
 checks.push({
   name: 'Survivor pass-through at ×1 (exact)',

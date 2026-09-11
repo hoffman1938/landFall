@@ -9,7 +9,7 @@ displayed, explain how it was determined and disclose the jackpot contribution. 
 a theme/paytable record carrying theoretical RTP and lifetime aggregates.
 **Depends on:** [03-game-classification.md](03-game-classification.md),
 [mathematical-model.md](../03-math/mathematical-model.md)
-**Rules version:** 3 (in force 2026-09-11)
+**Rules version:** 4 (in force 2026-09-11)
 
 > Not legal advice. Figures are derived from the shipped constants and re-derivable by running
 > `pnpm --filter @landfall/core sim`.
@@ -30,17 +30,36 @@ was, and defining it wrongly is how the previously published figure came to be w
 ## 2. Definition
 
 Return to player is the fraction of everything staked that returns to players over the long run.
-It is built from three flows, each exactly computable from the economy configuration, and each
+It is built from **four** flows, each exactly computable from the economy configuration, and each
 invariant to how the crowd distributes itself — because the draw is uniform and independent of
 the pools, so `E[P_struck] = T/K` exactly, whatever shape the round takes.
 
 | # | Flow | Formula | At production constants |
 |---|---|---|---|
-| 1 | **Base pari-mutuel.** Every credit staked returns to players except the rake, and the rake is taken only from the struck pool. | `1 − r/K` | **98.00%** |
-| 2 | **Storm Surge.** The surge share of the rake feeds a progressive pot paid to players in full — rollover defers a payout, it never cancels one (Order 222 Art. 17.3). | `split.surge · r/K` | **0.50%** |
-| 3 | **Storm Power.** Survivors' salvage is multiplied by `M ≥ 1`; the overpayment is paid from the Storm Reserve on top of the base. | `E[M−1] · (1−r)/K` | **0.50%** |
-| | **Theoretical RTP** | sum of the three | **99.00%** |
-| | **Operator hold** | `1 − RTP` = the house share of the rake | **1.00%** |
+| 1 | **Base pari-mutuel.** Every credit staked returns to players except the rake, and the rake is taken only from the struck pool. | `1 − r/K` | **98.0000%** |
+| 2 | **Storm Surge.** The surge share of the rake feeds a progressive pot paid to players in full — rollover defers a payout, it never cancels one (Order 222 Art. 17.3). | `split.surge · r/K` | **0.5000%** |
+| 3 | **Storm Power.** Survivors' salvage is multiplied by `M ≥ 1`; the overpayment is paid from the Storm Reserve on top of the base. | `E[M−1] · (1−r)/K` | **0.4991%** |
+| 4 | **Jackpot reset.** After every win the house restores the pot to its reset value out of its OWN share of the rake — operator capital that reaches a player the next time the pot pays. | `b · split.house · r/K` | **0.3500%** |
+| | **Theoretical RTP** | sum of the four | **99.3491%** |
+| | **Operator hold** | `1 − RTP` | **0.6509%** |
+
+**Flow 4 is new in rules v4, and its absence made the v3 figure wrong** — see §3.1. It is
+expressible as a constant only because `surgeResetFor` now sets the reset to a fixed fraction of
+what the house rake share can fund, which makes the handle cancel:
+
+```
+reset          = b · [ split.house · (r/K) · H ] / p_j
+cost per round = reset · p_j = b · split.house · (r/K) · H     →  b · split.house · r/K of H
+```
+
+The hold decomposes exactly into three named components, so no residue is unexplained:
+
+```
+  split.house · r/K                        house share of the rake       1.0000%
+− b · split.house · r/K                    paid back into the jackpot   −0.3500%
++ (split.reserve · r/K − E[M−1]·(1−r)/K)   unspent reserve head-room    +0.0009%
+=                                                                        0.6509%
+```
 
 `E[M−1] = 35,685.5 / 2²⁰ ≈ 0.034032` — the exact integer expectation of the ladder
 (`mathematical-model.md` §10), asserted in exact BigInt arithmetic by
@@ -53,7 +72,30 @@ to prevent.
 
 ---
 
-## 3. Correction: the published figure was 98%, and 98% is the base term alone
+## 3. Two corrections, both in the same direction
+
+### 3.1 Rules v4: the house-funded jackpot reset was missing from the model
+
+Rules v3 set the jackpot reset to `max(20 × minimum bet, budgetFraction × affordable)`. Measured
+at every shipped tier the **floor won**, so the budget fraction was inert and the re-seed cost was
+neither constant nor disclosed — the same class of defect, in the same function, that v3 had been
+written to fix. The v3 test that claimed to pin the two-thirds margin called the function with
+`minimum: 0`, which is why it did not catch it.
+
+| | Published (v3) | Measured (v3) |
+|---|---|---|
+| Player return | 98.999% | 99.25% – 99.74% |
+| Operator hold | 1.00% | 0.26% – 0.61% |
+
+The error was **handle-dependent**: on a table thin enough for the floor to exceed the
+affordability ceiling, the reset became the ceiling exactly and the table returned 100% of handle.
+
+Fixed by making the reset exactly `budgetFraction × affordable` and publishing the resulting flow
+as term 4. Measured after the fix, the operator hold spans **0.6379% – 0.6590%** across the five
+tiers — a spread of 0.021 points — against a published 0.6509%. Full account:
+`certification-tests/docs/08-findings-and-fixes.md` §2.
+
+### 3.2 Rules v2: the published figure was 98%, and 98% is the base term alone
 
 The previously published player-facing figure was **≈ 98%**. That is flow 1 by itself — the
 pari-mutuel split *before* the surge and reserve flows, which the very sentence quoting it went on
@@ -62,8 +104,14 @@ hold the same paragraph claimed, so the documentation disagreed with itself.
 
 This matters beyond arithmetic. §4.7.2(a) requires a displayed return to be accompanied by an
 explanation of how it was determined; a figure that its own stated derivation contradicts is the
-specific failure the clause is written against. It is now 99.0%, with the derivation rendered next
-to it in the game-information dialog. Recorded as decisions-log #67.
+specific failure the clause is written against. v2 corrected it to 99.0%; v4 corrected it again to
+**99.3%** once the fourth flow was found, with the derivation rendered next to it in the
+game-information dialog. Recorded as decisions-log #67.
+
+> Both corrections ran in the same direction: **a return flow existed in the code and not in the
+> model.** That is the failure mode this game is prone to, because its return is assembled from
+> separate funds rather than read off a paytable, and it is why `theoreticalRtp()` is now checked
+> against a per-tier measurement rather than against itself.
 
 ---
 
@@ -171,29 +219,51 @@ adaptive seeding:
 
 Two things follow that are worth stating to a reviewer before they are asked:
 
-1. **The jackpot floor re-seed is the operator's largest single cost** — about a quarter of
-   the rake share it keeps. It is not a rake flow; it is house money added after every payout
-   so the next pot is never trivial for the table. Since rules v3 it scales WITH handle, which
-   is what keeps it affordable on every tier; before that it was fixed to the tier and was
-   proportionally ruinous on the quiet ones.
-2. **Players receive more than the theoretical 99.00%**, because those re-seeds return on top
-   of the three rake flows §2 counts. A theoretical figure *below* the actual is the safe
-   direction for §A.6.2 monitoring, but the gap should be understood rather than discovered.
+1. **The jackpot floor re-seed is the operator's largest single cost** — 35% of the rake share it
+   keeps, by construction. It is not a rake flow; it is house money added after every payout so
+   the next pot is never trivial for the table. Since rules v4 it is a **fixed fraction** of what
+   the rake share can fund, which is what makes it a constant fraction of handle and therefore
+   publishable as a term of theoretical RTP.
+2. **It is counted.** Under v3 it was not, and measured return consequently ran 0.25–0.75 points
+   ABOVE the published figure by a margin that grew as a table got quieter. Under v4 the measured
+   player-basis return sits inside its 99% confidence interval at every tier — see §6.2.
 
-### 6.2 Full 10M-round validation
+### 6.2 Release-gate validation, 1,000,000 rounds (rules v4)
 
 | Quantity | Measured | Theoretical |
 |---|---|---|
-| Gross take (rake) | 1.9970% | 2.0000% |
-| Operator hold | 0.9987% | ≈ 1.0000% |
-| Surge funding | 0.4991% | 0.5000% |
-| Storm Reserve inflow | 0.4991% | 0.5000% |
-| Storm Reserve outflow | 0.5026% | ≤ inflow (funding invariant) |
-| Reserve drift (vs opening) | +0.0006% | ≈ 0, slightly positive |
-| **Reserve minimum balance** | **0.00 — never negative** | ≥ 0 by construction |
-| **House backstop drawn** | **0.0041% of handle** | the §A.4.1 obligation, quantified |
-| Liability cap hits | 1 in 10,000,000 | ~1 in 10⁷ |
+| Gross take (rake) | 2.0052% | 2.0000% |
+| House share of the rake | 1.0028% | 1.0000% |
+| Surge funding | 0.5012% | 0.5000% |
+| Storm Reserve inflow | 0.5012% | 0.5000% |
+| Storm Reserve outflow | 0.4913% | ≤ inflow (funding invariant) |
+| **Jackpot re-seed (RTP term 4)** | **0.3510%** | **0.3500%** |
+| **Operator net hold** | **0.6518%** | **0.6509%** |
+| Player RTP (player-handle basis) | 99.3370% | 99.3491% on total handle |
+| Reserve drift (vs opening) | +0.0099% | ≈ 0, slightly positive |
+| **Reserve minimum balance** | **never negative** | ≥ 0 by construction |
+| **House backstop drawn** | **0.0000%** | the §A.4.1 obligation, quantified |
+| Ring-fenced house-seed P&L | +0.0875% | small and positive (payout convex in the struck pool) |
+| **Seed surplus released to players** | **0.0875%** | §A.7.1(d): played back, not banked |
+| Liability cap hits | 0 in 1,000,000 | rare by construction at a 150× cap |
 | Survivor pass-through at ×1 | exact, 0 violations | 88% |
+
+### 6.3 Per-tier validation, 150,000 rounds each (rules v4)
+
+The property that matters: **the hold is the same at every tier.** A return figure that moves with
+table population is not a return figure.
+
+| Tier | Player RTP | 99% interval | Seed share | Expected on that basis | Operator net |
+|---|---|---|---|---|---|
+| Skiff Harbor | 99.2874% | [99.2426%, 99.3355%] | 3.00% | 99.3290% | 0.6590% |
+| Schooner Bay | 99.3154% | [99.2644%, 99.3701%] | 2.60% | 99.3317% | 0.6468% |
+| Flagship Sound | 99.3085% | [99.2599%, 99.3551%] | 2.60% | 99.3317% | 0.6519% |
+| Galleon Roads | 99.3445% | [99.2772%, 99.4258%] | 2.60% | 99.3317% | 0.6379% |
+| Leviathan Deep | 99.3034% | [99.2505%, 99.3584%] | 2.60% | 99.3317% | 0.6458% |
+
+Hold spread across the ladder: **0.021 points** (v3: 0.35). Expected inside the interval at every
+tier. The measured figure is on **player** handle and the published one on **total** handle, which
+differ by `hold × s/(1−s)` — see §4. Reproduce: `certification-tests/run.sh --evidence`.
 
 ---
 
@@ -208,9 +278,12 @@ version is stamped on every round at creation.
 | 1 | 2026-07-11 | Initial ruleset; ladder v2; cap 25× handle | 99.00% | Yes — (b), (c), (f) |
 | 2 | 2026-09-11 | Cap re-derived to 150× so every advertised tier is payable; reserve capitalized and never negative; house-seed P&L ring-fenced; surge ceiling and diversion pool; published return corrected 98% → 99.0% | 99.00% | Yes — (c), (f) |
 | 3 | 2026-09-11 | Jackpot reset value tied to table handle rather than minimum bet. The fixed value was unaffordable on the two smallest tiers, which lost the operator money on every round and returned over 100% to players | 99.00% | Yes — (f) |
+| 4 | 2026-09-11 | Jackpot reset fixed at 35% of what the house rake share can fund, with no minimum able to override it; the resulting house-funded flow published as the fourth RTP term. Under v3 the minimum won at every tier, so the flow was neither constant nor disclosed and measured return ran above the published figure by a margin that grew as a table got quieter | **99.3491%** | Yes — (c), (f) |
 
-**The theoretical RTP is unchanged between v1 and v2**, and that is the point worth making to a
-reviewer: raising the cap did not change what the game returns in expectation — `E[M−1]` is a
+**The theoretical RTP moved at v4 and only at v4.** v1 → v3 left the model's stated value at
+99.00% while the shipped economy drifted away from it; v4 is the first version where the published
+figure and the measured one agree at every tier. Raising the cap at v2 did not change what the
+game returns in expectation — `E[M−1]` is a
 property of the ladder, not of the cap. What changed is **which of the advertised tiers can
 actually be paid**. Under v1 the top tier was clamped in essentially every round it landed in, so
 the realised return sat fractionally below the theoretical one and the headline award was not

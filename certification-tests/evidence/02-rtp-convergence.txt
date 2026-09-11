@@ -1,0 +1,87 @@
+LANDFALL — RETURN TO PLAYER, MEASURED AGAINST THE PUBLISHED MODEL
+==============================================================================
+Generated            2026-09-11T20:49:17.792Z
+Rules version        v4
+Rounds per tier      150,000
+Economy              rake 12.00% of the struck pool · split 0.5/0.25/0.25 · 6 harbours · jackpot ~1 round in 25
+
+Outcomes are drawn by the PRODUCTION RNG (SHA-256 chain + HMAC) and settled
+by the PRODUCTION settlement and jackpot control software. Only player
+behaviour uses a convenience PRNG, and it decides nothing about an outcome.
+
+--- THE PUBLISHED MODEL ---------------------------------------------------
+  Base pari-mutuel        1 - r/K                     98.0000%
+  Storm Surge jackpot     split.surge * r/K           0.5000%
+  Storm Power ladder      E[M-1] * (1-r)/K            0.4991%
+  Jackpot reset (house)   budget * split.house * r/K  0.3500%
+  ----------------------------------------------------------------------
+  THEORETICAL RTP                                     99.3491%
+  Operator theoretical hold                           0.6509%
+
+--- MEASURED, PER TIER ----------------------------------------------------
+Basis: player handle (Res. 455 Art. 2(d)) — a house seed is not a bet received.
+Expected on that basis: 1 − hold/(1 − seed share). See the note below.
+
+Tier                 Player RTP     99% interval            Seed %   Expected   In CI
+--------------------------------------------------------------------------------------------
+Skiff Harbor          99.2874%   [99.2426%, 99.3355%]    3.00%    99.3290%   yes
+Schooner Bay          99.3154%   [99.2644%, 99.3701%]    2.60%    99.3317%   yes
+Flagship Sound        99.3085%   [99.2599%, 99.3551%]    2.60%    99.3317%   yes
+Galleon Roads         99.3445%   [99.2772%, 99.4258%]    2.60%    99.3317%   yes
+Leviathan Deep        99.3034%   [99.2505%, 99.3584%]    2.60%    99.3317%   yes
+
+--- THE LEDGER, PER TIER (fractions of total handle) ----------------------
+Tier                  Rake    House sh.   Re-seed   Released   Backstop   Top-up
+----------------------------------------------------------------------------------------
+Skiff Harbor        1.9983%    1.0024%   0.3434%    0.0793%    0.0000%  0.0000%
+Schooner Bay        2.0016%    1.0014%   0.3546%    0.1028%    0.0000%  0.0000%
+Flagship Sound      2.0011%    1.0006%   0.3487%    0.1018%    0.0000%  0.0000%
+Galleon Roads       2.0005%    1.0003%   0.3502%    0.1022%    0.0122%  0.0000%
+Leviathan Deep      2.0036%    1.0018%   0.3474%    0.1029%    0.0086%  0.0000%
+MODELLED            2.0000%    1.0000%   0.3500%
+
+--- OPERATOR NET, PER TIER (total-handle basis) ---------------------------
+Skiff Harbor           0.6590%   against a published 0.6509%
+Schooner Bay           0.6468%   against a published 0.6509%
+Flagship Sound         0.6519%   against a published 0.6509%
+Galleon Roads          0.6379%   against a published 0.6509%
+Leviathan Deep         0.6458%   against a published 0.6509%
+
+--- THE PROPERTY THAT MATTERS MOST ----------------------------------------
+A return figure that moves with table size is not a return figure. Under
+rules v3 the operator hold ranged 0.26%-0.61% across these five tiers
+against a published 1.00%, because a minimum overrode the jackpot budget at
+every tier and the re-seed flow was left out of the model entirely.
+
+  Operator hold, lowest tier to highest   0.6379% .. 0.6590%
+  Spread across tiers                     0.0211%
+  Published hold                          0.6509%
+  PASS — the hold is the same at every tier to within 0.1 points
+
+--- HOUSE-SEED RING-FENCE (GLI-19 §A.7.1(c)-(d)) --------------------------
+Skiff Harbor       released to jackpot 0.0793%   operator capital in 0.0000%
+Schooner Bay       released to jackpot 0.1028%   operator capital in 0.0000%
+Flagship Sound     released to jackpot 0.1018%   operator capital in 0.0000%
+Galleon Roads      released to jackpot 0.1022%   operator capital in 0.0000%
+Leviathan Deep     released to jackpot 0.1029%   operator capital in 0.0000%
+
+The house seed is +EV against an imbalanced crowd (the survivor payout is
+convex in the struck pool), so the ring-fenced float earns a small, real
+profit. Segregating it satisfies "the operator shall not profit"; releasing
+the surplus to the jackpot is what satisfies "shall ultimately be lost".
+
+--- A NOTE ON THE TWO BASES -----------------------------------------------
+The published figure is on TOTAL handle; the measured one is on PLAYER handle.
+The operator hold is levied on total handle while players supply only part of
+it, so the player-basis figure sits below the published one by
+hold x s/(1-s), where s is the seed share printed above — a few hundredths of
+a point at a populated table. The seed itself is net-neutral to players over
+the long run: it is ring-fenced, and its surplus is released to the jackpot.
+
+The same arithmetic is why a player ALONE at a table sees a lower return: the
+seed share rises as the table empties. That case is bounded and disclosed in
+docs/02-math-verification.md section 6.2 rather than averaged away.
+
+==============================================================================
+  VERDICT: measured return agrees with the published model at every tier
+==============================================================================

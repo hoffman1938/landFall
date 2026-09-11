@@ -6,6 +6,7 @@ import { createApp } from './app.js';
 import { seatBots } from './bots.js';
 import { ensureChain } from './chain.js';
 import { ChatService } from './chat.js';
+import { PracticeCredits } from './demoCredits.js';
 import { DEFAULT_ECONOMY, type EconomyConfig, type Timings } from './coordinator.js';
 import { openDb } from './db/index.js';
 import { DrizzleSqliteRepository } from './db/repository.js';
@@ -59,14 +60,40 @@ const chain = ensureChain(db);
 const chat = new ChatService(db);
 // Responsible gambling (F1/F2): one service across all rooms, server-enforced.
 const limits = new LimitsService(repo);
-const hub = new Hub(db, chat, chain.commitment, limits);
+// Rooms (C1/C2): tier configs from server config; bots policy enforced at load (C5).
+const demo = isDemoEnv();
+// Demo practice credits — virtual, no cash value, and refused outright outside
+// LANDFALL_ENV=demo. Without this a demo player who lost their float could never
+// bet again (see demoCredits.ts).
+const practice = demo ? new PracticeCredits(repo, true) : undefined;
+const hub = new Hub(db, chat, chain.commitment, limits, practice);
+// A season rollover replaces the commitment mid-flight; clients holding the old
+// one would read honest rounds as unverifiable (chain.ts).
+chain.onRollover((commitment) => {
+  hub.rotateChainCommitment(commitment);
+  repo.insertSignificantEvent({
+    category: 'INTEGRITY',
+    component: 'seed_chain',
+    actor: 'system',
+    reason: 'season seed chain exhausted; next season minted and committed before its first round',
+    valueAfter: commitment,
+  });
+});
 // Surge probability overridable for local testing; recorded in /api/round for verification.
 const surgeProb = Number(process.env.LANDFALL_SURGE_PROB ?? SURGE_PROB);
 
-// Rooms (C1/C2): tier configs from server config; bots policy enforced at load (C5).
-const demo = isDemoEnv();
 const roomConfigs = loadRoomConfigs(demo, timings, surgeProb, econ);
-const rooms = new RoomManager(repo, chain, roomConfigs, (roomId) => hub.events(roomId), limits);
+// G32 — disable on demand (all gaming / a room / a player), audit-logged. Built
+// BEFORE the rooms because every coordinator consults it on the accept path.
+const control = new GameControl(repo);
+const rooms = new RoomManager(
+  repo,
+  chain,
+  roomConfigs,
+  (roomId) => hub.events(roomId),
+  limits,
+  control,
+);
 hub.rooms = rooms;
 
 // Rooms are "ready" once the loop is actually running; an instance whose game
@@ -77,10 +104,8 @@ let shuttingDown = false;
 // G17 — control-program self-verification: at startup, then every 24 hours,
 // plus the on-demand endpoint. The first run establishes the certified baseline.
 const verifier = new ControlProgramVerifier(repo);
-// G32 — disable on demand (all gaming / a room / a player), audit-logged.
-const control = new GameControl(repo);
 
-const app = createApp(db, chain.commitment, surgeProb, econ, {
+const app = createApp(db, () => chain.commitment, surgeProb, econ, {
   ready: () =>
     shuttingDown
       ? { ready: false, reason: 'draining' }
@@ -90,6 +115,8 @@ const app = createApp(db, chain.commitment, surgeProb, econ, {
   sampleGauges: () => hub.sampleGauges(),
   verifier,
   control,
+  // §2.4.1 operator control is authenticated or it is unavailable — never open.
+  opsToken: process.env.LANDFALL_OPS_TOKEN,
 });
 
 const server = serve({ fetch: app.fetch, port: PORT }, (info) => {

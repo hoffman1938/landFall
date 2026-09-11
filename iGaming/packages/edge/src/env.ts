@@ -22,4 +22,9 @@ export interface Env {
   LANDFALL_MAX_PAYOUT_MULTIPLE?: string;
   LANDFALL_SURGE_FLAT_EVERY?: string;
   LANDFALL_SURGE_PROB?: string;
+  /**
+   * Bearer token for the §2.4.1 operator disable/enable endpoints. Unset means
+   * those routes refuse to act — never that they act without authentication.
+   */
+  LANDFALL_OPS_TOKEN?: string;
 }

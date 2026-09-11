@@ -80,7 +80,16 @@ export interface HouseFloatLedgerRow {
 
 /** GLI-19 §2.9.5 significant event, with the value before and after (G37). */
 export interface SignificantEventRow {
-  category: 'CONFIG' | 'GAME_STATE' | 'JACKPOT' | 'RESERVE' | 'INTEGRITY' | 'INCIDENT' | 'CDN';
+  category:
+    | 'CONFIG'
+    | 'GAME_STATE'
+    | 'JACKPOT'
+    | 'RESERVE'
+    | 'INTEGRITY'
+    | 'INCIDENT'
+    | 'CDN'
+    /** Practice-credit grants in a demo build — see `demoCredits.ts`. */
+    | 'DEMO_CREDITS';
   component: string;
   actor: string;
   reason?: string | undefined;

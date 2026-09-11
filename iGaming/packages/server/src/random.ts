@@ -13,3 +13,18 @@ export function randomHex(bytes: number): string {
   crypto.getRandomValues(out);
   return Array.from(out, (b) => b.toString(16).padStart(2, '0')).join('');
 }
+
+/**
+ * A uniform in [0, 1) from the same CSPRNG.
+ *
+ * Used for table placement (Order 243 Annex 1 Art. 13(b)) and nothing else.
+ * DELIBERATELY NOT THE GAME'S RNG: no game outcome may come from a source that
+ * is not the pre-committed chain, so keeping this in its own named function
+ * makes a misuse visible rather than plausible. 32 bits is far more resolution
+ * than choosing among five tables needs.
+ */
+export function randomUnitInterval(): number {
+  const out = new Uint32Array(1);
+  crypto.getRandomValues(out);
+  return out[0]! / 2 ** 32;
+}

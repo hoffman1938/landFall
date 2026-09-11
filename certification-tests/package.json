@@ -1,0 +1,11 @@
+{
+  "name": "landfall-certification-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Independent certification evidence suite for LANDFALL — statistical RNG testing, math verification, payout and compliance conformance, and long-run economy simulation. Runs against the shipped source, not a copy.",
+  "scripts": {
+    "test": "./run.sh",
+    "evidence": "./run.sh --evidence"
+  }
+}

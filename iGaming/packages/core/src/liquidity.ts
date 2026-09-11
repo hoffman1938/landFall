@@ -103,6 +103,43 @@ export function updateHandleEma(
 }
 
 /**
+ * A SYMMETRIC mean estimate of settled handle, for anything that must be
+ * UNBIASED rather than protective.
+ *
+ * `updateHandleEma` above is deliberately asymmetric — fast to admit a room went
+ * quiet, slow to admit it got busy — because the house seed it sizes is a
+ * player-protection mechanism and erring toward "quiet" errs toward more
+ * liquidity. That same asymmetry is a BIAS anywhere the estimate stands in for
+ * an average, and it under-tracks by more the spikier the table is.
+ *
+ * The jackpot reset is such a place, and the bias was measurable. The reset is
+ * `budgetFraction × houseShare × r/K × H`, linear in H, so the published RTP
+ * term `jackpotReseedReturn` is exact only if H is an unbiased estimate of mean
+ * handle. Measured against the release-gate simulation's deliberately spiky
+ * synthetic crowd (a 5% chance of a 500–5,000 credit whale in any round), the
+ * asymmetric estimate delivered a re-seed of 0.2345% of handle against a
+ * modelled 0.3500% — a third short, and short in the direction that makes the
+ * DISPLAYED return higher than the realised one. Against the behavioural crowd
+ * of the certification simulation it ran slightly high instead. An estimator
+ * whose bias changes sign with crowd volatility cannot underwrite a published
+ * figure.
+ *
+ * So the two uses get two estimators. This one is symmetric and slow, which is
+ * what "average handle at this table" actually means.
+ */
+export const HANDLE_MEAN_ALPHA = 0.05; // ≈ a 20-round memory, both directions
+
+export function updateHandleMeanEma(
+  previousEmaMinor: number | null,
+  roundRealHandleMinor: number,
+  alpha = HANDLE_MEAN_ALPHA,
+): number {
+  const observed = Math.max(0, roundRealHandleMinor);
+  if (previousEmaMinor === null) return Math.round(observed);
+  return Math.max(0, Math.round(previousEmaMinor + alpha * (observed - previousEmaMinor)));
+}
+
+/**
  * How a room's population reads to a player choosing a table. Purely a display
  * and routing hint — it never touches odds, stakes or settlement.
  */

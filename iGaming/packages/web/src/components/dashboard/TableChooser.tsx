@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { RoomInfo } from '@landfall/core';
+import { RANDOM_ROOM, type RoomInfo } from '@landfall/core';
 import { fmt } from '../../store';
 import { LIQUIDITY_WORD, preselectedRoomId, tableOptions } from '../../tableChoice';
 import { GameDialog } from './GameDialogs';
@@ -92,6 +92,28 @@ export function TableChooser({
       >
         {chosen ? `Play at ${chosen.name}` : 'Choose a table'}
       </button>
+
+      {/*
+        RANDOM PLACEMENT, as an option rather than a description.
+
+        Order 243 Annex 1 Art. 13(b) requires a Peer-to-Peer system to "give the
+        player the possibility to be placed at a gaming table on a random basis",
+        and GLI-19 §4.11.1(b) asks for the same. Disclosing the default routing
+        rule — which the game-information dialog does — does not satisfy a clause
+        that requires the option to exist.
+
+        The server resolves it, over the tables this balance can actually afford;
+        "at random" cannot mean "at a table you cannot play".
+      */}
+      <button
+        type="button"
+        className="gd-secondary-link"
+        disabled={!options.some((o) => o.affordable)}
+        onClick={() => onChoose(RANDOM_ROOM)}
+      >
+        Or seat me at a random table
+      </button>
+
       <p className="gd-fine-print">
         You can change tables from the Menu at any time between rounds. Virtual credits only.
       </p>

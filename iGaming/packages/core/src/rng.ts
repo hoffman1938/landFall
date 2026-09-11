@@ -10,6 +10,15 @@ import { sha256 } from '@noble/hashes/sha256';
 import { hmac } from '@noble/hashes/hmac';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 
+/**
+ * SHA-256 of a UTF-8 string, hex. The one hashing primitive shared by hosts
+ * that have `node:crypto` and hosts that do not (Cloudflare Workers), so an
+ * integrity digest computed on one is byte-identical on the other.
+ */
+export function sha256Hex(text: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(text)));
+}
+
 /** SHA256^n(terminal) — chain value n links up from the terminal secret. */
 export function chainValue(terminalHex: string, hashes: number): string {
   let cur = hexToBytes(terminalHex);

@@ -29,6 +29,9 @@ function fakeChain() {
   return {
     commitment: chainCommitment(TERMINAL, 1000),
     length: 1000,
+    onRollover() {
+      /* test double: seasons never roll over inside a unit test */
+    },
     consume() {
       index += 1;
       return {

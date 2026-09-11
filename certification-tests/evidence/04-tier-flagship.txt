@@ -1,0 +1,230 @@
+  report 1/1: RTP 99.378% · operator net 0.610% of handle · all checks pass
+LANDFALL — certification economy simulation   (report 1 of 1)
+Generated 2026-09-11T20:50:38.572Z
+Reproduce exactly:  pnpm --filter @landfall/core cert-sim -- --tier=flagship --rounds=4000 --players=600 --save=0 --runs=1 --seed=20260911
+
+Players receive                  99.3778%   99% CI [98.9661%, 99.9022%]
+Operator net                      0.6098%   of 12,253,431 credits handled
+Checks                           ALL PASS   over 1735 rounds and 12 risk seasons
+
+==========================================================================
+  PROVENANCE — what this report describes
+==========================================================================
+Rules version           v4
+Economy config digest   0305328c9bc6bda5ac5b31c9b543d0c281452729cc7041faa12df32ec2e4ffe3
+Behaviour seed          20260911
+Table                   Flagship Sound (50–5,000 credits per round)
+Zones / rake / cap      6 harbours · rake 12.00% of the struck pool · payout cap 150x handle
+Rake split              house 0.5 / surge 0.25 / reserve 0.25
+Jackpot                 reset = 0.35 x affordable (rules v4) · opening pot 1,000 · ceiling 250,000 · ~1 round in 25
+
+Outcomes are drawn by the PRODUCTION RNG (SHA-256 chain + HMAC) and settled
+by the PRODUCTION settlement. Only player behaviour uses a convenience PRNG.
+A digest mismatch against another report means a different game, however
+similar the numbers look.
+
+--- THEORETICAL MODEL ----------------------------------------------------
+Flow                                    Formula                  Value
+--------------------------------------------------------------------------
+Base pari-mutuel return                 1 - r/K                98.0000%
+Storm Surge (jackpot)                   split.surge*r/K         0.5000%
+Storm Power (ladder)                    E[M-1]*(1-r)/K          0.4991%
+Jackpot reset (house-funded)            budget*split.house*r/K  0.3500%
+--------------------------------------------------------------------------
+THEORETICAL RTP                                                99.3491%
+Operator theoretical hold                                       0.6509%
+
+All FOUR return flows are counted, including the house-funded jackpot reset
+(rules v4). Under rules v3 that flow was omitted from the model while the
+reset was not a fixed fraction of anything, and measured return therefore ran
+0.25-0.75 points ABOVE the published figure, by a margin that grew as a table
+got quieter. The reset term is exact IN EXPECTATION; in any finite window it
+moves with the jackpot COUNT, which is Poisson at the surge rate. Compare the
+measured trigger rate below against 4.00% before reading anything into the
+difference between the CASH DESK re-seed figure and the 0.35% modelled here.
+
+--- STORM POWER LADDER (as disclosed to players) -------------------------
+Tier             Multiplier   Actual odds        Exact probability
+--------------------------------------------------------------------------
+Category 1               x1             1 in 1       9.113e-1
+Category 2            x1.25            1 in 13       8.000e-2
+Category 3               x2           1 in 131       7.629e-3
+Category 4               x5           1 in 953       1.049e-3
+Category 5              x25        1 in 19,065       5.245e-5
+Category 6             x100       1 in 209,715       4.768e-6
+PERFECT STORM          x500     1 in 1,048,576       9.537e-7
+
+--- PLAYER PROFILES (as configured) --------------------------------------
+Profile      Share  Bankroll            Bet%   Skip  Harbour choice       Progression
+Newcomer     35.8%  1,000-15,000       2.0-6.0  15.0%  follows the crowd    flat
+Regular      27.4%  10,000-150,000     1.0-3.0  10.0%  mildly avoids        flat
+Cautious     12.6%  5,000-75,000       0.5-2.0  25.0%  random               flat
+Chaser       12.6%  2,500-30,000       2.0-5.0   5.0%  follows the crowd    x2 after a loss, to x32
+Contrarian    9.5%  7,500-100,000      2.0-5.0  10.0%  avoids the crowd     flat
+High roller   2.1%  250,000-6,000,000  1.0-4.0  15.0%  mildly avoids        x1.5 after a win, to x3
+
+--- ROUND TRACE (first 12 rounds) ------------------------------------
+  #   Hit  Storm tier        Mult       Handle        Paid out  At table
+  1.  H1   Category 1          x1          900             882         0
+  2.  H6   Category 1          x1          900             882         0
+  3.  H3   Category 2       x1.25        1,200           1,215         1
+  4.  H5   Category 1          x1        1,175           1,159         2
+  5.  H4   Category 1          x1        1,106           1,091         2
+  6.  H4   Category 1          x1        1,406           1,392         3  JACKPOT
+  7.  H4   Category 1          x1        1,207           1,196         3
+  8.  H2   Category 1          x1        1,876           1,866         5
+  9.  H1   Category 1          x1        1,206           1,164         4
+ 10.  H6   Category 1          x1          950             944         3
+ 11.  H2   Category 1          x1        1,267           1,223         4
+ 12.  H4   Category 1          x1          600             594         1
+
+--- DISTRIBUTION TESTS (GLI-19 §3.2.2, 99% confidence) -------------------
+Struck harbour uniformity   chi2 = 5.335  df 5  critical 15.086   PASS
+  observed per harbour      H1:306  H2:285  H3:269  H4:270  H5:310  H6:295
+Storm Power tier frequency  chi2 = 2.217  df 3  critical 11.345   PASS   (4 sparse tiers pooled)
+Jackpot trigger rate        observed 4.5533%  expected 4.0000%  z = 1.176   PASS
+Conservation violations     0   PASS — settlement arithmetic held on every round
+
+--- RETURN TO PLAYER (block bootstrap by round, 99% CI) ------------------
+Player RTP (measured)         99.3778%   99% CI [98.9661%, 99.9022%]
+Theoretical RTP               99.3491%   inside the interval
+Resamples                   2000 rounds-with-replacement
+
+The interval resamples ROUNDS, not bets. Landfall is pari-mutuel, so returns
+inside a round are strongly dependent — one player's salvage is funded by
+another player's lost stake. A per-bet interval would treat those as
+independent and report a band several times too narrow.
+
+--- CASH DESK ------------------------------------------------------------
+Rounds settled                            1735
+Total handle                     12,253,431.25
+  of which players               11,706,154.87   95.53%
+  of which house seed               547,276.38   4.47%
+Returned to players              11,633,313.48
+Gross rake (struck pool)            240,587.37   1.9634% of handle
+  house share                       120,302.27   0.9818% of handle
+  surge share                        60,142.55   0.4908% of handle
+  reserve share                      60,142.55   0.4908% of handle
+
+The rake share is NOT the hold. Against it the operator funds three things,
+all of which move money toward players:
+  less jackpot floor re-seed        -45,575.74   0.3719% of handle
+  less reserve backstop                  -0.00   0.0000% of handle
+  less liquidity float top-up            -0.00   0.0000% of handle
+--------------------------------------------------------------------------
+OPERATOR NET                         74,726.53   0.6098% of handle
+PLAYERS RECEIVE                       99.3778%   of everything they staked
+
+Total paid out (incl. seed)      12,180,418.40
+Worst single round for the house          0.00
+
+--- STORM RESERVE (GLI-19 §A.4.1 bankroll adequacy) ----------------------
+Opening capitalization              135,000.00
+Inflow (rake share)                  60,142.55
+Outflow (ladder overpay)             61,253.75
+House backstop drawn                      0.00   0.0000% of handle
+Minimum balance                     132,290.60   PASS — never negative
+Closing balance                     133,888.80
+
+--- STORM SURGE JACKPOT (Order 222 Art. 17) ------------------------------
+Contributions                        60,142.55
+Paid to players                     106,320.77   in 78 wins
+House floor re-seeds                 45,575.74
+Rolled over (no survivor)                    1   Art. 17.3: never cancelled
+Ceiling reached in                           0 rounds   diversion pool 0.00
+
+--- JACKPOT AFFORDABILITY ------------------------------------------------
+Reset value (at this handle)            617.96   adaptive, rules v4
+Handle per round (measured)           7,062.50
+Affordable reset ceiling              1,765.62   = house share of rake / surge rate
+Reset / affordable                        0.35x   PASS
+Budgeted share (rules v4)                 0.35x   PASS — the cost is a fixed fraction of handle, so it is in the RTP model
+
+--- LIQUIDITY FLOAT (G8 ring-fence, GLI-19 §A.7.1) -----------------------
+House seed staked                   547,276.38
+House seed returned                 547,104.92
+Float profit and loss                  -171.46   -0.0014% of handle
+Operator capital added                    0.00
+Surplus released to jackpot               0.00   0.0000% of handle — §A.7.1(d)
+Closing float balance                29,828.54
+
+The float's profit is NOT operator revenue: it may fund only future seeds,
+the jackpot or the reserve. A positive figure here is expected — a uniform
+seed is +EV against an imbalanced crowd because the survivor payout is convex
+in the struck pool. That is why it is ring-fenced rather than banked.
+
+--- WHAT HAPPENED TO PLAYERS --------------------------------------------
+Sat down                                   600
+Brought to the table                28,204,374 credits
+Left holding                        28,131,532 credits
+Finished ahead                             311   51.8%
+  took profit                   1     0.2%
+  stop-loss                     0     0.0%
+  went broke                    1     0.2%
+  lost interest               598    99.7%
+  still at the table            0     0.0%
+
+--- RTP BY PROFILE — the skill layer, measured --------------------------
+Profile      Players  Avg bankroll   Rounds   Staked         RTP      Finished ahead
+Newcomer         212         5,327     4350        864,420    98.11%           53.3%
+Regular          167        51,172     7710      4,567,522    99.05%           51.5%
+Cautious          75        22,877     2902        820,414   100.22%           54.7%
+Chaser            80        11,139     7291      2,827,240    99.34%           43.8%
+Contrarian        57        39,567     3343      2,317,018   100.21%           54.4%
+High roller        9     1,518,569      279        309,542    99.60%           55.6%
+ALL              600        47,007    25875     11,706,155    99.38%           51.8%
+
+READ THIS TABLE AGAINST THE OPERATOR NET ABOVE. Profiles differ in RTP because
+crowd position redistributes expected value BETWEEN players — standing where
+the crowd is not pays relatively more. What it never does is move value away
+from the house: the operator's take is fixed at r/K of handle by the
+pari-mutuel identity, whatever shape the crowd takes. That is the honest form
+of the disclosure GLI-19 §4.6.1(a) requires for a game with a skill layer.
+
+Table population through the season:
+  round      1  ........................................     0
+  round    174  ##########################..............    16
+  round    348  ##########################..............    16
+  round    521  ###################.....................    12
+  round    695  ##############################..........    19
+  round    868  #####################...................    13
+  round   1041  ########################................    15
+  round   1215  ##########################..............    16
+  round   1388  ###########################.............    17
+  round   1562  ##################################......    21
+  round   1735  ........................................     0
+
+--- OPERATOR RISK: 12 independent seasons of 4000 rounds -------------
+Mean net per season                  75,060.29
+Standard deviation                    6,956.76
+Worst season                         62,870.90
+5th percentile                       62,870.90
+Median                               76,327.95
+95th percentile                      87,126.75
+Seasons in loss                              0 of 12   0.0%
+Signal-to-noise (mean/sd)               10.790
+
+Seasons needing a backstop                   0 of 12
+Largest backstop in a season              0.00
+Lowest reserve balance seen         122,884.64   PASS — never negative
+
+The base game carries NO payout liability: settlement redistributes money
+already staked in the round, so the house can never owe more than it collected.
+Everything above is exposure to the ladder reserve and the jackpot re-seed,
+which are the only places operator money is genuinely at risk.
+
+==========================================================================
+  VERDICT: all statistical and integrity checks PASSED
+==========================================================================
+
+LANDFALL — certification simulation summary
+Generated 2026-09-11T20:50:40.284Z
+Config digest 0305328c9bc6bda5ac5b31c9b543d0c281452729cc7041faa12df32ec2e4ffe3  ·  rules v4  ·  table Flagship Sound
+Each report is one independent season: 600 players, 4000 rounds.
+
+Report          Seed          Player RTP    Operator net    Checks
+---------------------------------------------------------------------
+report_1.txt       20260911      99.378%         0.610%    pass
+---------------------------------------------------------------------
+Mean player RTP                     99.378%
+Mean operator net                    0.610%

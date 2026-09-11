@@ -96,11 +96,36 @@ describe('pari-mutuel settlement', () => {
     expect(Math.abs(empiricalEV - analyticEV)).toBeLessThan(1);
   });
 
-  it('handles the degenerate no-survivor case without violating conservation', () => {
-    const stakes: StakeEntry[] = [{ id: 'only', zone: 2, amountMinor: 500, isHouseSeed: false }];
+  /**
+   * NOBODY SURVIVED — every stake sat on the harbour the storm hit.
+   *
+   * This used to book the whole struck pool as rake: a 100% hold on that round,
+   * defended as unreachable because the house seeds every harbour. The defence
+   * did not hold. `resolveRoomConfig` accepts a room with `seedMinor: 0` — a
+   * legitimate pure player-versus-player table, and the cleanest configuration
+   * there is under GLI-19 §A.7.1 — and in such a room a crowd that all picks the
+   * same harbour reaches exactly this branch. Against a §4.7.1 floor of 75%, it
+   * returned nothing.
+   *
+   * There is no survivor pool, so the pari-mutuel rule has nothing to say and
+   * there is nobody to redistribute to. Destroying 88% of the pool and banking
+   * 12% expresses no rule at all. The round is a no-op and every bet is returned,
+   * which is also what `INTERRUPTION_RULES` already promises for a round that
+   * cannot be settled.
+   */
+  it('returns every bet when no harbour survives, and takes no rake', () => {
+    const stakes: StakeEntry[] = [
+      { id: 'only', zone: 2, amountMinor: 500, isHouseSeed: false },
+      { id: 'also', zone: 2, amountMinor: 1_234, isHouseSeed: false },
+    ];
     const r = settleRound(stakes, 2, RAKE);
-    expect(r.lines[0]!.outcome).toBe('WRECKED');
-    expect(r.rakeMinor).toBe(500);
+    expect(r.allStakesRefunded).toBe(true);
+    expect(r.rakeMinor).toBe(0);
+    expect(r.houseDeltaMinor).toBe(0);
+    for (const line of r.lines) expect(line.payoutMinor).toBe(line.amountMinor);
+    // Conservation still holds, and the round returns exactly 100%.
+    const paid = r.lines.reduce((a, l) => a + l.payoutMinor, 0);
+    expect(paid).toBe(1_734);
   });
 });
 

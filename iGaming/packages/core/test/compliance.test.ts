@@ -17,6 +17,8 @@ import {
   RAKE_SPLIT,
   STORM_POWER_LADDER,
   STORM_POWER_MAX_PAYOUT_MULTIPLE,
+  SURGE_PROB,
+  SURGE_RESET_BUDGET_FRACTION,
   ZONE_COUNT,
   applyFloatRound,
   applyReserveRound,
@@ -34,6 +36,7 @@ import {
   settleRound,
   stormPowerPaytable,
   stormPowerRange,
+  surgeResetFor,
   theoreticalRtp,
   unwinnableTiers,
   RULES_CHANGELOG,
@@ -341,30 +344,108 @@ describe('Order 222 Art. 17 / GLI §4.13 — jackpot controls (G10)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Order 240 Art. 2.2(a.e) / GLI §4.7.2 — RTP is defined and derived (G24)', () => {
-  it('the three flows sum to the published figure', () => {
+  it('the four flows sum to the published figure, and nothing is left over', () => {
     const b = theoreticalRtp();
     expect(b.baseReturn).toBeCloseTo(1 - RAKE / ZONE_COUNT, 10);
     expect(b.surgeReturn).toBeCloseTo(RAKE_SPLIT.surge * (RAKE / ZONE_COUNT), 10);
-    expect(b.baseReturn + b.stormPowerReturn + b.surgeReturn).toBeCloseTo(b.totalRtp, 10);
+    expect(b.jackpotReseedReturn).toBeCloseTo(
+      SURGE_RESET_BUDGET_FRACTION * RAKE_SPLIT.house * (RAKE / ZONE_COUNT),
+      10,
+    );
+    expect(
+      b.baseReturn + b.stormPowerReturn + b.surgeReturn + b.jackpotReseedReturn,
+    ).toBeCloseTo(b.totalRtp, 10);
     expect(b.totalRtp + b.operatorHold).toBeCloseTo(1, 10);
   });
 
   /**
-   * The stale-figure finding. "≈ 98%" is the BASE term alone; the same sentence
-   * that quoted it also listed the surge and reserve return flows, which add a
-   * further percentage point. §4.7.2 requires a displayed figure to match its
-   * own stated derivation.
+   * The stale-figure finding, in both of the forms it has taken.
+   *
+   * v2 caught the first: "≈ 98%" is the BASE term alone, and the same sentence
+   * that quoted it also listed the surge and ladder return flows.
+   *
+   * v4 caught the second, which was larger and harder to see. The house re-seeds
+   * the jackpot to its reset value out of its own share of the rake after every
+   * win — real operator money that reaches a player — and the model left it out
+   * because under v3 the reset was not a fixed fraction of anything. Measured,
+   * that flow ran at 0.37%–0.74% of handle depending on the tier, so the
+   * displayed 98.999% described an economy the code did not run.
    */
-  it('the player-facing figure is the derived one, not the base term', () => {
+  it('the player-facing figure is the derived one, and counts every return flow', () => {
     const b = theoreticalRtp();
-    expect(b.baseReturn).toBeCloseTo(0.98, 4); // the old, stale quote
+    expect(b.baseReturn).toBeCloseTo(0.98, 4); // the original, stale quote
     expect(b.totalRtp).toBeGreaterThan(0.98);
-    expect(economyDisclosure().longRunReturn).toBe('99.0%');
+    // The jackpot re-seed is a real return flow, not a rounding note: at
+    // production constants it is worth more than a third of a percent of handle.
+    expect(b.jackpotReseedReturn).toBeGreaterThan(0.003);
+    expect(economyDisclosure().longRunReturn).toBe('99.3%');
+    // §4.7.2(a): the sentence shown to players has to name every term in it.
+    const derivation = economyDisclosure().derivation;
+    for (const term of [b.baseReturn, b.surgeReturn, b.stormPowerReturn, b.jackpotReseedReturn]) {
+      expect(derivation).toContain(`${(term * 100).toFixed(2)}%`);
+    }
+    expect(derivation).toContain(`${(b.operatorHold * 100).toFixed(2)}%`);
   });
 
-  it('operator hold is the house share of the rake and nothing else', () => {
+  it('operator hold is the house share of the rake LESS what it re-seeds the jackpot with', () => {
     const b = theoreticalRtp();
-    expect(b.operatorHold).toBeCloseTo(RAKE_SPLIT.house * (RAKE / ZONE_COUNT), 4);
+    const houseShareOfHandle = RAKE_SPLIT.house * (RAKE / ZONE_COUNT);
+    /*
+     * The hold has exactly two components and no others:
+     *   - what is left of the house share after the jackpot re-seed, and
+     *   - the RESERVE SLACK: the ladder is funded to E[M−1] ≤ reserveShare·r/K
+     *     with deliberate head-room, and the unspent head-room stays with the
+     *     operator. Naming it here is the point — an unexplained residue in the
+     *     hold is what a variance investigation chases for a week.
+     */
+    const reserveSlack = RAKE_SPLIT.stormReserve * (RAKE / ZONE_COUNT) - b.stormPowerReturn;
+    expect(reserveSlack).toBeGreaterThanOrEqual(0);
+    expect(b.operatorHold).toBeCloseTo(
+      houseShareOfHandle * (1 - SURGE_RESET_BUDGET_FRACTION) + reserveSlack,
+      12,
+    );
+    // …and it is still strictly positive, which is the property the v3 defect
+    // broke: a table thin enough for the old floor to bind returned 100%.
+    expect(b.operatorHold).toBeGreaterThan(0);
+  });
+
+  /**
+   * THE INVARIANT THE v3 DEFECT VIOLATED. The re-seed cost per round is
+   * `reset × surgeProb`; the published term says it is
+   * `budgetFraction × houseShare × r/K` of handle. Those two must agree at EVERY
+   * table size, or the displayed return moves with table population — which is
+   * exactly what happened when a minimum could override the budget.
+   */
+  it('the published re-seed term matches the reset policy at every table size', () => {
+    const b = theoreticalRtp();
+    const resetAt = (handlePerRoundMinor: number): number =>
+      surgeResetFor({
+        handlePerRoundMinor,
+        rake: RAKE,
+        houseShare: RAKE_SPLIT.house,
+        zones: ZONE_COUNT,
+        surgeProb: SURGE_PROB,
+      });
+
+    // Every shipped tier's guaranteed liquidity floor, and a very busy table.
+    for (const handlePerRoundMinor of [90_00, 180_00, 900_00, 4_500_00, 22_500_00, 50_000_000_00]) {
+      const cost = (resetAt(handlePerRoundMinor) * SURGE_PROB) / handlePerRoundMinor;
+      expect(cost, `handle ${handlePerRoundMinor}`).toBeCloseTo(b.jackpotReseedReturn, 4);
+    }
+
+    /*
+     * The published term is an UPPER BOUND, and the only thing that can move the
+     * realised figure below it here is integer flooring of the reset — which
+     * bites only on a table turning over a single credit a round, far below any
+     * shipped tier's liquidity floor. It can never run ABOVE the published term,
+     * which is the direction that would be a disclosure failure.
+     */
+    for (const handlePerRoundMinor of [1_00, 5_00, 90_00, 1_000_00, 50_000_000_00]) {
+      const cost = (resetAt(handlePerRoundMinor) * SURGE_PROB) / handlePerRoundMinor;
+      expect(cost, `handle ${handlePerRoundMinor}`).toBeLessThanOrEqual(
+        b.jackpotReseedReturn + 1e-12,
+      );
+    }
   });
 });
 
